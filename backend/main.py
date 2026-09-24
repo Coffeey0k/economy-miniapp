@@ -433,6 +433,7 @@ def toggle_pet(payload: dict = Body(...)):
 # ========== API: ПРОФЕССИИ ==========
 
 @app.get("/api/professions")
+@app.get("/api/professions")
 def get_professions(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
     conn = db()
@@ -446,7 +447,7 @@ def get_professions(init_data: str = Query(..., alias="initData")):
     conn.close()
 
     current = None
-        if row and row["profession"] and row["profession"] in PROFESSION_INFO:
+    if row and row["profession"] and row["profession"] in PROFESSION_INFO:
         salary = PROFESSION_INFO[row["profession"]]["salary"] + (row["level"] - 1) * 50
         current = {
             "profession": row["profession"],
@@ -461,7 +462,6 @@ def get_professions(init_data: str = Query(..., alias="initData")):
         for key, p in PROFESSION_INFO.items()
     ]
     return {"current": current, "all": all_professions, "hire_cost": HIRE_COST}
-
 
 @app.post("/api/professions/hire")
 def hire_profession(payload: dict = Body(...)):
@@ -511,10 +511,11 @@ def work_profession(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=400, detail="У вас нет профессии")
 
-        info = PROFESSION_INFO.get(row["profession"])
+    info = PROFESSION_INFO.get(row["profession"])
     if not info:
         conn.close()
         raise HTTPException(status_code=400, detail="Профессия доступна только в боте")
+
     now = datetime.now()
     if row["last_work"]:
         delta = now - datetime.fromisoformat(row["last_work"])
