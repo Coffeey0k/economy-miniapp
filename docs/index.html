@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Профиль</title>
+<title>Paradise Reef</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
@@ -18,161 +18,445 @@
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 16px;
+    padding: 14px 14px 72px;
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
-  .card {
-    background: var(--secondary-bg);
-    border-radius: 14px;
-    padding: 16px;
-    margin-bottom: 12px;
-  }
-  .balance {
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--link);
-  }
-  .label {
-    color: var(--hint);
-    font-size: 13px;
-    margin-bottom: 4px;
-  }
+  .card { background: var(--secondary-bg); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  .balance { font-size: 28px; font-weight: 700; color: var(--link); }
+  .label { color: var(--hint); font-size: 13px; margin-bottom: 4px; }
   .stat-row, .item-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid rgba(128,128,128,0.15);
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid rgba(128,128,128,0.15);
   }
   .stat-row:last-child, .item-row:last-child { border-bottom: none; }
   h2 { font-size: 16px; margin: 0 0 10px; }
   #status { color: var(--hint); text-align: center; padding: 40px 0; }
-  .top-row { display: flex; gap: 10px; margin-top: 8px; }
-  .pill {
-    background: rgba(128,128,128,0.15);
-    border-radius: 10px;
-    padding: 6px 10px;
-    font-size: 13px;
-  }
+  .top-row { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+  .pill { background: rgba(128,128,128,0.15); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
   .used { color: var(--hint); text-decoration: line-through; }
-  .active-tag {
-    font-size: 11px;
-    background: var(--link);
-    color: #fff;
-    border-radius: 6px;
-    padding: 2px 6px;
-    margin-left: 6px;
+  .active-tag { font-size: 11px; background: var(--link); color: #fff; border-radius: 6px; padding: 2px 6px; margin-left: 6px; }
+  .btn {
+    background: var(--button); color: var(--button-text); border: none; border-radius: 10px;
+    padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer;
   }
+  .btn:disabled { opacity: 0.5; }
+  .btn-small { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+  input[type=text], input[type=number] {
+    width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(128,128,128,0.3);
+    background: var(--bg); color: var(--text); font-size: 14px; margin-bottom: 10px;
+  }
+  .you { font-weight: 700; color: var(--link); }
+  .medal { margin-right: 6px; }
+  .msg { text-align: center; padding: 10px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
+  .msg.ok { background: rgba(46,204,113,0.15); }
+  .msg.err { background: rgba(231,76,60,0.15); }
+
+  .nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; justify-content: space-around;
+    background: var(--secondary-bg);
+    padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(128,128,128,0.2);
+  }
+  .nav-item {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--hint); font-size: 10px; background: none; border: none; padding: 4px;
+  }
+  .nav-item.active { color: var(--link); }
+  .nav-item .ic { font-size: 20px; }
+
+  .tab { display: none; }
+  .tab.active { display: block; }
+  .tabs-sub { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; }
+  .tabs-sub button {
+    background: rgba(128,128,128,0.15); border: none; border-radius: 10px;
+    padding: 8px 12px; font-size: 13px; color: var(--text); white-space: nowrap;
+  }
+  .tabs-sub button.active { background: var(--link); color: #fff; }
 </style>
 </head>
 <body>
 
-<div id="status">Загрузка профиля…</div>
-<div id="content" style="display:none;">
+<div id="status">Загрузка…</div>
+<div id="app" style="display:none;">
 
-  <div class="card">
-    <div class="label" id="username">Профиль</div>
-    <div class="balance" id="balance">0</div>
-    <div class="top-row">
-      <div class="pill">🏆 Топ #<span id="rank">-</span></div>
-      <div class="pill">⚠️ Варны: <span id="warns">0</span></div>
+  <!-- ПРОФИЛЬ -->
+  <div class="tab active" id="tab-profile">
+    <div class="card">
+      <div class="label" id="p-username">Профиль</div>
+      <div class="balance" id="p-balance">0</div>
+      <div class="top-row">
+        <div class="pill">🏆 Топ #<span id="p-rank">-</span></div>
+        <div class="pill">⚠️ Варны: <span id="p-warns">0</span></div>
+      </div>
+    </div>
+    <div class="card" id="p-profession-card" style="display:none;">
+      <h2>Профессия</h2>
+      <div id="p-profession"></div>
+    </div>
+    <div class="card">
+      <h2>Статистика игр</h2>
+      <div id="p-stats"></div>
+    </div>
+    <div class="card">
+      <h2>Питомцы</h2>
+      <div id="p-pets"></div>
+    </div>
+    <div class="card">
+      <h2>Купленные услуги</h2>
+      <div id="p-purchases"></div>
     </div>
   </div>
 
-  <div class="card" id="profession-card" style="display:none;">
-    <h2>Профессия</h2>
-    <div id="profession"></div>
+  <!-- ТОП -->
+  <div class="tab" id="tab-top">
+    <div class="card">
+      <h2>🏆 Топ игроков</h2>
+      <div id="top-list"></div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Статистика игр</h2>
-    <div id="stats"></div>
+  <!-- МАГАЗИН -->
+  <div class="tab" id="tab-shop">
+    <div class="tabs-sub">
+      <button class="active" onclick="showShopSub('catalog')">Услуги</button>
+      <button onclick="showShopSub('eggs')">Яйца</button>
+    </div>
+    <div id="shop-msg"></div>
+    <div class="card">
+      <div class="label">Ваш баланс</div>
+      <div class="balance" id="shop-balance">0</div>
+    </div>
+    <div class="card" id="shop-catalog">
+      <h2>Каталог услуг</h2>
+      <div id="catalog-list"></div>
+    </div>
+    <div class="card" id="shop-eggs" style="display:none;">
+      <h2>Яйца питомцев</h2>
+      <div id="eggs-list"></div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Питомцы</h2>
-    <div id="pets"></div>
+  <!-- ПИТОМЦЫ -->
+  <div class="tab" id="tab-pets">
+    <div class="card">
+      <h2>Ваши питомцы</h2>
+      <p class="label">Максимум 2 активных одновременно. Активные приносят доход раз в 4 часа.</p>
+      <div id="pets-list"></div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Купленные услуги</h2>
-    <div id="purchases"></div>
+  <!-- РАБОТА -->
+  <div class="tab" id="tab-work">
+    <div id="work-msg"></div>
+    <div class="card">
+      <h2>Профессия</h2>
+      <div id="work-current"></div>
+    </div>
+    <div class="card">
+      <h2>Список профессий</h2>
+      <div id="work-list"></div>
+    </div>
+    <div class="card">
+      <h2>Ежедневные задания</h2>
+      <div id="work-tasks"></div>
+    </div>
   </div>
 
+  <!-- КОЛЕСО -->
+  <div class="tab" id="tab-wheel">
+    <div id="wheel-msg"></div>
+    <div class="card">
+      <h2>🎡 Колесо фортуны</h2>
+      <p class="label" id="wheel-status">Загрузка…</p>
+      <button class="btn" id="wheel-spin-btn" onclick="spinWheel()">Крутить</button>
+    </div>
+    <div class="card">
+      <h2>Секторы</h2>
+      <div id="wheel-sectors"></div>
+    </div>
+  </div>
+
+  <!-- ЕЩЁ (бонус + перевод) -->
+  <div class="tab" id="tab-more">
+    <div id="more-msg"></div>
+    <div class="card">
+      <h2>🎁 Бонус</h2>
+      <p class="label" id="bonus-status">Загрузка…</p>
+      <button class="btn" id="bonus-btn" onclick="claimBonus()">Забрать бонус</button>
+    </div>
+    <div class="card">
+      <h2>💸 Перевод монет</h2>
+      <input type="text" id="transfer-username" placeholder="username получателя (без @)">
+      <input type="number" id="transfer-amount" placeholder="сумма">
+      <button class="btn" onclick="sendTransfer()">Перевести</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="nav" id="nav" style="display:none;">
+  <button class="nav-item active" data-tab="profile" onclick="switchTab('profile')"><span class="ic">👤</span>Профиль</button>
+  <button class="nav-item" data-tab="top" onclick="switchTab('top')"><span class="ic">🏆</span>Топ</button>
+  <button class="nav-item" data-tab="shop" onclick="switchTab('shop')"><span class="ic">🛒</span>Магазин</button>
+  <button class="nav-item" data-tab="pets" onclick="switchTab('pets')"><span class="ic">🐾</span>Питомцы</button>
+  <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
+  <button class="nav-item" data-tab="wheel" onclick="switchTab('wheel')"><span class="ic">🎡</span>Колесо</button>
+  <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
 </div>
 
 <script>
   const tg = window.Telegram.WebApp;
   tg.ready();
   tg.expand();
+  // ЗАМЕНИ на адрес своего задеплоенного backend (без слэша на конце)
+  const API_BASE = "https://твой-backend.example.com";
+  const initData = tg.initData;
 
-  // ЗАМЕНИ на адрес своего задеплоенного backend
-  const API_URL = "https://твой-backend.example.com/api/profile";
+  async function apiGet(path) {
+    const res = await fetch(${API_BASE}${path}?initData=${encodeURIComponent(initData)});
+    if (!res.ok) throw new Error((await res.json()).detail || "Ошибка запроса");
+    return res.json();
+  }
+  async function apiPost(path, body) {
+    const res = await fetch(${API_BASE}${path}, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, ...body }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ошибка запроса");
+    return data;
+  }
+  function showMsg(elId, text, ok) {
+    const el = document.getElementById(elId);
+    el.innerHTML = <div class="msg ${ok ? 'ok' : 'err'}">${text}</div>;
+    setTimeout(() => { el.innerHTML = ""; }, 4000);
+  }
+  function fmtTime(seconds) {
+    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
+    return ${h} ч ${m} мин;
+  }
 
+  // ===== НАВИГАЦИЯ =====
+  const loaded = {};
+  function switchTab(name) {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
+    document.getElementById("tab-" + name).classList.add("active");
+    document.querySelector(.nav-item[data-tab="${name}"]).classList.add("active");
+    if (!loaded[name]) { loadTab(name); loaded[name] = true; }
+  }
+  function loadTab(name) {
+    if (name === "top") loadTop();
+    if (name === "shop") loadShop();
+    if (name === "pets") loadPets();
+    if (name === "work") loadWork();
+    if (name === "wheel") loadWheel();
+    if (name === "more") loadMore();
+  }
+
+  // ===== ПРОФИЛЬ =====
   async function loadProfile() {
-    try {
-      const initData = tg.initData;
-      const res = await fetch(`${API_URL}?initData=${encodeURIComponent(initData)}`);
-      if (!res.ok) throw new Error("Ошибка загрузки: " + res.status);
-      const data = await res.json();
-      renderProfile(data);
-    } catch (err) {
-      document.getElementById("status").textContent =
-        "Не удалось загрузить профиль. " + err.message;
-    }
-  }
+    const data = await apiGet("/api/profile");
+    document.getElementById("p-username").textContent = data.username ? "@" + data.username : "ID " + data.user_id;
+    document.getElementById("p-balance").textContent = data.balance + " 🪙";
+    document.getElementById("p-rank").textContent = data.rank;
+    document.getElementById("p-warns").textContent = data.warns;
 
-  function renderProfile(data) {
-    document.getElementById("username").textContent =
-      (data.username ? "@" + data.username : "ID " + data.user_id);
-    document.getElementById("balance").textContent = data.balance + " 🪙";
-    document.getElementById("rank").textContent = data.rank;
-    document.getElementById("warns").textContent = data.warns;
-
-    // Профессия
     if (data.profession) {
-      document.getElementById("profession-card").style.display = "block";
-      document.getElementById("profession").innerHTML = `
-        <div class="stat-row">
-          <span>${data.profession.name}</span>
-          <span>Уровень ${data.profession.level}</span>
-        </div>`;
+      document.getElementById("p-profession-card").style.display = "block";
+      document.getElementById("p-profession").innerHTML = 
+        <div class="stat-row"><span>${data.profession.name}</span><span>Уровень ${data.profession.level}</span></div>;
     }
-
-    // Статистика
-    const statsEl = document.getElementById("stats");
-    statsEl.innerHTML = Object.entries(data.stats).map(([k, v]) => `
-      <div class="stat-row"><span>${k}</span><span>${v}</span></div>
-    `).join("");
-
-    // Питомцы
-    const petsEl = document.getElementById("pets");
-    petsEl.innerHTML = data.pets.length
-      ? data.pets.map(p => `
-          <div class="item-row">
-            <span>${p.name} (${p.rarity})${p.is_active ? '<span class="active-tag">активен</span>' : ''}</span>
-            <span>+${p.income}/4ч</span>
-          </div>
-        `).join("")
-      : `<div class="label">Питомцев пока нет</div>`;
-
-    // Покупки
-    const purchasesEl = document.getElementById("purchases");
-    purchasesEl.innerHTML = data.purchases.length
-      ? data.purchases.map(p => `
-          <div class="item-row">
-            <span class="${p.is_used ? 'used' : ''}">${p.name}</span>
-            <span>${p.is_used ? 'использовано' : 'активно'}</span>
-          </div>
-        `).join("")
-      : `<div class="label">Покупок пока нет</div>`;
-
-    document.getElementById("status").style.display = "none";
-    document.getElementById("content").style.display = "block";
+    document.getElementById("p-stats").innerHTML = Object.entries(data.stats).map(([k, v]) => 
+      <div class="stat-row"><span>${k}</span><span>${v}</span></div>).join("");
+    document.getElementById("p-pets").innerHTML = data.pets.length
+      ? data.pets.map(p => <div class="item-row"><span>${p.name} (${p.rarity})${p.is_active ? '<span class="active-tag">активен</span>' : ''}</span><span>+${p.income}/4ч</span></div>).join("")
+      : <div class="label">Питомцев пока нет</div>;
+    document.getElementById("p-purchases").innerHTML = data.purchases.length
+      ? data.purchases.map(p => <div class="item-row"><span class="${p.is_used ? 'used' : ''}">${p.name}</span><span>${p.is_used ? 'использовано' : 'активно'}</span></div>).join("")
+      : <div class="label">Покупок пока нет</div>;
   }
 
-  loadProfile();
+  // ===== ТОП =====
+  async function loadTop() {
+    const data = await apiGet("/api/top");
+    const medals = ["🥇", "🥈", "🥉"];
+    document.getElementById("top-list").innerHTML = data.top.map((u, i) => 
+      <div class="item-row">
+        <span>${medals[i] || (i + 1) + "."} ${u.user_id === data.your_id ? '<span class="you">Вы</span>' : (u.username ? "@" + u.username : "ID " + u.user_id)}</span>
+        <span>${u.balance} 🪙</span>
+      </div>).join("");
+  }
+  // ===== МАГАЗИН =====
+  function showShopSub(which) {
+    document.querySelectorAll(".tabs-sub button").forEach(b => b.classList.remove("active"));
+    event.target.classList.add("active");
+    document.getElementById("shop-catalog").style.display = which === "catalog" ? "block" : "none";
+    document.getElementById("shop-eggs").style.display = which === "eggs" ? "block" : "none";
+  }
+  async function loadShop() {
+    const cat = await apiGet("/api/catalog");
+    document.getElementById("shop-balance").textContent = cat.balance + " 🪙";
+    document.getElementById("catalog-list").innerHTML = cat.items.map(it => 
+      <div class="item-row">
+        <span>${it.name}<br><span class="label">${it.description || ""}</span></span>
+        <span style="text-align:right;">
+          <div>${it.price} 🪙</div>
+          <button class="btn btn-small" onclick="buyItem('${it.item_type}')">Купить</button>
+        </span>
+      </div>).join("");
+
+    const eggs = await apiGet("/api/eggs");
+    document.getElementById("eggs-list").innerHTML = eggs.eggs.map(e => 
+      <div class="item-row">
+        <span>${e.name}</span>
+        <span style="text-align:right;">
+          <div>${e.price} 🪙</div>
+          <button class="btn btn-small" onclick="openEgg('${e.egg_type}')">Открыть</button>
+        </span>
+      </div>).join("");
+  }
+  async function buyItem(itemType) {
+    try {
+      const res = await apiPost("/api/catalog/buy", { item_type: itemType });
+      showMsg("shop-msg", res.message, true);
+      loaded.shop = false; loadShop();
+      loaded.profile = false; loadProfile();
+    } catch (e) { showMsg("shop-msg", e.message, false); }
+  }
+  async function openEgg(eggType) {
+    try {
+      const res = await apiPost("/api/eggs/open", { egg_type: eggType });
+      showMsg("shop-msg", Выпал питомец: ${res.pet.name} (${res.pet.rarity})!, true);
+      loaded.shop = false; loadShop();
+      loaded.pets = false;
+    } catch (e) { showMsg("shop-msg", e.message, false); }
+  }
+
+  // ===== ПИТОМЦЫ =====
+  async function loadPets() {
+    const data = await apiGet("/api/profile"); // питомцы уже приходят в профиле
+    document.getElementById("pets-list").innerHTML = data.pets.length
+      ? data.pets.map(p => 
+        <div class="item-row">
+          <span>${p.name} (${p.rarity})${p.is_active ? '<span class="active-tag">активен</span>' : ''}<br><span class="label">+${p.income} монет / 4ч</span></span>
+          <button class="btn btn-small" onclick="togglePet(${p.id}, ${!p.is_active})">${p.is_active ? "Деактивировать" : "Активировать"}</button>
+        </div>).join("")
+      : <div class="label">Питомцев пока нет — загляните в Магазин → Яйца</div>;
+  }
+  async function togglePet(petId, active) {
+    try {
+      await apiPost("/api/pets/toggle", { pet_id: petId, active });
+      loaded.pets = false; loadPets();
+      loaded.profile = false; loadProfile();
+    } catch (e) { alert(e.message); }
+  }
+
+  // ===== РАБОТА =====
+  async function loadWork() {
+    const data = await apiGet("/api/professions");
+    document.getElementById("work-current").innerHTML = data.current
+      ? <div class="stat-row"><span>${data.current.name}</span><span>Ур. ${data.current.level}</span></div>
+         <div class="stat-row"><span>Зарплата</span><span>${data.current.salary} 🪙</span></div>
+         <div class="stat-row"><span>Прогресс до уровня</span><span>${data.current.days_worked}/7 дней</span></div>
+         <button class="btn" onclick="workNow()">Работать</button>
+      : <div class="label">У вас пока нет профессии — выберите ниже</div>;
+
+    document.getElementById("work-list").innerHTML = data.all.map(p => 
+      <div class="item-row">
+        <span>${p.name}<br><span class="label">${p.salary} 🪙 / ${p.cooldown_hours}ч</span></span>
+        <button class="btn btn-small" onclick="hireProfession('${p.key}')">Устроиться (${data.hire_cost}🪙+)</button>
+      </div>).join("");
+    const tasks = await apiGet("/api/tasks");
+    document.getElementById("work-tasks").innerHTML = tasks.tasks.length
+      ? tasks.tasks.map(t => 
+        <div class="item-row">
+          <span>${t.name}<br><span class="label">${t.progress}/${t.target}</span></span>
+          <span>${t.is_done ? "✅ " : ""}${t.reward} 🪙</span>
+        </div>).join("")
+      : <div class="label">Задания появятся в 5:00 по МСК</div>;
+  }
+  async function hireProfession(key) {
+    try {
+      const res = await apiPost("/api/professions/hire", { profession: key });
+      showMsg("work-msg", res.message, true);
+      loaded.work = false; loadWork();
+      loaded.profile = false;
+    } catch (e) { showMsg("work-msg", e.message, false); }
+  }
+  async function workNow() {
+    try {
+      const res = await apiPost("/api/professions/work", {});
+      showMsg("work-msg", res.message, true);
+      loaded.work = false; loadWork();
+      loaded.profile = false;
+    } catch (e) { showMsg("work-msg", e.message, false); }
+  }
+
+  // ===== КОЛЕСО =====
+  async function loadWheel() {
+    const data = await apiGet("/api/wheel");
+    document.getElementById("wheel-status").textContent = data.can_spin
+      ? Стоимость: ${data.cost} 🪙
+      : Следующее кручение через ${fmtTime(data.remaining_seconds)};
+    document.getElementById("wheel-spin-btn").disabled = !data.can_spin;
+    document.getElementById("wheel-sectors").innerHTML = data.sectors.map(s => 
+      <div class="item-row"><span>${s.label}</span><span>${s.chance}%</span></div>).join("");
+  }
+  async function spinWheel() {
+    try {
+      const res = await apiPost("/api/wheel/spin", {});
+      showMsg("wheel-msg", Выпало: ${res.result}, true);
+      loaded.wheel = false; loadWheel();
+      loaded.profile = false;
+    } catch (e) { showMsg("wheel-msg", e.message, false); }
+  }
+
+  // ===== ЕЩЁ (бонус + перевод) =====
+  async function loadMore() {
+    const data = await apiGet("/api/bonus");
+    document.getElementById("bonus-status").textContent = data.can_claim
+      ? "Бонус готов! 15-100 монет"
+      : Следующий бонус через ${fmtTime(data.remaining_seconds)};
+    document.getElementById("bonus-btn").disabled = !data.can_claim;
+  }
+  async function claimBonus() {
+    try {
+      const res = await apiPost("/api/bonus/claim", {});
+      showMsg("more-msg", Получено ${res.amount} 🪙!, true);
+      loaded.more = false; loadMore();
+      loaded.profile = false;
+    } catch (e) { showMsg("more-msg", e.message, false); }
+  }
+  async function sendTransfer() {
+    const username = document.getElementById("transfer-username").value.trim();
+    const amount = parseInt(document.getElementById("transfer-amount").value, 10);
+    if (!username || !amount) { showMsg("more-msg", "Заполните оба поля", false); return; }
+    try {
+      const res = await apiPost("/api/transfer", { username, amount });
+      showMsg("more-msg", res.message, true);
+      document.getElementById("transfer-username").value = "";
+      document.getElementById("transfer-amount").value = "";
+      loaded.profile = false;
+    } catch (e) { showMsg("more-msg", e.message, false); }
+  }
+
+  // ===== СТАРТ =====
+  async function init() {
+    try {
+      await loadProfile();
+      document.getElementById("status").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      document.getElementById("nav").style.display = "flex";
+    } catch (err) {
+      document.getElementById("status").textContent = "Не удалось загрузить профиль. " + err.message;
+    }
+  }
+  init();
 </script>
 
 </body>
