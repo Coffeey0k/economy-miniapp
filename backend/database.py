@@ -116,6 +116,17 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS profession_progress (
+            user_id INTEGER,
+            profession TEXT,
+            level INTEGER DEFAULT 1,
+            days_worked INTEGER DEFAULT 0,
+            last_work TIMESTAMP,
+            PRIMARY KEY (user_id, profession)
+        )
+    """)
+    
     # === ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS daily_tasks (
@@ -926,21 +937,41 @@ def hire_profession(user_id: int, profession: str) -> Tuple[bool, str]:
         return False, f"Недостаточно монет. Нужно: {cost} 🪙"
     if not update_balance(user_id, -cost):
         return False, "Ошибка списания"
+
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+
+    # Если уходим с профессии — сохраняем её прогресс
+    if current and current["profession"]:
+        cur.execute("""
+            INSERT OR REPLACE INTO profession_progress
+            (user_id, profession, level, days_worked, last_work)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, current["profession"], current["level"],
+              current["days_worked"], current["last_work"]))
+
+    # Если уже работали на этой профессии — восстанавливаем прогресс
+    cur.execute("SELECT level, days_worked, last_work FROM profession_progress WHERE user_id = ? AND profession = ?",
+                (user_id, profession))
+    saved = cur.fetchone()
+    level = saved[0] if saved else 1
+    days = saved[1] if saved else 0
+    last = saved[2] if saved else None
+
     changes = current["total_changes"] + 1 if current else 0
     cur.execute("""
-        INSERT INTO professions (user_id, profession, level, days_worked, total_changes)
-        VALUES (?, ?, 1, 0, ?)
+        INSERT INTO professions (user_id, profession, level, days_worked, last_work, total_changes)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
             profession = excluded.profession,
-            level = 1,
-            days_worked = 0,
+            level = excluded.level,
+            days_worked = excluded.days_worked,
+            last_work = excluded.last_work,
             total_changes = ?
-    """, (user_id, profession, changes, changes))
+    """, (user_id, profession, level, days, last, changes, changes))
     conn.commit()
     conn.close()
-    return True, f"Вы устроились на работу: {PROFESSIONS[profession]['name']}"
+    return True, f"Вы устроились: {PROFESSIONS[profession]['name']} (уровень {level})"
 
 
 def work_profession(user_id: int) -> Tuple[bool, str]:
@@ -961,7 +992,6 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     today = now.date().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    # Логика повышения уровня (упрощённая: +1 день за смену, при 7 днях — уровень)
     cur.execute("SELECT last_work_day FROM professions WHERE user_id = ?", (user_id,))
     last_day_row = cur.fetchone()
     last_day = last_day_row[0] if last_day_row else None
@@ -976,6 +1006,12 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
         UPDATE professions SET last_work = ?, days_worked = ?, level = ?, last_work_day = ?
         WHERE user_id = ?
     """, (now.isoformat(), new_days, new_level, today, user_id))
+    # Обновляем прогресс в profession_progress
+    cur.execute("""
+        INSERT OR REPLACE INTO profession_progress
+        (user_id, profession, level, days_worked, last_work)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, prof["profession"], new_level, new_days, now.isoformat()))
     conn.commit()
     conn.close()
     return True, f"Вы заработали {salary} 🪙! (уровень {new_level}, дней: {new_days}/7)"
