@@ -772,6 +772,167 @@ def set_hints(payload: dict = Body(...)):
     conn.close()
     return {"ok": True}
 
+SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
+
+
+@app.post("/api/games/play")
+def play_game(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    game = payload.get("game")
+    bet = int(payload.get("bet") or 0)
+    choice = payload.get("choice")
+    if bet <= 0:
+        raise HTTPException(status_code=400, detail="Ставка должна быть больше нуля")
+
+    conn = db()
+    cur = conn.cursor()
+    if not change_balance(cur, user_id, -bet):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно монет")
+
+    win = 0
+    text = ""
+
+    if game == "slot":
+        result = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
+        text = f"{result[0]} {result[1]} {result[2]}"
+        if result[0] == result[1] == result[2]:
+            mult = 10 if result[0] == "7️⃣" else (5 if result[0] == "💎" else 3)
+            win = bet * mult
+        elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
+            win = bet * 2
+    elif game == "dice":
+        roll = random.randint(1, 6)
+        text = f"🎲 Выпало: {roll}"
+        if str(roll) == str(choice):
+            win = bet * 6
+    elif game == "coin":
+        result = random.choice(["Орел", "Решка"])
+        text = f"🪙 Выпало: {result}"
+        if str(choice) == result:
+            win = bet * 2
+    elif game == "dart":
+        score = random.randint(0, 15)
+        text = f"🎯 Очков: {score}"
+        if score == 15: win = bet * 5
+        elif score >= 12: win = bet * 3
+        elif score >= 8: win = bet * 1
+    elif game == "number":
+        num = random.randint(1, 10)
+        text = f"🃏 Число: {num}"
+        try:
+            guess = int(choice)
+            if guess == num:
+                win = bet * 10
+            elif abs(guess - num) <= 2:
+                win = bet * 2
+        except (ValueError, TypeError):
+            pass
+    else:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Неизвестная игра")
+
+    if win > 0:
+        change_balance(cur, user_id, bet + win)
+        text += f"\n✅ Выигрыш: {win} 🪙"
+    else:
+        text += f"\n❌ Проигрыш: {bet} 🪙"
+
+    conn.commit()
+    conn.close()
+    return {"ok": True, "win": win, "text": text}
+
+def _require_admin(user_id: int):
+    if user_id not in ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Нет доступа")
+
+
+@app.post("/api/admin/give")
+def admin_give(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    username = (payload.get("username") or "").lstrip("@")
+    amount = int(payload.get("amount") or 0)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, username FROM users WHERE username = ?", (username,))
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Не найден")
+    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target["user_id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"Выдано {amount} 🪙 @{username}"}
+
+
+@app.post("/api/admin/take")
+def admin_take(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    username = (payload.get("username") or "").lstrip("@")
+    amount = int(payload.get("amount") or 0)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, balance FROM users WHERE username = ?", (username,))
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Не найден")
+    new_bal = max(0, target["balance"] - amount)
+    cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_bal, target["user_id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"Снято {amount} 🪙 @{username}"}
+
+
+@app.get("/api/admin/user")
+def admin_user(init_data: str = Query(..., alias="initData"), query: str = Query(...)):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+    q = query.lstrip("@")
+    conn = db()
+    cur = conn.cursor()
+    if q.isdigit():
+        cur.execute("SELECT user_id, username, balance FROM users WHERE user_id = ?", (int(q),))
+    else:
+        cur.execute("SELECT user_id, username, balance FROM users WHERE username = ?", (q,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Не найден")
+    return {"user_id": row["user_id"], "username": row["username"], "balance": row["balance"]}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) c FROM users")
+    users = cur.fetchone()["c"]
+    cur.execute("SELECT SUM(balance) s FROM users")
+    balance = cur.fetchone()["s"] or 0
+    cur.execute("SELECT COUNT(*) c FROM purchases")
+    purchases = cur.fetchone()["c"]
+    conn.close()
+    return {"total_users": users, "total_balance": balance, "total_purchases": purchases}
+
+
+@app.post("/api/admin/ban")
+def admin_ban(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    username = (payload.get("username") or "").lstrip("@")
+    banned = bool(payload.get("banned"))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET is_banned = ? WHERE username = ?", (1 if banned else 0, username))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"@{username} {'забанен' if banned else 'разбанен'}"}
+
 @app.get("/")
 def health():
     return {"status": "ok"}
