@@ -429,7 +429,7 @@
       const res = await apiPost("/api/professions/hire", { profession: key });
       showMsg("work-msg", res.message, true);
       loaded.work = false; loadWork();
-      loaded.profile = false;
+      loaded.profile = false; loadProfile();
     } catch (e) { showMsg("work-msg", e.message, false); }
   }
   async function workNow() {
@@ -437,7 +437,7 @@
       const res = await apiPost("/api/professions/work", {});
       showMsg("work-msg", res.message, true);
       loaded.work = false; loadWork();
-      loaded.profile = false;
+      loaded.profile = false; loadProfile();
     } catch (e) { showMsg("work-msg", e.message, false); }
   }
 
@@ -458,7 +458,7 @@
       const res = await apiPost("/api/wheel/spin", {});
       showMsg("wheel-msg", `Выпало: ${res.result}`, true);
       loaded.wheel = false; loadWheel();
-      loaded.profile = false;
+      loaded.profile = false; loadProfile();
     } catch (e) { showMsg("wheel-msg", e.message, false); }
   }
 
@@ -477,7 +477,7 @@
       const res = await apiPost("/api/bonus/claim", {});
       showMsg("more-msg", `Получено ${res.amount} 🪙!`, true);
       loaded.more = false; loadMore();
-      loaded.profile = false;
+      loaded.profile = false; loadProfile();
     } catch (e) { showMsg("more-msg", e.message, false); }
   }
   async function sendTransfer() {
@@ -489,7 +489,7 @@
       showMsg("more-msg", res.message, true);
       document.getElementById("transfer-username").value = "";
       document.getElementById("transfer-amount").value = "";
-      loaded.profile = false;
+      loaded.profile = false; loadProfile();
     } catch (e) { showMsg("more-msg", e.message, false); }
   }
 
@@ -500,6 +500,8 @@
       document.getElementById("status").style.display = "none";
       document.getElementById("app").style.display = "block";
       document.getElementById("nav").style.display = "flex";
+      // Тихое автообновление баланса раз в 20 секунд (например, если бонус выдали в чате с ботом)
+      setInterval(() => { loadProfile().catch(() => {}); }, 20000);
     } catch (err) {
       document.getElementById("status").textContent = "Не удалось загрузить профиль. " + err.message;
     }
