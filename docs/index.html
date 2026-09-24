@@ -201,7 +201,62 @@
       <div id="wheel-sectors"></div>
     </div>
   </div>
+  <!-- ИГРЫ -->
+  <div class="tab" id="tab-games">
+    <div id="games-msg"></div>
+    <div class="card">
+      <h2>🎮 Игры</h2>
+      <div class="tabs-sub">
+        <button class="game-tab active" onclick="selectGame('slot', event)">🎰 Слот</button>
+        <button class="game-tab" onclick="selectGame('dice', event)">🎲 Кубик</button>
+        <button class="game-tab" onclick="selectGame('coin', event)">🪙 Монетка</button>
+        <button class="game-tab" onclick="selectGame('dart', event)">🎯 Дартс</button>
+        <button class="game-tab" onclick="selectGame('number', event)">🃏 Число</button>
+      </div>
+      <div id="game-area"></div>
+    </div>
+  </div>
 
+  <!-- НАСТРОЙКИ -->
+  <div class="tab" id="tab-settings">
+    <div id="settings-msg"></div>
+    <div class="card">
+      <h2>⚙️ Настройки</h2>
+      <div class="item-row">
+        <span>🌗 Тема</span>
+        <button class="btn btn-small" disabled>Скоро</button>
+      </div>
+      <div class="item-row">
+        <span>🔔 Подсказки</span>
+        <button class="btn btn-small" id="hints-btn" onclick="toggleHints()">Загрузка…</button>
+      </div>
+    </div>
+    <div class="card" id="admin-card" style="display:none;">
+      <h2>👑 Админ-панель</h2>
+      <div class="item-row">
+        <span>💰 Выдать монеты</span>
+        <button class="btn btn-small" onclick="adminGive()">Открыть</button>
+      </div>
+      <div class="item-row">
+        <span>💸 Забрать монеты</span>
+        <button class="btn btn-small" onclick="adminTake()">Открыть</button>
+      </div>
+      <div class="item-row">
+        <span>🔎 Баланс игрока</span>
+        <button class="btn btn-small" onclick="adminBalance()">Открыть</button>
+      </div>
+      <div class="item-row">
+        <span>📊 Статистика</span>
+        <button class="btn btn-small" onclick="adminStats()">Показать</button>
+      </div>
+      <div class="item-row">
+        <span>🚫 Бан/разбан</span>
+        <button class="btn btn-small" onclick="adminBan()">Открыть</button>
+      </div>
+      <div id="admin-result"></div>
+    </div>
+  </div>
+  
   <!-- ЕЩЁ (бонус + перевод) -->
   <div class="tab" id="tab-more">
     <div id="more-msg"></div>
@@ -224,10 +279,10 @@
   <button class="nav-item active" data-tab="profile" onclick="switchTab('profile')"><span class="ic">👤</span>Профиль</button>
   <button class="nav-item" data-tab="top" onclick="switchTab('top')"><span class="ic">🏆</span>Топ</button>
   <button class="nav-item" data-tab="shop" onclick="switchTab('shop')"><span class="ic">🛒</span>Магазин</button>
-  <button class="nav-item" data-tab="pets" onclick="switchTab('pets')"><span class="ic">🐾</span>Питомцы</button>
+  <button class="nav-item" data-tab="games" onclick="switchTab('games')"><span class="ic">🎮</span>Игры</button>
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
-  <button class="nav-item" data-tab="wheel" onclick="switchTab('wheel')"><span class="ic">🎡</span>Колесо</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
+  <button class="nav-item" data-tab="settings" onclick="switchTab('settings')"><span class="ic">⚙️</span>Настройки</button>
 </div>
 
 <script>
@@ -283,13 +338,15 @@
     document.querySelector(`.nav-item[data-tab="${name}"]`).classList.add("active");
     if (!loaded[name]) { loadTab(name); loaded[name] = true; }
   }
-  function loadTab(name) {
+    function loadTab(name) {
     if (name === "top") loadTop();
     if (name === "shop") loadShop();
     if (name === "pets") loadPets();
     if (name === "work") loadWork();
     if (name === "wheel") loadWheel();
     if (name === "more") loadMore();
+    if (name === "games") loadGames();
+    if (name === "settings") loadSettings();
   }
 
   // ===== ПРОФИЛЬ =====
@@ -493,6 +550,104 @@
     } catch (e) { showMsg("more-msg", e.message, false); }
   }
 
+  // ===== ИГРЫ =====
+  let currentGame = "slot";
+  function selectGame(game, ev) {
+    currentGame = game;
+    document.querySelectorAll(".game-tab").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+    renderGameUI();
+  }
+  function renderGameUI() {
+    const area = document.getElementById("game-area");
+    const bets = [10, 50, 100, 500, 1000];
+    let extra = "";
+    if (currentGame === "dice") extra = `<input type="number" id="game-choice" placeholder="Число 1-6" min="1" max="6">`;
+    if (currentGame === "number") extra = `<input type="number" id="game-choice" placeholder="Число 1-10" min="1" max="10">`;
+    if (currentGame === "coin") extra = `<select id="game-choice" style="width:100%;padding:10px;border-radius:10px;background:var(--bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;"><option value="Орел">🦅 Орёл</option><option value="Решка">🪙 Решка</option></select>`;
+    area.innerHTML = `
+      ${extra}
+      <div class="tabs-sub" style="flex-wrap:wrap;">
+        ${bets.map(b => `<button class="btn btn-small" onclick="playGame(${b})">${b} 🪙</button>`).join("")}
+      </div>
+      <div id="game-result" style="text-align:center;font-size:18px;margin-top:12px;"></div>
+    `;
+  }
+  function loadGames() { renderGameUI(); }
+  async function playGame(bet) {
+    const choiceEl = document.getElementById("game-choice");
+    const choice = choiceEl ? choiceEl.value : null;
+    try {
+      const res = await apiPost("/api/games/play", { game: currentGame, bet, choice });
+      document.getElementById("game-result").innerHTML = `<div class="msg ok">${res.text}</div>`;
+      loaded.profile = false;
+      const prof = await apiGet("/api/profile");
+      document.getElementById("p-balance").textContent = prof.balance + " 🪙";
+    } catch (e) { showMsg("games-msg", e.message, false); }
+  }
+
+  // ===== НАСТРОЙКИ =====
+  let userSettings = null;
+  async function loadSettings() {
+    try {
+      userSettings = await apiGet("/api/settings");
+      document.getElementById("hints-btn").textContent = userSettings.hints_enabled ? "Включены" : "Отключены";
+      document.getElementById("admin-card").style.display = userSettings.is_admin ? "block" : "none";
+    } catch (e) { showMsg("settings-msg", e.message, false); }
+  }
+  async function toggleHints() {
+    if (!userSettings) return;
+    try {
+      const newVal = !userSettings.hints_enabled;
+      await apiPost("/api/settings/hints", { enabled: newVal });
+      userSettings.hints_enabled = newVal;
+      document.getElementById("hints-btn").textContent = newVal ? "Включены" : "Отключены";
+    } catch (e) { showMsg("settings-msg", e.message, false); }
+  }
+  async function adminGive() {
+    const username = prompt("Username (без @):");
+    if (!username) return;
+    const amount = parseInt(prompt("Сколько монет выдать?"), 10);
+    if (!amount) return;
+    try {
+      const res = await apiPost("/api/admin/give", { username, amount });
+      showMsg("admin-result", res.message, true);
+    } catch (e) { showMsg("admin-result", e.message, false); }
+  }
+  async function adminTake() {
+    const username = prompt("Username (без @):");
+    if (!username) return;
+    const amount = parseInt(prompt("Сколько монет забрать?"), 10);
+    if (!amount) return;
+    try {
+      const res = await apiPost("/api/admin/take", { username, amount });
+      showMsg("admin-result", res.message, true);
+    } catch (e) { showMsg("admin-result", e.message, false); }
+  }
+  async function adminBalance() {
+    const username = prompt("Username (без @):");
+    if (!username) return;
+    try {
+      const res = await apiGet("/api/admin/user?query=" + encodeURIComponent(username));
+      showMsg("admin-result", `@${res.username}: ${res.balance} 🪙`, true);
+    } catch (e) { showMsg("admin-result", e.message, false); }
+  }
+  async function adminStats() {
+    try {
+      const res = await apiGet("/api/admin/stats");
+      showMsg("admin-result", `👥 ${res.total_users} • 🪙 ${res.total_balance} • 🛍️ ${res.total_purchases}`, true);
+    } catch (e) { showMsg("admin-result", e.message, false); }
+  }
+  async function adminBan() {
+    const username = prompt("Username (без @):");
+    if (!username) return;
+    const ban = confirm("Заблокировать? OK = бан, Отмена = разбан");
+    try {
+      const res = await apiPost("/api/admin/ban", { username, banned: ban });
+      showMsg("admin-result", res.message, true);
+    } catch (e) { showMsg("admin-result", e.message, false); }
+  }
+  
   // ===== СТАРТ =====
   async function init() {
     try {
