@@ -38,6 +38,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # ========== НАСТРОЙКИ ==========
 
+ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ВСТАВЬ_СЮДА_ТОКЕН_БОТА")
 # Тот же файл базы, что использует бот (см. DB_NAME в database.py)
 DB_PATH = os.environ.get("DB_PATH", "paradise.db")
@@ -743,6 +744,33 @@ def transfer_coins(payload: dict = Body(...)):
     conn.close()
     return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}"}
 
+@app.get("/api/settings")
+def get_settings(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT tutorial_done, hints_enabled FROM user_settings WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return {
+        "theme": "dark",
+        "hints_enabled": bool(row["hints_enabled"]) if row else True,
+        "tutorial_done": bool(row["tutorial_done"]) if row else False,
+        "is_admin": user_id in ADMIN_IDS,
+    }
+
+
+@app.post("/api/settings/hints")
+def set_hints(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    enabled = bool(payload.get("enabled"))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,))
+    cur.execute("UPDATE user_settings SET hints_enabled = ? WHERE user_id = ?", (1 if enabled else 0, user_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 @app.get("/")
 def health():
