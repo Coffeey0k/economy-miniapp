@@ -195,6 +195,170 @@ def connect(_ignored_sqlite_path=None):
         )
     return Connection(dsn)
 
+def init_db():
+    """Создаёт все таблицы в PostgreSQL, если их нет."""
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            username TEXT,
+            balance BIGINT DEFAULT 0,
+            is_banned BOOLEAN DEFAULT FALSE,
+            registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_bonus_time TIMESTAMP
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS purchases (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            item_type TEXT,
+            purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_used BOOLEAN DEFAULT FALSE
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS warns (
+            user_id BIGINT PRIMARY KEY,
+            warn_count INTEGER DEFAULT 0
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS game_stats (
+            user_id BIGINT PRIMARY KEY,
+            games_played INTEGER DEFAULT 0,
+            games_won INTEGER DEFAULT 0,
+            total_earned BIGINT DEFAULT 0,
+            total_lost BIGINT DEFAULT 0
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS new_members (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            username TEXT,
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pets (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            pet_name TEXT,
+            pet_emoji TEXT,
+            rarity TEXT,
+            income INTEGER,
+            is_active BOOLEAN DEFAULT TRUE,
+            obtained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS professions (
+            user_id BIGINT PRIMARY KEY,
+            profession TEXT,
+            level INTEGER DEFAULT 1,
+            last_work TIMESTAMP,
+            days_worked INTEGER DEFAULT 0,
+            last_work_day TEXT,
+            total_changes INTEGER DEFAULT 0
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS profession_progress (
+            user_id BIGINT,
+            profession TEXT,
+            level INTEGER DEFAULT 1,
+            days_worked INTEGER DEFAULT 0,
+            last_work TIMESTAMP,
+            PRIMARY KEY (user_id, profession)
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_tasks (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            task_type TEXT,
+            progress INTEGER DEFAULT 0,
+            target INTEGER,
+            reward INTEGER,
+            is_done BOOLEAN DEFAULT FALSE,
+            is_claimed BOOLEAN DEFAULT FALSE,
+            assigned_date TEXT
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS promocodes (
+            code TEXT PRIMARY KEY,
+            reward_type TEXT,
+            reward_value TEXT,
+            max_uses INTEGER DEFAULT 1,
+            used_count INTEGER DEFAULT 0,
+            expires_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS promo_activations (
+            id SERIAL PRIMARY KEY,
+            code TEXT,
+            user_id BIGINT,
+            activated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS wheel_sectors (
+            id SERIAL PRIMARY KEY,
+            label TEXT,
+            reward_type TEXT,
+            reward_value TEXT,
+            chance REAL
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id BIGINT PRIMARY KEY,
+            tutorial_done BOOLEAN DEFAULT FALSE,
+            hints_enabled BOOLEAN DEFAULT TRUE,
+            last_wheel_time TIMESTAMP
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS cursed_egg (
+            id INTEGER PRIMARY KEY,
+            stock INTEGER DEFAULT 5,
+            appeared_at TIMESTAMP,
+            is_active BOOLEAN DEFAULT FALSE
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS catalog_items (
+            id SERIAL PRIMARY KEY,
+            item_type TEXT UNIQUE,
+            name TEXT,
+            price BIGINT,
+            description TEXT,
+            is_hidden BOOLEAN DEFAULT FALSE
+        )
+    """)
+    
+    conn.commit()
+    conn.close()
 
 # Совместимость с кодом вида `conn.row_factory = sqlite3.Row`
 Row_marker = Row
