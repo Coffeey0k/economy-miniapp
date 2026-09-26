@@ -32,6 +32,8 @@ import random
 import db_compat as sqlite3
 from datetime import datetime
 from urllib.parse import parse_qsl
+from db_compat import init_db
+init_db()
 
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
