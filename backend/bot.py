@@ -1557,6 +1557,8 @@ async def chest_scheduler():
 # ==================== MAIN ====================
 
 async def main():
+    from db_compat import init_db
+    init_db()
     print_banner()
     logger.info("🚀 ParadiseCoin запускается...")
     db.remove_bot_from_new_members(bot.id)
