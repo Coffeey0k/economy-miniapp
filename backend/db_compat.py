@@ -85,7 +85,10 @@ def _translate(query: str) -> str:
 
     # BOOLEAN -> INTEGER (храним как 0/1, как и раньше в sqlite)
     q = re.sub(r"\bBOOLEAN\b", "INTEGER", q, flags=re.IGNORECASE)
-
+    # TRUE/FALSE -> 1/0 (для совместимости с INTEGER)
+    q = re.sub(r"\bTRUE\b", "1", q, flags=re.IGNORECASE)
+    q = re.sub(r"\bFALSE\b", "0", q, flags=re.IGNORECASE)
+    
     # TIMESTAMP DEFAULT CURRENT_TIMESTAMP -> TEXT с текстовым дефолтом
     q = re.sub(
         r"\bTIMESTAMP\s+DEFAULT\s+CURRENT_TIMESTAMP\b",
