@@ -1,4 +1,4 @@
-import sqlite3
+import db_compat as sqlite3
 import random
 from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
