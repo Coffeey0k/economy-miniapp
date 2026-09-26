@@ -197,7 +197,7 @@ def connect(_ignored_sqlite_path=None):
 
 def init_db():
     """Создаёт все таблицы в PostgreSQL, если их нет."""
-    conn = get_conn()
+    conn = connect()
     cur = conn.cursor()
     
     cur.execute("""
