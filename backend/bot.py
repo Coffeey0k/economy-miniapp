@@ -3,7 +3,7 @@ import asyncio
 from email.mime import message
 from email import message
 import logging
-import sqlite3
+import db_compat as sqlite3
 import random
 from datetime import datetime, timedelta
 from collections import defaultdict

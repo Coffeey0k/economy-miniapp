@@ -1,4 +1,4 @@
-import sqlite3
+import db_compat as sqlite3
 from datetime import datetime
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
