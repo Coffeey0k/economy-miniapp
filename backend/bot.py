@@ -1229,6 +1229,91 @@ async def work_word_handler(message: Message):
     else:
         await message.answer(f"⏳ {msg}")
 
+@dp.message(F.text.lower().startswith("профиль"))
+async def profile_word_handler(message: Message):
+    """Ворд-триггер 'профиль' — показывает профиль свой или другого игрока"""
+    user_id = message.from_user.id
+    text = message.text.strip()
+
+    # Определяем, чей профиль: свой или другого
+    target_id = user_id
+    target_name = None
+
+    parts = text.split(maxsplit=1)
+    if len(parts) > 1:
+        # Написано "профиль @username" или "профиль username"
+        arg = parts[1].strip().lstrip("@")
+        if arg.isdigit():
+            target_id = int(arg)
+        else:
+            conn = sqlite3.connect(db.DB_NAME)
+            cur = conn.cursor()
+            cur.execute("SELECT user_id, username FROM users WHERE username = ?", (arg,))
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                await message.answer(f"❌ Пользователь @{arg} не найден.")
+                return
+            target_id = row[0]
+            target_name = row[1]
+
+    # Проверяем, есть ли пользователь в базе
+    user = db.get_user(target_id)
+    if not user:
+        await message.answer("❌ Профиль не найден.")
+        return
+
+    uname = user["username"] or str(target_id)
+    balance = user["balance"]
+    rank = db.get_user_rank(target_id)
+    warns = db.get_warn_count(target_id)
+    pets = db.get_user_pets(target_id)
+    prof = db.get_profession(target_id)
+
+    # Собираем текст
+    lines = [
+        f"👤 Профиль @{uname}",
+        f"",
+        f"🪙 Баланс: {balance:,}",
+        f"🏆 Место в топе: #{rank}",
+        f"⚠️ Предупреждения: {warns}",
+    ]
+
+    if prof and prof["profession"]:
+        from database import PROFESSIONS
+        pname = PROFESSIONS[prof["profession"]]["name"]
+        lines.append(f"💼 Профессия: {pname} (ур. {prof['level']})")
+
+    if pets:
+        active = sum(1 for p in pets if p["is_active"])
+        lines.append(f"🐾 Питомцев: {len(pets)} (активных: {active})")
+
+    await message.answer("\n".join(lines))
+
+@dp.message(F.text.lower() == "банк пинг")
+async def bank_ping_handler(message: Message):
+    """Ворд-триггер 'банк пинг' — измеряет пинг до Telegram API"""
+    import time
+    try:
+        start = time.monotonic()
+        await bot.get_me()
+        ping_ms = int((time.monotonic() - start) * 1000)
+
+        if ping_ms < 200:
+            status = "🟢 Отлично"
+        elif ping_ms < 500:
+            status = "🟡 Нормально"
+        elif ping_ms < 1000:
+            status = "🟠 Медленно"
+        else:
+            status = "🔴 Плохо"
+
+        await message.answer(
+            f"📡 Пинг до Telegram: {ping_ms} мс\n{status}"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Не удалось измерить пинг: {e}")
+
 # ==================== ВХОД НОВЫХ УЧАСТНИКОВ ====================
 
 @dp.message(F.new_chat_members)
