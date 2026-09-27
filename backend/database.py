@@ -1558,19 +1558,18 @@ def ttt_update_invite_status(invite_id: int, status: str):
     conn.close()
 
 
-def ttt_create_game(player_x: int, player_o: Optional[int], bet: int, is_vs_bot: bool = False) -> int:
-    turn = player_x  # X ходит первым
+def ttt_create_game(player_x, player_o, bet, is_vs_bot=False):
+    turn = player_x
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO ttt_games (player_x, player_o, is_vs_bot, turn, bet, status)
         VALUES (?, ?, ?, ?, ?, 'active')
-    """, (player_x, player_o, is_vs_bot, turn, bet))
-    conn.commit()
-    game_id = cur.lastrowid
+    """, (player_x, player_o, 1 if is_vs_bot else 0, turn, bet))
+    game_id = cur.lastrowid    # <-- сначала lastrowid
+    conn.commit()              # <-- потом commit
     conn.close()
     return game_id
-
 
 def ttt_get_game(game_id: int) -> Optional[dict]:
     conn = sqlite3.connect(DB_NAME)
