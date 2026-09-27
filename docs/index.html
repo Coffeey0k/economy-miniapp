@@ -417,7 +417,6 @@
     toast(text, !ok);
   }
   
-  }
   function fmtTime(seconds) {
     const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
     return `${h} ч ${m} мин`;
@@ -850,10 +849,11 @@
     }
   }
   init();
-</script>
-
-  <div id="ptr">🔄 Обновление…</div>
+  
+    <div id="ptr">🔄 Обновление…</div>
 <div id="toast" class="toast"></div>
+  
+</script>
   
 </body>
 </html>
