@@ -291,6 +291,28 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # === ДРУЗЬЯ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS friends (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            friend_id BIGINT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, friend_id)
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS friend_requests (
+            id SERIAL PRIMARY KEY,
+            from_user BIGINT,
+            to_user BIGINT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(from_user, to_user)
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -1049,7 +1071,9 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
         if delta.total_seconds() < cooldown:
             remaining = cooldown - int(delta.total_seconds())
             return False, f"Отдых ещё не закончен. Осталось: {remaining // 3600} ч {(remaining % 3600) // 60} мин"
-    salary = get_profession_salary(prof["profession"], prof["level"])
+    base_salary = get_profession_salary(prof["profession"], prof["level"])
+    bonus_percent = friend_income_bonus(user_id)
+    salary = base_salary + (base_salary * bonus_percent // 100)
     update_balance(user_id, salary)
     today = now.date().isoformat()
     conn = sqlite3.connect(DB_NAME)
@@ -1070,7 +1094,8 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     """, (now.isoformat(), new_days, new_level, today, user_id))
     conn.commit()
     conn.close()
-    return True, f"Вы заработали {salary} 🪙! (уровень {new_level}, дней: {new_days}/7)"
+    bonus_text = f" (+{bonus_percent}% от друзей)" if bonus_percent > 0 else ""
+    return True, f"Вы заработали {salary} 🪙{bonus_text}! (уровень {new_level}, дней: {new_days}/7)"
 
 
 # === ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ===
@@ -2153,6 +2178,190 @@ def bs_bot_move(game_id: int) -> tuple:
     if lose:
         return "lose", "💀 Бот уничтожил твой флот. Ты проиграл."
     return result, f"Бот стреляет в ({row + 1}, {col + 1}): {result}"
+
+# ==================== ДРУЗЬЯ ====================
+
+FRIEND_BONUS_PER = 2       # +2% за каждого друга
+FRIEND_BONUS_MAX = 20      # максимум +20%
+
+
+def friend_send_request(from_user: int, to_user: int) -> bool:
+    """Отправляет заявку в друзья. Возвращает True, если создана."""
+    if from_user == to_user:
+        return False
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+
+    # Уже друзья?
+    cur.execute("""
+        SELECT id FROM friends WHERE
+        (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)
+    """, (from_user, to_user, to_user, from_user))
+    if cur.fetchone():
+        conn.close()
+        return False
+
+    # Уже есть заявка?
+    cur.execute("""
+        SELECT id FROM friend_requests
+        WHERE from_user = ? AND to_user = ? AND status = 'pending'
+    """, (from_user, to_user))
+    if cur.fetchone():
+        conn.close()
+        return False
+
+    # Обратная заявка уже есть? Тогда сразу принимаем обоих
+    cur.execute("""
+        SELECT id FROM friend_requests
+        WHERE from_user = ? AND to_user = ? AND status = 'pending'
+    """, (to_user, from_user))
+    reverse = cur.fetchone()
+    if reverse:
+        # Принимаем
+        cur.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = ?", (reverse[0],))
+        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (from_user, to_user))
+        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (to_user, from_user))
+        conn.commit()
+        conn.close()
+        return "mutual"
+
+    # Обычная заявка
+    try:
+        cur.execute("""
+            INSERT INTO friend_requests (from_user, to_user) VALUES (?, ?)
+        """, (from_user, to_user))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def friend_accept(request_id: int, to_user: int) -> bool:
+    """Принимает заявку. Возвращает True, если принята."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT from_user, to_user, status FROM friend_requests WHERE id = ?
+    """, (request_id,))
+    row = cur.fetchone()
+    if not row or row[2] != "pending":
+        conn.close()
+        return False
+    if row[1] != to_user:
+        conn.close()
+        return False
+
+    from_u = row[0]
+    to_u = row[1]
+
+    cur.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = ?", (request_id,))
+    try:
+        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (from_u, to_u))
+        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (to_u, from_u))
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+    return True
+
+
+def friend_decline(request_id: int, to_user: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT to_user FROM friend_requests WHERE id = ? AND status = 'pending'
+    """, (request_id,))
+    row = cur.fetchone()
+    if not row or row[0] != to_user:
+        conn.close()
+        return False
+    cur.execute("UPDATE friend_requests SET status = 'declined' WHERE id = ?", (request_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def friend_remove(user_id: int, friend_id: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        DELETE FROM friends WHERE
+        (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)
+    """, (user_id, friend_id, friend_id, user_id))
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+
+def friend_list(user_id: int) -> List[dict]:
+    """Возвращает список друзей (без дублей)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT DISTINCT
+            CASE WHEN user_id = ? THEN friend_id ELSE user_id END AS friend
+        FROM friends
+        WHERE user_id = ? OR friend_id = ?
+    """, (user_id, user_id, user_id))
+    ids = [r[0] for r in cur.fetchall()]
+
+    result = []
+    for fid in ids:
+        cur.execute("SELECT user_id, username, balance FROM users WHERE user_id = ?", (fid,))
+        row = cur.fetchone()
+        if row:
+            result.append({
+                "user_id": row[0],
+                "username": row[1],
+                "balance": row[2],
+            })
+    conn.close()
+    return result
+
+
+def friend_count(user_id: int) -> int:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT COUNT(DISTINCT CASE WHEN user_id = ? THEN friend_id ELSE user_id END)
+        FROM friends WHERE user_id = ? OR friend_id = ?
+    """, (user_id, user_id, user_id))
+    count = cur.fetchone()[0] or 0
+    conn.close()
+    return count
+
+
+def friend_income_bonus(user_id: int) -> int:
+    """Возвращает процент бонуса к зарплате (макс FRIEND_BONUS_MAX)."""
+    count = friend_count(user_id)
+    bonus = count * FRIEND_BONUS_PER
+    return min(bonus, FRIEND_BONUS_MAX)
+
+
+def friend_pending_requests(user_id: int) -> List[dict]:
+    """Входящие заявки в друзья."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, from_user FROM friend_requests
+        WHERE to_user = ? AND status = 'pending'
+    """, (user_id,))
+    rows = cur.fetchall()
+    result = []
+    for r in rows:
+        cur.execute("SELECT username FROM users WHERE user_id = ?", (r[1],))
+        u = cur.fetchone()
+        result.append({
+            "request_id": r[0],
+            "from_user": r[1],
+            "from_username": u[0] if u else str(r[1]),
+        })
+    conn.close()
+    return result
 
 # Инициализация при импорте
 init_db()
