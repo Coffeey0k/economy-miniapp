@@ -121,17 +121,23 @@ class Cursor:
     def execute(self, query, params=()):
         pragma_match = _PRAGMA_RE.match(query)
         if pragma_match:
-            ...
+            table = pragma_match.group(1)
+            self._cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = %s ORDER BY ordinal_position",
+                (table,),
+            )
+            self._pragma_columns = [r[0] for r in self._cur.fetchall()]
             return self
 
         self._pragma_columns = None
-        # Конвертируем True/False в 1/0 (у нас BOOLEAN хранится как INTEGER)
-        params = tuple(
+        # Конвертируем True/False в 1/0 (в Postgres BOOLEAN хранится как INTEGER)
+        safe_params = tuple(
             (1 if p is True else 0 if p is False else p)
             for p in params
         ) if params else ()
         try:
-            self._cur.execute(_translate(query), params if params else None)
+            self._cur.execute(_translate(query), safe_params if safe_params else None)
         except Exception:
             self._conn.rollback()
             raise
