@@ -131,11 +131,16 @@ class Cursor:
             return self
 
         self._pragma_columns = None
-        # Конвертируем True/False в 1/0 (в Postgres BOOLEAN хранится как INTEGER)
         safe_params = tuple(
             (1 if p is True else 0 if p is False else p)
             for p in params
         ) if params else ()
+
+        # Запоминаем таблицу, если это INSERT — пригодится для lastrowid
+        import re as _re
+        m = _re.match(r"\s*INSERT\s+INTO\s+(\w+)", query, _re.IGNORECASE)
+        self._last_insert_table = m.group(1) if m else None
+
         try:
             self._cur.execute(_translate(query), safe_params if safe_params else None)
         except Exception:
@@ -167,12 +172,24 @@ class Cursor:
         return [self._wrap(r) for r in self._cur.fetchall()]
 
     @property
-    def rowcount(self):
-        return self._cur.rowcount
-
-    def close(self):
-        self._cur.close()
-
+    def lastrowid(self):
+        """Эмуляция sqlite3.Cursor.lastrowid для Postgres.
+        Postgres не возвращает id автоматически — приходится делать
+        отдельный SELECT currval(pg_get_serial_sequence(...)).
+        Работает сразу после INSERT, пока не сделан следующий запрос.
+        """
+        try:
+            # Узнаём имя таблицы из последнего INSERT
+            query = getattr(self, "_last_insert_table", None)
+            if not query:
+                return None
+            self._cur.execute(
+                "SELECT currval(pg_get_serial_sequence(%s, 'id'))",
+                (query,)
+            )
+            return self._cur.fetchone()[0]
+        except Exception:
+            return None
 
 class Connection:
     def __init__(self, dsn):
