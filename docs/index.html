@@ -303,9 +303,11 @@
         <button class="game-tab" onclick="selectGame('dart', event)">🎯 Дартс</button>
         <button class="game-tab" onclick="selectGame('number', event)">🃏 Число</button>
         <button class="game-tab" onclick="selectGame('minesweeper', event)">💣 Сапёр</button>
+        <button class="game-tab" onclick="selectGame('battleship', event)">⚓ Морской бой</button>
       </div>
       <div id="game-area"></div>
       <div id="minesweeper-area" style="display:none;margin-top:12px;"></div>
+      <div id="battleship-area" style="display:none;margin-top:12px;"></div>
     </div>
   </div>
 
@@ -658,13 +660,19 @@
     currentGame = game;
     document.querySelectorAll(".game-tab").forEach(b => b.classList.remove("active"));
     if (ev) ev.target.classList.add("active");
+
+    document.getElementById("game-area").style.display = "none";
+    document.getElementById("minesweeper-area").style.display = "none";
+    document.getElementById("battleship-area").style.display = "none";
+
     if (game === "minesweeper") {
-      document.getElementById("game-area").style.display = "none";
       document.getElementById("minesweeper-area").style.display = "block";
       renderMinesweeperStart();
+    } else if (game === "battleship") {
+      document.getElementById("battleship-area").style.display = "block";
+      renderBattleshipStart();
     } else {
       document.getElementById("game-area").style.display = "block";
-      document.getElementById("minesweeper-area").style.display = "none";
       renderGameUI();
     }
   }
@@ -763,7 +771,97 @@
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
-    
+
+  // ===== МОРСКОЙ БОЙ =====
+  let bsState = null;
+  let bsViewEnemy = true;
+
+  function renderBattleshipStart() {
+    document.getElementById("battleship-area").innerHTML = `
+      <div class="card">
+        <h2>⚓ Морской бой 10×10</h2>
+        <p class="label">Стандартный флот: 1×4, 2×3, 3×2, 4×1</p>
+        <p class="label">Минимальная ставка: 500 🪙. Победа = x2</p>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <input type="number" id="bs-bet" value="500" min="500" style="flex:1;padding:10px;border-radius:10px;background:var(--bg);color:var(--text);border:1px solid var(--card-border);">
+          <button class="btn" onclick="startBattleship()">Начать</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function startBattleship() {
+    const bet = parseInt(document.getElementById("bs-bet").value, 10);
+    if (!bet || bet < 500) { toast("Ставка минимум 500 🪙", true); return; }
+    try {
+      const res = await apiPost("/api/battleship/start", { bet });
+      bsState = res;
+      bsViewEnemy = true;
+      renderBattleship();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  function renderBattleship() {
+    if (!bsState) return;
+    const area = document.getElementById("battleship-area");
+    const field = bsViewEnemy ? bsState.bot_field : bsState.player_field;
+    const shots = bsViewEnemy ? bsState.player_shots : bsState.bot_shots;
+    const size = 10;
+
+    let board = `<div style="display:grid;grid-template-columns:repeat(${size},1fr);gap:3px;max-width:420px;margin:0 auto 12px auto;">`;
+    for (let i = 0; i < size * size; i++) {
+      let text = "·";
+      let bg = "rgba(139,92,246,0.15)";
+      let color = "#9691c4";
+      if (shots[i] === "1") { text = "•"; bg = "rgba(150,145,196,0.35)"; color = "#fff"; }
+      else if (shots[i] === "2") { text = "✕"; bg = "rgba(239,68,68,0.7)"; color = "#fff"; }
+      else if (shots[i] === "3") { text = "☠"; bg = "rgba(100,0,0,0.8)"; color = "#fff"; }
+      else if (!bsViewEnemy && field[i] === "S") { text = ""; bg = "rgba(74,222,128,0.5)"; }
+
+      const clickable = bsViewEnemy && shots[i] === "0" && bsState.status === "active" && bsState.turn === "player";
+      const onclick = clickable ? `onclick="fireBattleship(${Math.floor(i / size)}, ${i % size})"` : "";
+      board += `<button ${onclick} style="aspect-ratio:1;background:${bg};border:none;border-radius:6px;font-size:14px;color:${color};cursor:${clickable ? 'pointer' : 'default'};padding:0;">${text}</button>`;
+    }
+    board += `</div>`;
+
+    let info = `<div style="text-align:center;margin-bottom:12px;">`;
+    info += `<div class="label">💰 Ставка: ${bsState.bet} 🪙 • Победа: ${bsState.reward} 🪙</div>`;
+    if (bsState.status === "active") {
+      info += `<div class="label">Ход: ${bsState.turn === "player" ? "🎯 Твой" : "🤖 Бота"}</div>`;
+    } else if (bsState.status === "win") {
+      info += `<div style="color:var(--link);font-weight:700;">🏆 Победа!</div>`;
+    } else if (bsState.status === "lose") {
+      info += `<div style="color:#ef4444;font-weight:700;">💀 Поражение</div>`;
+    }
+    info += `</div>`;
+
+    const toggleBtn = bsViewEnemy
+      ? `<button class="btn" onclick="switchBsView()">👁️ Моё поле</button>`
+      : `<button class="btn" onclick="switchBsView()">🎯 Поле врага</button>`;
+
+    area.innerHTML = info + board + `<div style="text-align:center;margin-top:12px;">${toggleBtn}</div>`;
+  }
+
+  function switchBsView() {
+    bsViewEnemy = !bsViewEnemy;
+    renderBattleship();
+  }
+
+  async function fireBattleship(row, col) {
+    if (!bsState) return;
+    try {
+      const res = await apiPost("/api/battleship/fire", {
+        game_id: bsState.game_id, row, col
+      });
+      bsState = res;
+      if (res.status === "win") { playSound("success"); toast(`🏆 Победа! +${res.reward} 🪙`, false); }
+      else if (res.status === "lose") { playSound("error"); toast("💀 Поражение", true); }
+      renderBattleship();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+  
   // ===== НАСТРОЙКИ =====
   let userSettings = null;
   async function loadSettings() {
