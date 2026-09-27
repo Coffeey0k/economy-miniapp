@@ -451,12 +451,23 @@ def get_professions(init_data: str = Query(..., alias="initData")):
     current = None
     if row and row["profession"] and row["profession"] in PROFESSION_INFO:
         salary = PROFESSION_INFO[row["profession"]]["salary"] + (row["level"] - 1) * 50
+        days_worked = row["days_worked"] or 0
+        level = row["level"] or 1
+        # Прогресс до следующего уровня (7 дней)
+        if level >= 5:
+            progress_percent = 100
+            days_needed = 0
+        else:
+            progress_percent = int((days_worked / 7) * 100)
+            days_needed = 7 - days_worked
         current = {
             "profession": row["profession"],
             "name": PROFESSION_INFO[row["profession"]]["name"],
-            "level": row["level"],
+            "level": level,
             "salary": salary,
-            "days_worked": row["days_worked"],
+            "days_worked": days_worked,
+            "progress_percent": progress_percent,
+            "days_needed": days_needed,
         }
 
     all_professions = [
