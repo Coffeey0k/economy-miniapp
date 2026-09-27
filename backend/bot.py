@@ -886,6 +886,23 @@ async def professions_menu_handler(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "my_profession")
+async def my_profession(callback: CallbackQuery):
+    prof = db.get_profession(callback.from_user.id)
+    if not prof or not prof["profession"]:
+        await callback.message.edit_text(
+            "💼 У вас нет профессии.\nУстроиться стоит 1000 🪙.",
+            reply_markup=professions_menu()
+        )
+        await callback.answer()
+        return
+    from database import PROFESSIONS
+    info = PROFESSIONS[prof["profession"]]
+    salary = db.get_profession_salary(prof["profession"], prof["level"])
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="💼 Работать", callback_data="work_now"))
+    builder.row(InlineKeyboardButton(text="❌ Уволиться", callback_data="fire_profession"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="professions_menu"))
+
     level = prof["level"]
     days = prof["days_worked"]
     if level >= 5:
@@ -903,7 +920,7 @@ async def professions_menu_handler(callback: CallbackQuery):
         f"{bar} {days}/7 дней",
         reply_markup=builder.as_markup()
     )
-        await callback.answer()
+    await callback.answer()
         return
     from database import PROFESSIONS
     info = PROFESSIONS[prof["profession"]]
