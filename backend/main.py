@@ -986,6 +986,160 @@ def admin_ping(init_data: str = Query(..., alias="initData")):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка пинга: {e}")
 
+# ========== API: САПЁР ==========
+
+MS_FIELD_SIZE = 8
+MS_MINES = 6
+MS_BET = 200
+MS_REWARD = 400
+
+
+@app.post("/api/minesweeper/start")
+def ms_start_api(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    bet = int(payload.get("bet") or MS_BET)
+    if bet <= 0:
+        raise HTTPException(status_code=400, detail="Ставка должна быть больше нуля")
+
+    conn = db()
+    cur = conn.cursor()
+    if not change_balance(cur, user_id, -bet):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно монет")
+
+    size = MS_FIELD_SIZE
+    cells = size * size
+    mine_positions = random.sample(range(cells), MS_MINES)
+
+    board = []
+    for i in range(cells):
+        if i in mine_positions:
+            board.append("M")
+        else:
+            row, col = divmod(i, size)
+            count = 0
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = row + dr, col + dc
+                    if 0 <= nr < size and 0 <= nc < size:
+                        ni = nr * size + nc
+                        if ni in mine_positions:
+                            count += 1
+            board.append(str(count))
+
+    board_str = "".join(board)
+    revealed_str = "0" * cells
+
+    cur.execute("""
+        INSERT INTO minesweeper_games (user_id, board, revealed, bet, status)
+        VALUES (?, ?, ?, ?, 'active')
+    """, (user_id, board_str, revealed_str, bet))
+    game_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    return {
+        "game_id": game_id,
+        "board": board_str,
+        "revealed": revealed_str,
+        "size": size,
+        "mines": MS_MINES,
+        "bet": bet,
+        "reward": MS_REWARD,
+    }
+
+
+@app.post("/api/minesweeper/open")
+def ms_open_api(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    game_id = int(payload.get("game_id"))
+    cell = int(payload.get("cell"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT board, revealed, bet, status, field_size FROM minesweeper_games
+        WHERE id = ? AND user_id = ?
+    """, (game_id, user_id))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    if row["status"] != "active":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Игра завершена")
+
+    size = row["field_size"]
+    board = list(row["board"])
+    revealed = list(row["revealed"])
+
+    if revealed[cell] == "1":
+        conn.close()
+        return {"ok": True, "result": "skip"}
+
+    # Мина
+    if board[cell] == "M":
+        for i in range(size * size):
+            if board[i] == "M":
+                revealed[i] = "1"
+        revealed_str = "".join(revealed)
+        cur.execute("UPDATE minesweeper_games SET revealed = ?, status = 'lose' WHERE id = ?",
+                    (revealed_str, game_id))
+        conn.commit()
+        conn.close()
+        return {
+            "ok": True, "result": "boom",
+            "board": "".join(board), "revealed": revealed_str,
+            "balance": require_balance(cur, user_id) if False else None,
+        }
+
+    # Безопасная клетка + автооткрытие пустых
+    to_reveal = [cell]
+    while to_reveal:
+        c = to_reveal.pop()
+        if revealed[c] == "1":
+            continue
+        revealed[c] = "1"
+        if board[c] == "0":
+            r, co = divmod(c, size)
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = r + dr, co + dc
+                    if 0 <= nr < size and 0 <= nc < size:
+                        ni = nr * size + nc
+                        if revealed[ni] == "0" and board[ni] != "M":
+                            to_reveal.append(ni)
+
+    revealed_str = "".join(revealed)
+
+    win = all(board[i] == "M" or revealed[i] == "1" for i in range(size * size))
+
+    if win:
+        change_balance(cur, user_id, MS_REWARD)
+        cur.execute("UPDATE minesweeper_games SET revealed = ?, status = 'win' WHERE id = ?",
+                    (revealed_str, game_id))
+    else:
+        cur.execute("UPDATE minesweeper_games SET revealed = ? WHERE id = ?",
+                    (revealed_str, game_id))
+
+    cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    balance = cur.fetchone()["balance"]
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "result": "win" if win else "safe",
+        "board": "".join(board),
+        "revealed": revealed_str,
+        "balance": balance,
+        "reward": MS_REWARD if win else 0,
+    }
+
 @app.get("/")
 def health():
     return {"status": "ok"}
