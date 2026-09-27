@@ -171,6 +171,123 @@
   }
   .switch.on { background: var(--link); }
   .switch.on::after { transform: translateX(20px); }
+
+  /* ===== АНИМАЦИИ ИГР ===== */
+  .coin-container {
+    perspective: 800px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 120px;
+    margin: 20px 0;
+  }
+  .coin {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(251,191,36,0.5);
+    transform-style: preserve-3d;
+    transition: transform 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .coin.spinning {
+    transform: rotateY(1800deg);
+  }
+
+  .dice-cube {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #a78bfa, #6d28d9);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 44px;
+    color: #fff;
+    font-weight: 700;
+    margin: 20px auto;
+    box-shadow: 0 4px 20px rgba(139,92,246,0.5);
+    transition: transform 1s ease-out;
+  }
+  .dice-cube.spinning {
+    animation: diceSpin 0.15s linear infinite;
+  }
+  @keyframes diceSpin {
+    0% { transform: rotate(0deg) scale(0.9); }
+    50% { transform: rotate(180deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(0.9); }
+  }
+
+  .slot-container {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin: 20px 0;
+  }
+  .slot-reel {
+    width: 70px;
+    height: 90px;
+    background: linear-gradient(135deg, #1e1a3f, #14112b);
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 44px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(139,92,246,0.3);
+  }
+  .slot-reel.spinning .symbol {
+    animation: slotRoll 0.08s linear infinite;
+  }
+  @keyframes slotRoll {
+    0% { transform: translateY(-30px); opacity: 0; }
+    50% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(30px); opacity: 0; }
+  }
+  .slot-reel .symbol {
+    display: block;
+  }
+
+  .dart-target {
+    position: relative;
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+      #ef4444 0%, #ef4444 15%,
+      #fff 15%, #fff 30%,
+      #ef4444 30%, #ef4444 45%,
+      #fff 45%, #fff 60%,
+      #ef4444 60%, #ef4444 75%,
+      #fff 75%, #fff 90%,
+      #ef4444 90%, #ef4444 100%
+    );
+    margin: 20px auto;
+    box-shadow: 0 4px 20px rgba(239,68,68,0.4);
+    border: 3px solid #7f1d1d;
+  }
+  .dart-arrow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    background: #fbbf24;
+    border-radius: 50%;
+    box-shadow: 0 0 12px #fbbf24;
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+    transition: all 0.5s ease-out;
+  }
+  .dart-arrow.thrown {
+    opacity: 1;
+  }
   
 </style>
 </head>
@@ -709,15 +826,27 @@
   async function playGame(bet) {
     const choiceEl = document.getElementById("game-choice");
     const choice = choiceEl ? choiceEl.value : null;
-    try {
-      const res = await apiPost("/api/games/play", { game: currentGame, bet, choice });
-      document.getElementById("game-result").innerHTML = `<div class="msg ok">${res.text}</div>`;
-            if (res.win > 0) { playSound("success"); haptic("success"); }
-      else { playSound("error"); haptic("error"); }
-      loaded.profile = false;
-      const prof = await apiGet("/api/profile");
-      document.getElementById("p-balance").textContent = prof.balance + " 🪙";
-    } catch (e) { showMsg("games-msg", e.message, false); }
+
+    if (currentGame === "coin") {
+      await animateCoin(choice, bet);
+    } else if (currentGame === "dice") {
+      await animateDice(choice, bet);
+    } else if (currentGame === "slot") {
+      await animateSlot(bet);
+    } else if (currentGame === "dart") {
+      await animateDart(bet);
+    } else {
+      // number — без анимации
+      try {
+        const res = await apiPost("/api/games/play", { game: currentGame, bet, choice });
+        document.getElementById("game-result").innerHTML = `<div class="msg ok">${res.text}</div>`;
+        if (res.win > 0) { playSound("success"); haptic("success"); }
+        else { playSound("error"); haptic("error"); }
+        loaded.profile = false;
+        const prof = await apiGet("/api/profile");
+        document.getElementById("p-balance").textContent = prof.balance + " 🪙";
+      } catch (e) { showMsg("games-msg", e.message, false); }
+    }
   }
 
   // ===== САПЁР =====
@@ -873,6 +1002,209 @@
       renderBattleship();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
+  }
+
+  // ===== АНИМАЦИИ =====
+
+  function animateCoin(choice, bet) {
+    return new Promise(async (resolve) => {
+      const area = document.getElementById("game-area");
+      area.innerHTML = `
+        <div class="coin-container">
+          <div class="coin" id="coin-anim">🪙</div>
+        </div>
+        <div style="text-align:center;color:var(--hint);">Подбрасываем...</div>
+      `;
+      const coin = document.getElementById("coin-anim");
+      setTimeout(() => coin.classList.add("spinning"), 50);
+      setTimeout(() => coin.textContent = "🦅", 700);
+      setTimeout(() => coin.textContent = "🪙", 1000);
+
+      try {
+        const res = await apiPost("/api/games/play", { game: "coin", bet, choice });
+        setTimeout(() => {
+          // Показываем финальный результат
+          const isEagle = res.text.includes("Орел") || res.text.includes("Орёл");
+          coin.textContent = isEagle ? "🦅" : "🪙";
+          coin.classList.remove("spinning");
+          coin.style.transform = "rotateY(0deg)";
+          area.innerHTML = `
+            <div class="coin-container">
+              <div class="coin" style="transform:rotateY(0);">${isEagle ? "🦅" : "🪙"}</div>
+            </div>
+            <div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>
+          `;
+          if (res.win > 0) { playSound("success"); haptic("success"); }
+          else { playSound("error"); haptic("error"); }
+          loaded.profile = false;
+          loadProfile();
+          resolve();
+        }, 1300);
+      } catch (e) {
+        toast(e.message, true);
+        renderGameUI();
+        resolve();
+      }
+    });
+  }
+
+  function animateDice(choice, bet) {
+    return new Promise(async (resolve) => {
+      const area = document.getElementById("game-area");
+      area.innerHTML = `
+        <div class="dice-cube spinning" id="dice-anim">🎲</div>
+        <div style="text-align:center;color:var(--hint);">Бросаем кубик...</div>
+      `;
+      const dice = document.getElementById("dice-anim");
+      try {
+        const res = await apiPost("/api/games/play", { game: "dice", bet, choice });
+        const match = res.text.match(/Выпало:\s*(\d)/);
+        const num = match ? match[1] : "?";
+        setTimeout(() => {
+          dice.classList.remove("spinning");
+          dice.textContent = num;
+          area.innerHTML = `
+            <div class="dice-cube">${num}</div>
+            <div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>
+          `;
+          if (res.win > 0) { playSound("success"); haptic("success"); }
+          else { playSound("error"); haptic("error"); }
+          loaded.profile = false;
+          loadProfile();
+          resolve();
+        }, 1000);
+      } catch (e) {
+        toast(e.message, true);
+        renderGameUI();
+        resolve();
+      }
+    });
+  }
+
+  function animateSlot(bet) {
+    return new Promise(async (resolve) => {
+      const area = document.getElementById("game-area");
+      const symbols = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"];
+      area.innerHTML = `
+        <div class="slot-container">
+          <div class="slot-reel spinning" id="reel1"><span class="symbol">🍒</span></div>
+          <div class="slot-reel spinning" id="reel2"><span class="symbol">🍒</span></div>
+          <div class="slot-reel spinning" id="reel3"><span class="symbol">🍒</span></div>
+        </div>
+        <div style="text-align:center;color:var(--hint);">Крутим барабаны...</div>
+      `;
+      const r1 = document.getElementById("reel1");
+      const r2 = document.getElementById("reel2");
+      const r3 = document.getElementById("reel3");
+
+      // Показываем крутящиеся символы
+      const interval = setInterval(() => {
+        r1.querySelector(".symbol").textContent = symbols[Math.floor(Math.random() * 6)];
+        r2.querySelector(".symbol").textContent = symbols[Math.floor(Math.random() * 6)];
+        r3.querySelector(".symbol").textContent = symbols[Math.floor(Math.random() * 6)];
+      }, 80);
+
+      try {
+        const res = await apiPost("/api/games/play", { game: "slot", bet });
+        // Парсим результат: "🍒 🍋 🍊"
+        const parts = res.text.split("\n")[0].split(" ");
+        const [s1, s2, s3] = parts.length >= 3 ? parts : ["🍒", "🍒", "🍒"];
+
+        // Останавливаем по очереди
+        setTimeout(() => {
+          clearInterval(interval);
+          r1.classList.remove("spinning");
+          r1.querySelector(".symbol").textContent = s1;
+        }, 800);
+
+        setTimeout(() => {
+          r2.classList.remove("spinning");
+          r2.querySelector(".symbol").textContent = s2;
+        }, 1200);
+
+        setTimeout(() => {
+          r3.classList.remove("spinning");
+          r3.querySelector(".symbol").textContent = s3;
+        }, 1600);
+
+        setTimeout(() => {
+          area.innerHTML = `
+            <div class="slot-container">
+              <div class="slot-reel"><span class="symbol">${s1}</span></div>
+              <div class="slot-reel"><span class="symbol">${s2}</span></div>
+              <div class="slot-reel"><span class="symbol">${s3}</span></div>
+            </div>
+            <div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>
+          `;
+          if (res.win > 0) { playSound("success"); haptic("success"); }
+          else { playSound("error"); haptic("error"); }
+          loaded.profile = false;
+          loadProfile();
+          resolve();
+        }, 1900);
+      } catch (e) {
+        clearInterval(interval);
+        toast(e.message, true);
+        renderGameUI();
+        resolve();
+      }
+    });
+  }
+
+  function animateDart(bet) {
+    return new Promise(async (resolve) => {
+      const area = document.getElementById("game-area");
+      area.innerHTML = `
+        <div class="dart-target" id="dart-target">
+          <div class="dart-arrow" id="dart-arrow"></div>
+        </div>
+        <div style="text-align:center;color:var(--hint);">Бросок...</div>
+      `;
+      const target = document.getElementById("dart-target");
+      const arrow = document.getElementById("dart-arrow");
+
+      try {
+        const res = await apiPost("/api/games/play", { game: "dart", bet });
+        const match = res.text.match(/Очков:\s*(\d+)/);
+        const score = match ? parseInt(match[1]) : 0;
+
+        // Позиция на мишени в зависимости от очков
+        // 15 очков — в самый центр (радиус 5%), 0 — на краю (радиус 80%)
+        const maxRadius = 75; // 80% от 100
+        const minRadius = 5;
+        const percentFromCenter = Math.max(minRadius, maxRadius - (score / 15) * (maxRadius - minRadius));
+        const angle = Math.random() * 2 * Math.PI;
+        const center = 80;
+        const x = center + (percentFromCenter / 100) * center * Math.cos(angle);
+        const y = center + (percentFromCenter / 100) * center * Math.sin(angle);
+
+        arrow.style.left = (x / 160 * 100) + "%";
+        arrow.style.top = (y / 160 * 100) + "%";
+
+        setTimeout(() => {
+          arrow.classList.add("thrown");
+          arrow.style.transform = "translate(-50%, -50%) scale(1.2)";
+        }, 100);
+
+        setTimeout(() => {
+          area.innerHTML = `
+            <div class="dart-target" style="position:relative;">
+              <div class="dart-arrow thrown" style="left:${(x / 160 * 100)}%;top:${(y / 160 * 100)}%;transform:translate(-50%, -50%) scale(1.2);"></div>
+            </div>
+            <div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>
+          `;
+          if (res.win > 0) { playSound("success"); haptic("success"); }
+          else { playSound("error"); haptic("error"); }
+          loaded.profile = false;
+          loadProfile();
+          resolve();
+        }, 1400);
+      } catch (e) {
+        toast(e.message, true);
+        renderGameUI();
+        resolve();
+      }
+    });
   }
   
   // ===== НАСТРОЙКИ =====
