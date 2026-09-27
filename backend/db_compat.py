@@ -70,7 +70,7 @@ class Row:
 
 # ========== Перевод SQLite-синтаксиса в PostgreSQL ==========
 
-_PRAGMA_RE = re.compile(r"^\s*PRAGMA\s+table_info\(([\w]+)\)\s*;?\s*$", re.IGNORECASE)
+_PRAGMA_RE = re.compile(r"PRAGMA\s+table_info\s*\(\s*['\"]?(\w+)['\"]?\s*\)", re.IGNORECASE)
 
 
 def _translate(query: str) -> str:
