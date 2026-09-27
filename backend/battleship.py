@@ -18,13 +18,7 @@ router = Router()
 # ==================== КЛАВИАТУШКИ ====================
 
 def bs_keyboard(game_id: int, field: str, shots: str, viewing_enemy: bool) -> InlineKeyboardBuilder:
-    """Строит клавиатуру 10×10. Если viewing_enemy — показываем поле бота (куда стреляем), иначе своё."""
     builder = InlineKeyboardBuilder()
-
-    # Символы для ячеек
-    # '.': вода, 'S': корабль (только на своём поле)
-    # shots: '0' — не стреляли, '1' — промах, '2' — попал, '3' — убил
-    letters = "ABCDEFGHIJ"
 
     for row in range(db.BS_SIZE):
         btns = []
@@ -32,21 +26,22 @@ def bs_keyboard(game_id: int, field: str, shots: str, viewing_enemy: bool) -> In
             idx = row * db.BS_SIZE + col
             shot = shots[idx]
 
+            # Единый символ-заполнитель для пустой клетки
+            EMPTY = "•"
+
             if viewing_enemy:
-                # Поле бота (куда стреляем): видим только наши выстрелы
                 if shot == "1":
-                    text = "▫️"  # промах
+                    text = "✖"
                 elif shot == "2":
-                    text = "🔥"  # попал
+                    text = "🔥"
                 elif shot == "3":
-                    text = "💀"  # убил
+                    text = "💀"
                 else:
-                    text = "⬛"  # не стреляли
+                    text = EMPTY
                 cb = f"bs_fire_{game_id}_{row}_{col}"
             else:
-                # Своё поле: видим корабли + выстрелы бота
                 if shot == "1":
-                    text = "▫️"
+                    text = "✖"
                 elif shot == "2":
                     text = "🔥"
                 elif shot == "3":
@@ -54,21 +49,21 @@ def bs_keyboard(game_id: int, field: str, shots: str, viewing_enemy: bool) -> In
                 elif field[idx] == "S":
                     text = "🚢"
                 else:
-                    text = "⬛"
-                cb = f"bs_nothing_{game_id}"
+                    text = EMPTY
+                cb = f"bs_nothing_{game_id}_{row}_{col}"   # уникальный cb
 
             btns.append(InlineKeyboardButton(text=text, callback_data=cb))
         builder.row(*btns)
 
-    # Кнопки управления
+    # Кнопка переключения
     if viewing_enemy:
         builder.row(InlineKeyboardButton(
-            text="👁️ Моё поле",
+            text="👁️ Показать моё поле",
             callback_data=f"bs_view_own_{game_id}"
         ))
     else:
         builder.row(InlineKeyboardButton(
-            text="🎯 Поле врага",
+            text="🎯 Показать поле врага",
             callback_data=f"bs_view_enemy_{game_id}"
         ))
 
