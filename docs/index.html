@@ -302,8 +302,10 @@
         <button class="game-tab" onclick="selectGame('coin', event)">🪙 Монетка</button>
         <button class="game-tab" onclick="selectGame('dart', event)">🎯 Дартс</button>
         <button class="game-tab" onclick="selectGame('number', event)">🃏 Число</button>
+        <button class="game-tab" onclick="selectGame('minesweeper', event)">💣 Сапёр</button>
       </div>
       <div id="game-area"></div>
+      <div id="minesweeper-area" style="display:none;margin-top:12px;"></div>
     </div>
   </div>
 
@@ -656,8 +658,16 @@
     currentGame = game;
     document.querySelectorAll(".game-tab").forEach(b => b.classList.remove("active"));
     if (ev) ev.target.classList.add("active");
-    renderGameUI();
-  }
+    if (game === "minesweeper") {
+      document.getElementById("game-area").style.display = "none";
+      document.getElementById("minesweeper-area").style.display = "block";
+      renderMinesweeperStart();
+    } else {
+      document.getElementById("game-area").style.display = "block";
+      document.getElementById("minesweeper-area").style.display = "none";
+      renderGameUI();
+    }
+  
   function renderGameUI() {
     const area = document.getElementById("game-area");
     const bets = [10, 50, 100, 500, 1000];
@@ -688,6 +698,71 @@
     } catch (e) { showMsg("games-msg", e.message, false); }
   }
 
+  // ===== САПЁР =====
+  let msState = null;
+
+  function renderMinesweeperStart() {
+    document.getElementById("minesweeper-area").innerHTML = `
+      <div class="card">
+        <h2>💣 Сапёр 8×8</h2>
+        <p class="label">6 мин. Открой все безопасные клетки — получишь 400 🪙</p>
+        <button class="btn" onclick="startMinesweeper()">Начать (200 🪙)</button>
+      </div>
+    `;
+  }
+
+  async function startMinesweeper() {
+    try {
+      const res = await apiPost("/api/minesweeper/start", {});
+      msState = {
+        game_id: res.game_id,
+        board: res.board,
+        revealed: res.revealed,
+        size: res.size,
+      };
+      renderMinesweeperBoard();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  function renderMinesweeperBoard() {
+    if (!msState) return;
+    const { game_id, board, revealed, size } = msState;
+    const numEmoji = {"0":"⬜","1":"1️⃣","2":"2️⃣","3":"3️⃣","4":"4️⃣","5":"5️⃣","6":"6️⃣","7":"7️⃣","8":"8️⃣"};
+    let html = `<div style="display:grid;grid-template-columns:repeat(${size},1fr);gap:4px;max-width:400px;margin:0 auto;">`;
+    for (let i = 0; i < size * size; i++) {
+      let content = "⬛";
+      if (revealed[i] === "1") {
+        content = board[i] === "M" ? "💥" : (numEmoji[board[i]] || "⬜");
+      }
+      html += `<button onclick="openMsCell(${i})" style="background:none;border:none;font-size:22px;padding:2px;cursor:pointer;">${content}</button>`;
+    }
+    html += `</div>`;
+    document.getElementById("minesweeper-area").innerHTML = html;
+  }
+
+  async function openMsCell(cell) {
+    if (!msState) return;
+    try {
+      const res = await apiPost("/api/minesweeper/open", { game_id: msState.game_id, cell });
+      if (res.result === "skip") return;
+      msState.board = res.board;
+      msState.revealed = res.revealed;
+      renderMinesweeperBoard();
+      if (res.result === "boom") {
+        toast("💥 Мина! Проиграл.", true);
+        msState = null;
+        setTimeout(() => renderMinesweeperStart(), 1500);
+      } else if (res.result === "win") {
+        toast(`🏆 Победа! +${res.reward} 🪙`, false);
+        playSound("success");
+        msState = null;
+        setTimeout(() => renderMinesweeperStart(), 1500);
+      }
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+    
   // ===== НАСТРОЙКИ =====
   let userSettings = null;
   async function loadSettings() {
