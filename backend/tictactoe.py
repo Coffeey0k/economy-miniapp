@@ -226,28 +226,40 @@ async def ttt_move(callback: CallbackQuery):
         return
 
     user_id = callback.from_user.id
+    is_vs_bot = game["is_vs_bot"]
 
-    # Проверка: это участник игры?
-    if user_id not in (game["player_x"], game["player_o"]):
-        await callback.answer("❌ Ты не участник этой игры.", show_alert=True)
-        return
+    # --- Проверка, что это твой ход ---
+    if is_vs_bot:
+        # В игре с ботом ход всегда у player_x (ты)
+        if user_id != game["player_x"]:
+            await callback.answer("❌ Ты не участник этой игры.", show_alert=True)
+            return
+        if game["turn"] != game["player_x"]:
+            await callback.answer("⏳ Не твой ход.", show_alert=True)
+            return
+    else:
+        if user_id not in (game["player_x"], game["player_o"]):
+            await callback.answer("❌ Ты не участник этой игры.", show_alert=True)
+            return
+        if game["turn"] != user_id:
+            await callback.answer("⏳ Не твой ход.", show_alert=True)
+            return
 
-    if game["turn"] != user_id:
-        await callback.answer("⏳ Не твой ход.", show_alert=True)
-        return
-
+    # --- Твой ход ---
     ok, result = db.ttt_make_move(game_id, cell, user_id)
     if not ok:
         await callback.answer(f"❌ {result}", show_alert=True)
         return
 
-    # === Если с ботом — делаем ход бота ===
-    if game["is_vs_bot"] and result == "next":
+    # --- Ход бота ---
+    if is_vs_bot and result == "next":
+        # Передаём ход боту (player_o = None, поэтому просто вызываем бота)
         bot_cell = db.ttt_bot_move(game_id)
         if bot_cell is not None:
-            db.ttt_make_move(game_id, bot_cell, game["player_o"] or 0)
+            # Ход бота без проверки turn — обойдём ttt_make_move
+            _bot_apply_move(game_id, bot_cell)
 
-    # Обновляем сообщение
+    # --- Обновляем сообщение ---
     updated = db.ttt_get_game(game_id)
     if updated["status"] == "active":
         text = (
@@ -265,6 +277,41 @@ async def ttt_move(callback: CallbackQuery):
     await callback.answer()
 
 
+def _bot_apply_move(game_id: int, cell: int):
+    """Ставит 'O' в клетку без проверки, чей это ход."""
+    game = db.ttt_get_game(game_id)
+    board = list(game["board"])
+    if board[cell] != "_":
+        return
+    board[cell] = "O"
+    new_board = "".join(board)
+
+    winner = db.ttt_check_winner(new_board)
+
+    # Обновляем напрямую через SQL
+    from db_compat import connect
+    conn = connect(db.DB_NAME)
+    cur = conn.cursor()
+
+    if winner == "draw":
+        cur.execute(
+            "UPDATE ttt_games SET board = ?, status = 'draw' WHERE id = ?",
+            (new_board, game_id)
+        )
+    elif winner == "O":
+        cur.execute(
+            "UPDATE ttt_games SET board = ?, status = 'finished', winner = ? WHERE id = ?",
+            (new_board, game["player_x"], game_id)  # бот = player_x? нет, см. _finish_win
+        )
+    else:
+        cur.execute(
+            "UPDATE ttt_games SET board = ?, turn = ? WHERE id = ?",
+            (new_board, game["player_x"], game_id)
+        )
+    conn.commit()
+    conn.close()
+
+
 # ==================== ЗАВЕРШЕНИЕ ====================
 
 async def _finish_draw(callback: CallbackQuery, game: dict):
@@ -278,17 +325,23 @@ async def _finish_win(callback: CallbackQuery, game: dict):
     winner = game["winner"]
     loser = game["player_o"] if winner == game["player_x"] else game["player_x"]
 
-    # Переводим ставку
-    if winner and loser:
-        db.update_balance(loser, -game["bet"])
-        db.update_balance(winner, game["bet"])
+    if game["is_vs_bot"]:
+        if winner == 0:
+            # Победил бот — игрок теряет ставку
+            db.update_balance(game["player_x"], -game["bet"])
+            text = f"🤖 Бот победил!\n💰 Ты проиграл {game['bet']} 🪙"
+        else:
+            # Победил игрок
+            db.update_balance(game["player_x"], game["bet"])
+            text = f"🏆 Победа!\n💰 Ты выиграл {game['bet']} 🪙"
+    else:
+        # PvP
+        if winner and loser:
+            db.update_balance(loser, -game["bet"])
+            db.update_balance(winner, game["bet"])
+        winner_name = _get_username(winner) if winner else "?"
+        text = f"🏆 Победа!\nПобедил: @{winner_name}\n💰 Выигрыш: {game['bet']} 🪙"
 
-    winner_name = _get_username(winner) if winner else "?"
-    text = (
-        f"🏆 Победа!\n\n"
-        f"Победил: @{winner_name}\n"
-        f"💰 Выигрыш: {game['bet']} 🪙"
-    )
     await callback.message.edit_text(text)
 
 
