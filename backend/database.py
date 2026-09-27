@@ -229,6 +229,36 @@ def init_db():
                 s
             )
 
+    # === КРЕСТИКИ-НОЛИКИ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ttt_games (
+            id SERIAL PRIMARY KEY,
+            player_x BIGINT,
+            player_o BIGINT,
+            is_vs_bot BOOLEAN DEFAULT FALSE,
+            board TEXT DEFAULT '_________',
+            turn BIGINT,
+            bet BIGINT DEFAULT 0,
+            status TEXT DEFAULT 'waiting',
+            winner BIGINT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ttt_invites (
+            id SERIAL PRIMARY KEY,
+            from_user BIGINT,
+            to_user BIGINT,
+            bet BIGINT,
+            message_id BIGINT,
+            chat_id BIGINT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     conn.commit()
     conn.close()
 
@@ -1473,6 +1503,176 @@ def give_chest_reward(user_id: int, reward: dict) -> str:
         return "Иммунитет на чистке 🛡️"
 
     return "что-то неизвестное"
+
+# ==================== КРЕСТИКИ-НОЛИКИ ====================
+
+TTT_LINES = [
+    (0, 1, 2), (3, 4, 5), (6, 7, 8),  # ряды
+    (0, 3, 6), (1, 4, 7), (2, 5, 8),  # столбцы
+    (0, 4, 8), (2, 4, 6),             # диагонали
+]
+
+
+def ttt_check_winner(board: str) -> str:
+    """Возвращает 'X', 'O', 'draw' или '' (если игра идёт)."""
+    for a, b, c in TTT_LINES:
+        if board[a] != '_' and board[a] == board[b] == board[c]:
+            return board[a]
+    if '_' not in board:
+        return 'draw'
+    return ''
+
+
+def ttt_create_invite(from_user: int, to_user: int, bet: int, message_id: int, chat_id: int) -> int:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO ttt_invites (from_user, to_user, bet, message_id, chat_id)
+        VALUES (?, ?, ?, ?, ?)
+    """, (from_user, to_user, bet, message_id, chat_id))
+    conn.commit()
+    invite_id = cur.lastrowid
+    conn.close()
+    return invite_id
+
+
+def ttt_get_invite(invite_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT id, from_user, to_user, bet, status FROM ttt_invites WHERE id = ?", (invite_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "from_user": row[1], "to_user": row[2],
+        "bet": row[3], "status": row[4],
+    }
+
+
+def ttt_update_invite_status(invite_id: int, status: str):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE ttt_invites SET status = ? WHERE id = ?", (status, invite_id))
+    conn.commit()
+    conn.close()
+
+
+def ttt_create_game(player_x: int, player_o: Optional[int], bet: int, is_vs_bot: bool = False) -> int:
+    turn = player_x  # X ходит первым
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO ttt_games (player_x, player_o, is_vs_bot, turn, bet, status)
+        VALUES (?, ?, ?, ?, ?, 'active')
+    """, (player_x, player_o, is_vs_bot, turn, bet))
+    conn.commit()
+    game_id = cur.lastrowid
+    conn.close()
+    return game_id
+
+
+def ttt_get_game(game_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, player_x, player_o, is_vs_bot, board, turn, bet, status, winner
+        FROM ttt_games WHERE id = ?
+    """, (game_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "player_x": row[1], "player_o": row[2],
+        "is_vs_bot": bool(row[3]), "board": row[4], "turn": row[5],
+        "bet": row[6], "status": row[7], "winner": row[8],
+    }
+
+
+def ttt_make_move(game_id: int, cell: int, player_id: int) -> tuple:
+    """Возвращает (успех, сообщение)."""
+    game = ttt_get_game(game_id)
+    if not game or game["status"] != "active":
+        return False, "Игра неактивна"
+    if game["turn"] != player_id:
+        return False, "Не ваш ход"
+
+    board = list(game["board"])
+    if board[cell] != "_":
+        return False, "Клетка занята"
+
+    symbol = "X" if player_id == game["player_x"] else "O"
+    board[cell] = symbol
+    new_board = "".join(board)
+
+    winner = ttt_check_winner(new_board)
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+
+    if winner == "draw":
+        cur.execute("UPDATE ttt_games SET board = ?, status = 'draw' WHERE id = ?", (new_board, game_id))
+    elif winner:
+        winner_id = game["player_x"] if winner == "X" else game["player_o"]
+        cur.execute("UPDATE ttt_games SET board = ?, status = 'finished', winner = ? WHERE id = ?",
+                    (new_board, winner_id, game_id))
+    else:
+        # Передаём ход
+        if game["is_vs_bot"]:
+            next_turn = game["player_x"]  # для бота ход делает сам бот
+        else:
+            next_turn = game["player_o"] if player_id == game["player_x"] else game["player_x"]
+        cur.execute("UPDATE ttt_games SET board = ?, turn = ? WHERE id = ?", (new_board, next_turn, game_id))
+
+    conn.commit()
+    conn.close()
+
+    return True, winner or "next"
+
+
+def ttt_bot_move(game_id: int) -> Optional[int]:
+    """Простой бот: выигрывает, если может; блокирует; иначе центр/угол."""
+    game = ttt_get_game(game_id)
+    if not game:
+        return None
+    board = list(game["board"])
+
+    def find_win(symbol):
+        for a, b, c in TTT_LINES:
+            line = [board[a], board[b], board[c]]
+            if line.count(symbol) == 2 and line.count("_") == 1:
+                return [a, b, c][line.index("_")]
+        return None
+
+    # 1. Выиграть
+    move = find_win("O")
+    if move is not None:
+        return move
+    # 2. Заблокировать
+    move = find_win("X")
+    if move is not None:
+        return move
+    # 3. Центр
+    if board[4] == "_":
+        return 4
+    # 4. Угол
+    for i in [0, 2, 6, 8]:
+        if board[i] == "_":
+            return i
+    # 5. Любая
+    for i in range(9):
+        if board[i] == "_":
+            return i
+    return None
+
+
+def ttt_finish_game(game_id: int, winner_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE ttt_games SET status = 'finished', winner = ? WHERE id = ?", (winner_id, game_id))
+    conn.commit()
+    conn.close()
 
 # Инициализация при импорте
 init_db()
