@@ -921,7 +921,7 @@ async def my_profession(callback: CallbackQuery):
         reply_markup=builder.as_markup()
     )
     await callback.answer()
-        return
+    return
     from database import PROFESSIONS
     info = PROFESSIONS[prof["profession"]]
     salary = db.get_profession_salary(prof["profession"], prof["level"])
