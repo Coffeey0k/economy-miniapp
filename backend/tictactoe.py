@@ -105,7 +105,7 @@ async def ttt_create(message: Message):
     conn_import_sqlite3 = __import__("db_compat")
     conn = conn_import_sqlite3.connect(db.DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users WHERE username = ?", (target_raw,))
+    cur.execute("SELECT user_id FROM users WHERE LOWER(username) = ?", (target_raw.lower(),))
     row = cur.fetchone()
     conn.close()
 
@@ -329,18 +329,30 @@ async def _finish_win(callback: CallbackQuery, game: dict):
         if winner == 0:
             # Победил бот — игрок теряет ставку
             db.update_balance(game["player_x"], -game["bet"])
-            text = f"🤖 Бот победил!\n💰 Ты проиграл {game['bet']} 🪙"
+            text = (
+                f"🤖 Бот победил!\n\n"
+                f"💰 Ты проиграл {game['bet']} 🪙\n"
+                f"📊 Баланс: {db.get_balance(game['player_x'])} 🪙"
+            )
         else:
-            # Победил игрок
-            db.update_balance(game["player_x"], game["bet"])
-            text = f"🏆 Победа!\n💰 Ты выиграл {game['bet']} 🪙"
+            # Победил игрок — получает 2× ставки (свою + выигрыш)
+            db.update_balance(game["player_x"], game["bet"] * 2)
+            text = (
+                f"🏆 Победа!\n\n"
+                f"💰 Ты выиграл {game['bet']} 🪙\n"
+                f"📊 Баланс: {db.get_balance(game['player_x'])} 🪙"
+            )
     else:
         # PvP
         if winner and loser:
             db.update_balance(loser, -game["bet"])
             db.update_balance(winner, game["bet"])
         winner_name = _get_username(winner) if winner else "?"
-        text = f"🏆 Победа!\nПобедил: @{winner_name}\n💰 Выигрыш: {game['bet']} 🪙"
+        text = (
+            f"🏆 Победа!\n\n"
+            f"Победил: @{winner_name}\n"
+            f"💰 Выигрыш: {game['bet']} 🪙"
+        )
 
     await callback.message.edit_text(text)
 
