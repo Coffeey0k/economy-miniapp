@@ -1140,6 +1140,348 @@ def ms_open_api(payload: dict = Body(...)):
         "reward": MS_REWARD if win else 0,
     }
 
+# ========== API: МОРСКОЙ БОЙ ==========
+
+BS_SIZE = 10
+BS_BET_MIN = 500
+BS_SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
+
+
+def _bs_generate_field() -> str:
+    grid = [["." for _ in range(BS_SIZE)] for _ in range(BS_SIZE)]
+    ships = list(BS_SHIPS)
+    random.shuffle(ships)
+
+    for size in ships:
+        placed = False
+        for _ in range(200):
+            horizontal = random.choice([True, False])
+            if horizontal:
+                r = random.randint(0, BS_SIZE - 1)
+                c = random.randint(0, BS_SIZE - size)
+                cells = [(r, c + i) for i in range(size)]
+            else:
+                r = random.randint(0, BS_SIZE - size)
+                c = random.randint(0, BS_SIZE - 1)
+                cells = [(r + i, c) for i in range(size)]
+
+            ok = True
+            for (rr, cc) in cells:
+                for dr in (-1, 0, 1):
+                    for dc in (-1, 0, 1):
+                        nr, nc = rr + dr, cc + dc
+                        if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                            if grid[nr][nc] == "S":
+                                ok = False
+                                break
+                    if not ok:
+                        break
+                if not ok:
+                    break
+            if not ok:
+                continue
+
+            for (rr, cc) in cells:
+                grid[rr][cc] = "S"
+            placed = True
+            break
+
+        if not placed:
+            return _bs_generate_field()
+
+    return "".join("".join(row) for row in grid)
+
+
+def _bs_cell_index(r: int, c: int) -> int:
+    return r * BS_SIZE + c
+
+
+def _bs_check_sunk(field: str, shots: str, r: int, c: int) -> bool:
+    visited = set()
+    stack = [(r, c)]
+    ship_cells = []
+    while stack:
+        cr, cc = stack.pop()
+        if (cr, cc) in visited:
+            continue
+        idx = _bs_cell_index(cr, cc)
+        if field[idx] != "S":
+            continue
+        visited.add((cr, cc))
+        ship_cells.append((cr, cc))
+        for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nr, nc = cr + dr, cc + dc
+            if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                ni = _bs_cell_index(nr, nc)
+                if field[ni] == "S" and (nr, nc) not in visited:
+                    stack.append((nr, nc))
+    for (sr, sc) in ship_cells:
+        si = _bs_cell_index(sr, sc)
+        if shots[si] not in ("2", "3"):
+            return False
+    return True
+
+
+def _bs_mark_sunk(field: str, shots: list, r: int, c: int):
+    visited = set()
+    stack = [(r, c)]
+    ship_cells = []
+    while stack:
+        cr, cc = stack.pop()
+        if (cr, cc) in visited:
+            continue
+        idx = _bs_cell_index(cr, cc)
+        if field[idx] != "S":
+            continue
+        visited.add((cr, cc))
+        ship_cells.append((cr, cc))
+        for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nr, nc = cr + dr, cc + dc
+            if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                ni = _bs_cell_index(nr, nc)
+                if field[ni] == "S" and (nr, nc) not in visited:
+                    stack.append((nr, nc))
+    for (sr, sc) in ship_cells:
+        si = _bs_cell_index(sr, sc)
+        shots[si] = "3"
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                nr, nc = sr + dr, sc + dc
+                if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                    ni = _bs_cell_index(nr, nc)
+                    if shots[ni] == "0":
+                        shots[ni] = "1"
+
+
+@app.post("/api/battleship/start")
+def bs_start(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    bet = int(payload.get("bet") or 500)
+
+    if bet < BS_BET_MIN:
+        raise HTTPException(status_code=400, detail=f"Минимальная ставка: {BS_BET_MIN}")
+
+    conn = db()
+    cur = conn.cursor()
+    if not change_balance(cur, user_id, -bet):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно монет")
+
+    player_field = _bs_generate_field()
+    bot_field = _bs_generate_field()
+    empty = "0" * (BS_SIZE * BS_SIZE)
+
+    cur.execute("""
+        INSERT INTO battleship_games
+        (user_id, player_field, bot_field, player_shots, bot_shots, bet, turn, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'player', 'active')
+    """, (user_id, player_field, bot_field, empty, empty, bet))
+    game_id = cur.lastrowid
+    conn.commit()
+
+    balance = require_balance(cur, user_id)
+    conn.close()
+
+    return {
+        "game_id": game_id,
+        "bet": bet,
+        "reward": bet * 2,
+        "player_field": player_field,
+        "bot_field": bot_field,
+        "player_shots": empty,
+        "bot_shots": empty,
+        "turn": "player",
+        "status": "active",
+        "balance": balance,
+    }
+
+
+@app.get("/api/battleship/state")
+def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query(...)):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id, player_field, bot_field, player_shots, bot_shots,
+               bet, status, turn
+        FROM battleship_games WHERE id = ?
+    """, (game_id,))
+    row = cur.fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+
+    balance = require_balance(cur, user_id)
+    conn.close()
+
+    return {
+        "game_id": game_id,
+        "bet": row["bet"],
+        "reward": row["bet"] * 2,
+        "player_field": row["player_field"],
+        "bot_field": row["bot_field"],
+        "player_shots": row["player_shots"],
+        "bot_shots": row["bot_shots"],
+        "turn": row["turn"],
+        "status": row["status"],
+        "balance": balance,
+    }
+
+
+@app.post("/api/battleship/fire")
+def bs_fire(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    game_id = int(payload.get("game_id"))
+    row = int(payload.get("row"))
+    col = int(payload.get("col"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id, player_field, bot_field, player_shots, bot_shots,
+               bet, status, turn
+        FROM battleship_games WHERE id = ?
+    """, (game_id,))
+    g = cur.fetchone()
+    if not g or g["user_id"] != user_id:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    if g["status"] != "active":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Игра завершена")
+    if g["turn"] != "player":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Не твой ход")
+
+    idx = _bs_cell_index(row, col)
+    shots = list(g["player_shots"])
+    if shots[idx] in ("1", "2", "3"):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Уже стрелял сюда")
+
+    bot_field = g["bot_field"]
+    if bot_field[idx] == "S":
+        shots[idx] = "2"
+        if _bs_check_sunk(bot_field, "".join(shots), row, col):
+            _bs_mark_sunk(bot_field, shots, row, col)
+            result = "sunk"
+        else:
+            result = "hit"
+    else:
+        shots[idx] = "1"
+        result = "miss"
+
+    shots_str = "".join(shots)
+
+    win = all(
+        bot_field[i] != "S" or shots[i] == "3"
+        for i in range(BS_SIZE * BS_SIZE)
+    )
+
+    if win:
+        change_balance(cur, user_id, g["bet"] * 2)
+        cur.execute("""
+            UPDATE battleship_games SET player_shots = ?, status = 'win' WHERE id = ?
+        """, (shots_str, game_id))
+    else:
+        next_turn = "bot" if result == "miss" else "player"
+        cur.execute("""
+            UPDATE battleship_games SET player_shots = ?, turn = ? WHERE id = ?
+        """, (shots_str, next_turn, game_id))
+    conn.commit()
+
+    bot_msg = ""
+    # Ход бота (если передан ему и игра идёт)
+    cur.execute("SELECT status, turn, player_field, bot_shots FROM battleship_games WHERE id = ?", (game_id,))
+    g2 = cur.fetchone()
+    if g2 and g2["status"] == "active" and g2["turn"] == "bot":
+        while True:
+            bot_field_local = g2["player_field"]
+            bot_shots = list(g2["bot_shots"])
+
+            candidates = []
+            for i in range(BS_SIZE * BS_SIZE):
+                if bot_shots[i] == "2":
+                    r, c = divmod(i, BS_SIZE)
+                    for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                            ni = _bs_cell_index(nr, nc)
+                            if bot_shots[ni] == "0":
+                                candidates.append((nr, nc))
+            if not candidates:
+                remaining = [i for i in range(BS_SIZE * BS_SIZE) if bot_shots[i] == "0"]
+                if not remaining:
+                    break
+                ii = random.choice(remaining)
+                br, bc = divmod(ii, BS_SIZE)
+            else:
+                br, bc = random.choice(candidates)
+
+            bidx = _bs_cell_index(br, bc)
+            if bot_field_local[bidx] == "S":
+                bot_shots[bidx] = "2"
+                if _bs_check_sunk(bot_field_local, "".join(bot_shots), br, bc):
+                    _bs_mark_sunk(bot_field_local, bot_shots, br, bc)
+                    bot_result = "sunk"
+                else:
+                    bot_result = "hit"
+            else:
+                bot_shots[bidx] = "1"
+                bot_result = "miss"
+
+            bot_shots_str = "".join(bot_shots)
+
+            lose = all(
+                bot_field_local[i] != "S" or bot_shots[i] == "3"
+                for i in range(BS_SIZE * BS_SIZE)
+            )
+
+            if lose:
+                cur.execute("""
+                    UPDATE battleship_games SET bot_shots = ?, status = 'lose' WHERE id = ?
+                """, (bot_shots_str, game_id))
+                conn.commit()
+                bot_msg = f"Бот попал в ({br + 1}, {bc + 1}) и уничтожил твой флот!"
+                break
+            else:
+                next_turn = "bot" if bot_result in ("hit", "sunk") else "player"
+                cur.execute("""
+                    UPDATE battleship_games SET bot_shots = ?, turn = ? WHERE id = ?
+                """, (bot_shots_str, next_turn, game_id))
+                conn.commit()
+                bot_msg = f"Бот стреляет в ({br + 1}, {bc + 1}): {bot_result}"
+                if bot_result == "miss":
+                    break
+                # если попал — бот ходит ещё, обновляем g2
+                cur.execute("SELECT status, turn, player_field, bot_shots FROM battleship_games WHERE id = ?", (game_id,))
+                g2 = cur.fetchone()
+
+    # Финальное состояние
+    cur.execute("""
+        SELECT player_field, bot_field, player_shots, bot_shots, bet, status, turn
+        FROM battleship_games WHERE id = ?
+    """, (game_id,))
+    final = cur.fetchone()
+    balance = require_balance(cur, user_id)
+    conn.close()
+
+    return {
+        "ok": True,
+        "result": result,
+        "bot_msg": bot_msg,
+        "game_id": game_id,
+        "bet": final["bet"],
+        "reward": final["bet"] * 2,
+        "player_field": final["player_field"],
+        "bot_field": final["bot_field"],
+        "player_shots": final["player_shots"],
+        "bot_shots": final["bot_shots"],
+        "turn": final["turn"],
+        "status": final["status"],
+        "balance": balance,
+    }
+
 @app.get("/")
 def health():
     return {"status": "ok"}
