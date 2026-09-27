@@ -475,6 +475,27 @@
       <div id="admin-result"></div>
     </div>
   </div>
+
+  <!-- ДРУЗЬЯ -->
+  <div class="tab" id="tab-friends">
+    <div id="friends-msg"></div>
+    <div class="card">
+      <h2>👥 Друзья</h2>
+      <p class="label" id="friends-bonus">Бонус к зарплате: +0%</p>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <input type="text" id="friend-username" placeholder="username друга (без @)" style="flex:1;">
+        <button class="btn" onclick="addFriend()">Добавить</button>
+      </div>
+    </div>
+    <div class="card" id="friends-pending-card" style="display:none;">
+      <h2>📩 Входящие заявки</h2>
+      <div id="friends-pending"></div>
+    </div>
+    <div class="card">
+      <h2>Мои друзья</h2>
+      <div id="friends-list"></div>
+    </div>
+  </div>
   
   <!-- ЕЩЁ (бонус + перевод) -->
   <div class="tab" id="tab-more">
@@ -501,6 +522,7 @@
   <button class="nav-item" data-tab="games" onclick="switchTab('games')"><span class="ic">🎮</span>Игры</button>
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
+  <button class="nav-item" data-tab="friends" onclick="switchTab('friends')"><span class="ic">👥</span>Друзья</button>
   <button class="nav-item" data-tab="settings" onclick="switchTab('settings')"><span class="ic">⚙️</span>Настройки</button>
 </div>
     <div id="ptr">🔄 Обновление…</div>
@@ -568,6 +590,7 @@
     if (name === "more") loadMore();
     if (name === "games") loadGames();
     if (name === "settings") loadSettings();
+    if (name === "friends") loadFriends();
   }
 
   // ===== ПРОФИЛЬ =====
@@ -1205,6 +1228,81 @@
         resolve();
       }
     });
+  }
+
+  // ===== ДРУЗЬЯ =====
+  async function loadFriends() {
+    try {
+      const data = await apiGet("/api/friends");
+      document.getElementById("friends-bonus").textContent = `Бонус к зарплате: +${data.bonus}%`;
+
+      // Входящие заявки
+      const pendingCard = document.getElementById("friends-pending-card");
+      if (data.pending.length > 0) {
+        pendingCard.style.display = "block";
+        document.getElementById("friends-pending").innerHTML = data.pending.map(p => `
+          <div class="item-row">
+            <span>@${p.from_username}</span>
+            <span>
+              <button class="btn btn-small" onclick="acceptFriend(${p.request_id})">✅</button>
+              <button class="btn btn-small" onclick="declineFriend(${p.request_id})">❌</button>
+            </span>
+          </div>
+        `).join("");
+      } else {
+        pendingCard.style.display = "none";
+      }
+
+      // Список друзей
+      if (data.friends.length > 0) {
+        document.getElementById("friends-list").innerHTML = data.friends.map(f => `
+          <div class="item-row">
+            <span>@${f.username || f.user_id}<br><span class="label">${f.balance.toLocaleString()} 🪙</span></span>
+            <button class="btn btn-small" onclick="removeFriend(${f.user_id})">Удалить</button>
+          </div>
+        `).join("");
+      } else {
+        document.getElementById("friends-list").innerHTML = `<div class="label">Пока нет друзей</div>`;
+      }
+    } catch (e) { showMsg("friends-msg", e.message, false); }
+  }
+
+  async function addFriend() {
+    const username = document.getElementById("friend-username").value.trim();
+    if (!username) { toast("Введи username", true); return; }
+    try {
+      const res = await apiPost("/api/friends/add", { username });
+      toast(res.message, false);
+      document.getElementById("friend-username").value = "";
+      loadFriends();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function acceptFriend(requestId) {
+    try {
+      const res = await apiPost("/api/friends/accept", { request_id: requestId });
+      toast(res.message, false);
+      loadFriends();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function declineFriend(requestId) {
+    try {
+      await apiPost("/api/friends/decline", { request_id: requestId });
+      toast("Заявка отклонена", false);
+      loadFriends();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function removeFriend(friendId) {
+    if (!confirm("Удалить из друзей?")) return;
+    try {
+      const res = await apiPost("/api/friends/remove", { friend_id: friendId });
+      toast(res.message, false);
+      loadFriends();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
   }
   
   // ===== НАСТРОЙКИ =====
