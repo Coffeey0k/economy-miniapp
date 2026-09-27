@@ -274,6 +274,23 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # === МОРСКОЙ БОЙ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS battleship_games (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            player_field TEXT,
+            bot_field TEXT,
+            player_shots TEXT,
+            bot_shots TEXT,
+            bet BIGINT,
+            status TEXT DEFAULT 'active',
+            turn TEXT DEFAULT 'player',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -1841,6 +1858,301 @@ def ms_open_cell(game_id: int, cell: int, user_id: int) -> tuple:
     if win:
         return True, "win", f"🏆 Победа! Ты выиграл {MS_REWARD} 🪙"
     return True, "safe", ""
+
+# ==================== МОРСКОЙ БОЙ ====================
+
+BS_SIZE = 10
+BS_BET_MIN = 500
+BS_SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]  # 4-палубный, два 3-палубных и т.д.
+
+
+def bs_generate_field() -> str:
+    """Генерирует случайное поле 10x10 с кораблями. Возвращает строку из 100 символов."""
+    grid = [["." for _ in range(BS_SIZE)] for _ in range(BS_SIZE)]
+    ships = list(BS_SHIPS)
+    random.shuffle(ships)
+
+    for size in ships:
+        placed = False
+        for _ in range(200):  # попытки
+            horizontal = random.choice([True, False])
+            if horizontal:
+                row = random.randint(0, BS_SIZE - 1)
+                col = random.randint(0, BS_SIZE - size)
+                cells = [(row, col + i) for i in range(size)]
+            else:
+                row = random.randint(0, BS_SIZE - size)
+                col = random.randint(0, BS_SIZE - 1)
+                cells = [(row + i, col) for i in range(size)]
+
+            # Проверка: вокруг клеток должно быть пусто (нельзя касаться)
+            ok = True
+            for (r, c) in cells:
+                for dr in (-1, 0, 1):
+                    for dc in (-1, 0, 1):
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                            if grid[nr][nc] == "S":
+                                ok = False
+                                break
+                    if not ok:
+                        break
+                if not ok:
+                    break
+            if not ok:
+                continue
+
+            # Ставим корабль
+            for (r, c) in cells:
+                grid[r][c] = "S"
+            placed = True
+            break
+
+        if not placed:
+            return bs_generate_field()  # перегенерировать
+
+    return "".join("".join(row) for row in grid)
+
+
+def bs_create_game(user_id: int, bet: int) -> Optional[int]:
+    if bet < BS_BET_MIN:
+        return None
+    if get_balance(user_id) < bet:
+        return None
+    if not update_balance(user_id, -bet):
+        return None
+
+    player_field = bs_generate_field()
+    bot_field = bs_generate_field()
+    empty = "0" * (BS_SIZE * BS_SIZE)
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO battleship_games
+        (user_id, player_field, bot_field, player_shots, bot_shots, bet, turn, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'player', 'active')
+    """, (user_id, player_field, bot_field, empty, empty, bet))
+    game_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return game_id
+
+
+def bs_get_game(game_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, user_id, player_field, bot_field, player_shots, bot_shots,
+               bet, status, turn
+        FROM battleship_games WHERE id = ?
+    """, (game_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "user_id": row[1],
+        "player_field": row[2], "bot_field": row[3],
+        "player_shots": row[4], "bot_shots": row[5],
+        "bet": row[6], "status": row[7], "turn": row[8],
+    }
+
+
+def bs_cell_index(row: int, col: int) -> int:
+    return row * BS_SIZE + col
+
+
+def bs_check_ship_sunk(field: str, shots: str, r: int, c: int) -> bool:
+    """Проверяет, убит ли корабль, в который попали в (r, c)."""
+    # Находим все клетки корабля, связанные с (r, c)
+    visited = set()
+    to_check = [(r, c)]
+    ship_cells = []
+    while to_check:
+        cr, cc = to_check.pop()
+        if (cr, cc) in visited:
+            continue
+        idx = bs_cell_index(cr, cc)
+        if field[idx] != "S":
+            continue
+        visited.add((cr, cc))
+        ship_cells.append((cr, cc))
+        for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nr, nc = cr + dr, cc + dc
+            if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                ni = bs_cell_index(nr, nc)
+                if field[ni] == "S" and (nr, nc) not in visited:
+                    to_check.append((nr, nc))
+
+    # Все ли клетки корабля подбиты?
+    for (sr, sc) in ship_cells:
+        si = bs_cell_index(sr, sc)
+        if shots[si] != "2" and shots[si] != "3":
+            return False
+    return True
+
+
+def bs_mark_sunk(field: str, shots: list, r: int, c: int):
+    """Помечает все клетки корабля как убитые (3) + окружающие как промах (1)."""
+    visited = set()
+    to_check = [(r, c)]
+    ship_cells = []
+    while to_check:
+        cr, cc = to_check.pop()
+        if (cr, cc) in visited:
+            continue
+        idx = bs_cell_index(cr, cc)
+        if field[idx] != "S":
+            continue
+        visited.add((cr, cc))
+        ship_cells.append((cr, cc))
+        for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nr, nc = cr + dr, cc + dc
+            if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                ni = bs_cell_index(nr, nc)
+                if field[ni] == "S" and (nr, nc) not in visited:
+                    to_check.append((nr, nc))
+
+    for (sr, sc) in ship_cells:
+        si = bs_cell_index(sr, sc)
+        shots[si] = "3"
+        # Помечаем вокруг как промах
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                nr, nc = sr + dr, sc + dc
+                if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                    ni = bs_cell_index(nr, nc)
+                    if shots[ni] == "0":
+                        shots[ni] = "1"
+
+
+def bs_player_shot(game_id: int, row: int, col: int) -> tuple:
+    """Ход игрока по полю бота. Возвращает (ok, result, message)."""
+    game = bs_get_game(game_id)
+    if not game or game["status"] != "active":
+        return False, "error", "Игра неактивна"
+    if game["turn"] != "player":
+        return False, "error", "Не твой ход"
+
+    idx = bs_cell_index(row, col)
+    shots = list(game["player_shots"])
+    if shots[idx] in ("1", "2", "3"):
+        return False, "error", "Уже стрелял сюда"
+
+    bot_field = game["bot_field"]
+    if bot_field[idx] == "S":
+        shots[idx] = "2"
+        # Проверяем — убит ли корабль целиком
+        if bs_check_ship_sunk(bot_field, "".join(shots), row, col):
+            bs_mark_sunk(bot_field, shots, row, col)
+            result = "sunk"
+        else:
+            result = "hit"
+    else:
+        shots[idx] = "1"
+        result = "miss"
+
+    shots_str = "".join(shots)
+
+    # Проверка победы: все S-клетки поля бота подбиты
+    win = all(
+        bot_field[i] != "S" or shots[i] == "3"
+        for i in range(BS_SIZE * BS_SIZE)
+    )
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    if win:
+        update_balance(game["user_id"], game["bet"] * 2)
+        cur.execute("""
+            UPDATE battleship_games SET player_shots = ?, status = 'win' WHERE id = ?
+        """, (shots_str, game_id))
+    else:
+        # Передаём ход боту, если промах
+        next_turn = "bot" if result == "miss" else "player"
+        cur.execute("""
+            UPDATE battleship_games SET player_shots = ?, turn = ? WHERE id = ?
+        """, (shots_str, next_turn, game_id))
+    conn.commit()
+    conn.close()
+
+    if win:
+        return True, "win", f"🏆 Победа! Ты выиграл {game['bet'] * 2} 🪙"
+    return True, result, ""
+
+
+def bs_bot_move(game_id: int) -> tuple:
+    """Ход бота по полю игрока. Возвращает (result, message)."""
+    game = bs_get_game(game_id)
+    if not game or game["status"] != "active":
+        return "error", "Игра неактивна"
+
+    player_field = game["player_field"]
+    bot_shots = list(game["bot_shots"])
+
+    # Простой бот: ищет клетки вокруг попаданий, иначе случайно
+    candidates = []
+    # Ищем уже подбитые, но не убитые клетки
+    for i in range(BS_SIZE * BS_SIZE):
+        if bot_shots[i] == "2":
+            r, c = divmod(i, BS_SIZE)
+            for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
+                    ni = bs_cell_index(nr, nc)
+                    if bot_shots[ni] == "0":
+                        candidates.append((nr, nc))
+
+    if not candidates:
+        # Случайно по неоткрытым
+        remaining = [i for i in range(BS_SIZE * BS_SIZE) if bot_shots[i] == "0"]
+        if not remaining:
+            return "error", "Нет доступных клеток"
+        idx = random.choice(remaining)
+        row, col = divmod(idx, BS_SIZE)
+    else:
+        row, col = random.choice(candidates)
+
+    idx = bs_cell_index(row, col)
+
+    if player_field[idx] == "S":
+        bot_shots[idx] = "2"
+        if bs_check_ship_sunk(player_field, "".join(bot_shots), row, col):
+            bs_mark_sunk(player_field, bot_shots, row, col)
+            result = "sunk"
+        else:
+            result = "hit"
+    else:
+        bot_shots[idx] = "1"
+        result = "miss"
+
+    shots_str = "".join(bot_shots)
+
+    # Проверка поражения игрока
+    lose = all(
+        player_field[i] != "S" or bot_shots[i] == "3"
+        for i in range(BS_SIZE * BS_SIZE)
+    )
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    if lose:
+        cur.execute("""
+            UPDATE battleship_games SET bot_shots = ?, status = 'lose' WHERE id = ?
+        """, (shots_str, game_id))
+    else:
+        # Если бот попал — бот ходит ещё; если промах — ход игроку
+        next_turn = "bot" if result in ("hit", "sunk") else "player"
+        cur.execute("""
+            UPDATE battleship_games SET bot_shots = ?, turn = ? WHERE id = ?
+        """, (shots_str, next_turn, game_id))
+    conn.commit()
+    conn.close()
+
+    if lose:
+        return "lose", "💀 Бот уничтожил твой флот. Ты проиграл."
+    return result, f"Бот стреляет в ({row + 1}, {col + 1}): {result}"
 
 # Инициализация при импорте
 init_db()
