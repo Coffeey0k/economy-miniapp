@@ -950,6 +950,42 @@ def admin_ban(payload: dict = Body(...)):
     conn.close()
     return {"ok": True, "message": f"@{username} {'забанен' if banned else 'разбанен'}"}
 
+# ========== API: АДМИН ПИНГ ==========
+
+import time
+
+
+@app.get("/api/admin/ping")
+def admin_ping(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+
+    import httpx
+    try:
+        start = time.monotonic()
+        # Запрос к Telegram API
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
+        with httpx.Client(timeout=5) as client:
+            r = client.get(url)
+        ping_ms = int((time.monotonic() - start) * 1000)
+
+        if ping_ms < 200:
+            status = "🟢 Отлично"
+        elif ping_ms < 500:
+            status = "🟡 Нормально"
+        elif ping_ms < 1000:
+            status = "🟠 Медленно"
+        else:
+            status = "🔴 Плохо"
+
+        return {
+            "ok": r.status_code == 200,
+            "ping_ms": ping_ms,
+            "status": status,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка пинга: {e}")
+
 @app.get("/")
 def health():
     return {"status": "ok"}
