@@ -1493,6 +1493,189 @@ def bs_fire(payload: dict = Body(...)):
         "balance": balance,
     }
 
+# ========== API: ДРУЗЬЯ ==========
+
+FRIEND_BONUS_PER = 2
+FRIEND_BONUS_MAX = 20
+
+
+@app.get("/api/friends")
+def get_friends(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+
+    # Список друзей
+    cur.execute("""
+        SELECT DISTINCT CASE WHEN user_id = %s THEN friend_id ELSE user_id END AS friend
+        FROM friends
+        WHERE user_id = %s OR friend_id = %s
+    """, (user_id, user_id, user_id))
+    friend_ids = [r["friend"] for r in cur.fetchall()]
+
+    friends = []
+    for fid in friend_ids:
+        cur.execute("SELECT user_id, username, balance FROM users WHERE user_id = %s", (fid,))
+        row = cur.fetchone()
+        if row:
+            friends.append({
+                "user_id": row["user_id"],
+                "username": row["username"],
+                "balance": row["balance"],
+            })
+
+    # Входящие заявки
+    cur.execute("""
+        SELECT id, from_user FROM friend_requests
+        WHERE to_user = %s AND status = 'pending'
+    """, (user_id,))
+    pending_rows = cur.fetchall()
+    pending = []
+    for p in pending_rows:
+        cur.execute("SELECT username FROM users WHERE user_id = %s", (p["from_user"],))
+        u = cur.fetchone()
+        pending.append({
+            "request_id": p["id"],
+            "from_user": p["from_user"],
+            "from_username": u["username"] if u else str(p["from_user"]),
+        })
+
+    conn.close()
+
+    bonus = min(len(friends) * FRIEND_BONUS_PER, FRIEND_BONUS_MAX)
+    return {
+        "friends": friends,
+        "pending": pending,
+        "bonus": bonus,
+    }
+
+
+@app.post("/api/friends/add")
+def add_friend(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    username = (payload.get("username") or "").lstrip("@").lower()
+
+    if not username:
+        raise HTTPException(status_code=400, detail="Укажи username")
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE LOWER(username) = %s", (username,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    target_id = row["user_id"]
+    if target_id == user_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Нельзя добавить себя")
+
+    # Уже друзья?
+    cur.execute("""
+        SELECT id FROM friends WHERE
+        (user_id = %s AND friend_id = %s) OR (user_id = %s AND friend_id = %s)
+    """, (user_id, target_id, target_id, user_id))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Вы уже друзья")
+
+    # Уже есть заявка?
+    cur.execute("""
+        SELECT id FROM friend_requests
+        WHERE from_user = %s AND to_user = %s AND status = 'pending'
+    """, (user_id, target_id))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Заявка уже отправлена")
+
+    # Встречная заявка?
+    cur.execute("""
+        SELECT id FROM friend_requests
+        WHERE from_user = %s AND to_user = %s AND status = 'pending'
+    """, (target_id, user_id))
+    reverse = cur.fetchone()
+    if reverse:
+        cur.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = %s", (reverse["id"],))
+        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)", (user_id, target_id))
+        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)", (target_id, user_id))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "mutual": True, "message": f"Вы и @{username} теперь друзья!"}
+
+    # Обычная заявка
+    cur.execute("""
+        INSERT INTO friend_requests (from_user, to_user) VALUES (%s, %s)
+    """, (user_id, target_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "mutual": False, "message": f"Заявка отправлена @{username}"}
+
+
+@app.post("/api/friends/accept")
+def accept_friend(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    request_id = int(payload.get("request_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT from_user, to_user, status FROM friend_requests WHERE id = %s
+    """, (request_id,))
+    row = cur.fetchone()
+    if not row or row["status"] != "pending":
+        conn.close()
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    if row["to_user"] != user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Не твоя заявка")
+
+    from_u = row["from_user"]
+    to_u = row["to_user"]
+
+    cur.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = %s", (request_id,))
+    cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)", (from_u, to_u))
+    cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)", (to_u, from_u))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Заявка принята"}
+
+
+@app.post("/api/friends/decline")
+def decline_friend(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    request_id = int(payload.get("request_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT to_user FROM friend_requests WHERE id = %s AND status = 'pending'
+    """, (request_id,))
+    row = cur.fetchone()
+    if not row or row["to_user"] != user_id:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    cur.execute("UPDATE friend_requests SET status = 'declined' WHERE id = %s", (request_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/api/friends/remove")
+def remove_friend(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    friend_id = int(payload.get("friend_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        DELETE FROM friends WHERE
+        (user_id = %s AND friend_id = %s) OR (user_id = %s AND friend_id = %s)
+    """, (user_id, friend_id, friend_id, user_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Удалён из друзей"}
+
 @app.get("/")
 def health():
     return {"status": "ok"}
