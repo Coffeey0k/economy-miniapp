@@ -347,6 +347,10 @@
         <span>🚫 Бан/разбан</span>
         <button class="btn btn-small" onclick="adminBan()">Открыть</button>
       </div>
+            <div class="item-row">
+        <span>📡 Пинг бота</span>
+        <button class="btn btn-small" onclick="adminPing()">Проверить</button>
+      </div>
       <div id="admin-result"></div>
     </div>
   </div>
@@ -747,7 +751,13 @@
       showMsg("admin-result", res.message, true);
     } catch (e) { showMsg("admin-result", e.message, false); }
   }
-
+  async function adminPing() {
+    try {
+      const res = await apiGet("/api/admin/ping");
+      showMsg("admin-result", `📡 Пинг: ${res.ping_ms} мс ${res.status}`, true);
+    } catch (e) { showMsg("admin-result", e.message, false); }
+  }
+  
   // ===== TOAST + HAPTIC =====
   let toastTimer = null;
   function toast(text, isError) {
