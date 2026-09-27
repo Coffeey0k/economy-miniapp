@@ -76,7 +76,7 @@ PROFESSION_INFO = {
     "cook": {"name": "🍳 Повар", "salary": 1000, "cooldown_hours": 3},
     "vet": {"name": "🩺 Ветеринар", "salary": 1200, "cooldown_hours": 4},
     "programmer": {"name": "💻 Программист", "salary": 1400, "cooldown_hours": 5},
-    # "ruler" сюда не включаем — по правилам бота, эта профессия только для админов
+    "ruler": {"name": "👑 Правитель Paradise Reef", "salary": 10000, "cooldown_hours": 12},
 }
 HIRE_COST = 1000
 FIRE_EXTRA_COST = 1000
@@ -436,6 +436,8 @@ def toggle_pet(payload: dict = Body(...)):
 @app.get("/api/professions")
 def get_professions(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
+    is_admin = user_id in ADMIN_IDS
+
     conn = db()
     cur = conn.cursor()
     cur.execute(
@@ -460,6 +462,7 @@ def get_professions(init_data: str = Query(..., alias="initData")):
     all_professions = [
         {"key": key, "name": p["name"], "salary": p["salary"], "cooldown_hours": p["cooldown_hours"]}
         for key, p in PROFESSION_INFO.items()
+        if key != "ruler" or is_admin
     ]
     return {"current": current, "all": all_professions, "hire_cost": HIRE_COST}
 
@@ -853,6 +856,99 @@ def set_hints(payload: dict = Body(...)):
     conn.commit()
     conn.close()
     return {"ok": True}
+
+# ========== API: АДМИНКА ==========
+
+def _require_admin(user_id: int):
+    if user_id not in ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Нет доступа")
+
+
+@app.post("/api/admin/give")
+def admin_give(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    username = (payload.get("username") or "").lstrip("@")
+    amount = int(payload.get("amount") or 0)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE username = ?", (username,))
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Не найден")
+    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target["user_id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"Выдано {amount} 🪙 @{username}"}
+
+
+@app.post("/api/admin/take")
+def admin_take(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    username = (payload.get("username") or "").lstrip("@")
+    amount = int(payload.get("amount") or 0)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, balance FROM users WHERE username = ?", (username,))
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Не найден")
+    new_bal = max(0, target["balance"] - amount)
+    cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_bal, target["user_id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"Снято {amount} 🪙 @{username}"}
+
+
+@app.get("/api/admin/user")
+def admin_user(init_data: str = Query(..., alias="initData"), query: str = Query(...)):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+    q = query.lstrip("@")
+    conn = db()
+    cur = conn.cursor()
+    if q.isdigit():
+        cur.execute("SELECT user_id, username, balance FROM users WHERE user_id = ?", (int(q),))
+    else:
+        cur.execute("SELECT user_id, username, balance FROM users WHERE username = ?", (q,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Не найден")
+    return {"user_id": row["user_id"], "username": row["username"], "balance": row["balance"]}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) c FROM users")
+    users = cur.fetchone()["c"]
+    cur.execute("SELECT SUM(balance) s FROM users")
+    balance = cur.fetchone()["s"] or 0
+    cur.execute("SELECT COUNT(*) c FROM purchases")
+    purchases = cur.fetchone()["c"]
+    conn.close()
+    return {"total_users": users, "total_balance": balance, "total_purchases": purchases}
+
+
+@app.post("/api/admin/ban")
+def admin_ban(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    username = (payload.get("username") or "").lstrip("@")
+    banned = bool(payload.get("banned"))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET is_banned = ? WHERE username = ?", (1 if banned else 0, username))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"@{username} {'забанен' if banned else 'разбанен'}"}
 
 @app.get("/")
 def health():
