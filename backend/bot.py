@@ -886,13 +886,23 @@ async def professions_menu_handler(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "my_profession")
-async def my_profession(callback: CallbackQuery):
-    prof = db.get_profession(callback.from_user.id)
-    if not prof or not prof["profession"]:
-        await callback.message.edit_text(
-            "💼 У вас нет профессии.\nУстроиться стоит 1000 🪙.",
-            reply_markup=professions_menu()
-        )
+    level = prof["level"]
+    days = prof["days_worked"]
+    if level >= 5:
+        bar = "▰▰▰▰▰▰▰ 100% (максимум)"
+    else:
+        filled = int((days / 7) * 7)
+        bar = "▰" * filled + "▱" * (7 - filled)
+
+    await callback.message.edit_text(
+        f"💼 {info['name']}\n\n"
+        f"Уровень: {level}/5\n"
+        f"Зарплата: {salary} 🪙\n"
+        f"Кулдаун: {info['cooldown_hours']} ч\n\n"
+        f"📊 Прогресс до {level + 1 if level < 5 else level} уровня:\n"
+        f"{bar} {days}/7 дней",
+        reply_markup=builder.as_markup()
+    )
         await callback.answer()
         return
     from database import PROFESSIONS
@@ -1204,12 +1214,10 @@ async def work_word_handler(message: Message):
     """Ворд-триггер 'работать' — получить зарплату по профессии"""
     user_id = message.from_user.id
 
-    # Проверяем, есть ли пользователь
     if not db.get_user(user_id):
         username = message.from_user.username or str(user_id)
         db.create_user(user_id, username)
 
-    # Проверяем бан
     user = db.get_user(user_id)
     if user and user["is_banned"]:
         await message.answer("🚫 Вы заблокированы.")
@@ -1225,8 +1233,18 @@ async def work_word_handler(message: Message):
 
     ok, msg = db.work_profession(user_id)
     if ok:
+        # Прогресс-бар
+        new_prof = db.get_profession(user_id)
+        level = new_prof["level"]
+        days = new_prof["days_worked"]
+        if level >= 5:
+            bar = "▰▰▰▰▰▰▰ 100% (максимум)"
+        else:
+            filled = int((days / 7) * 7)
+            bar = "▰" * filled + "▱" * (7 - filled) + f" {days}/7 дней"
         await message.answer(
             f"💼 {msg}\n"
+            f"📊 Прогресс: {bar}\n"
             f"💰 Баланс: {db.get_balance(user_id)} 🪙"
         )
     else:
