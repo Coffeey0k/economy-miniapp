@@ -8,6 +8,7 @@ import random
 from datetime import datetime, timedelta
 from collections import defaultdict
 from tictactoe import router as ttt_router
+from minesweeper import router as ms_router
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -59,6 +60,7 @@ active_chests = {}
 
 dp.include_router(admin_router)
 dp.include_router(ttt_router)
+dp.include_router(ms_router)
 
 class TransferStates(StatesGroup):
     waiting_recipient = State()
