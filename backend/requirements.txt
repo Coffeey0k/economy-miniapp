@@ -3,3 +3,4 @@ python-dotenv>=1.0.0
 fastapi
 uvicorn[standard]
 psycopg2-binary
+httpx
