@@ -258,10 +258,25 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # === САПЁР ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS minesweeper_games (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            field_size INTEGER DEFAULT 8,
+            mines_count INTEGER DEFAULT 6,
+            board TEXT,
+            revealed TEXT,
+            bet BIGINT DEFAULT 200,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     conn.commit()
     conn.close()
-
 
 # === ПОЛЬЗОВАТЕЛИ ===
 
@@ -1672,6 +1687,160 @@ def ttt_finish_game(game_id: int, winner_id: int):
     cur.execute("UPDATE ttt_games SET status = 'finished', winner = ? WHERE id = ?", (winner_id, game_id))
     conn.commit()
     conn.close()
+
+# ==================== САПЁР ====================
+
+MS_FIELD_SIZE = 8
+MS_MINES = 6
+MS_BET = 200
+MS_REWARD = 400
+
+
+def ms_create_game(user_id: int, bet: int = MS_BET) -> Optional[int]:
+    """Создаёт игру, списывает ставку. Возвращает game_id или None."""
+    if get_balance(user_id) < bet:
+        return None
+    if not update_balance(user_id, -bet):
+        return None
+
+    size = MS_FIELD_SIZE
+    # Генерируем поле с минами
+    cells = size * size
+    mine_positions = random.sample(range(cells), MS_MINES)
+
+    # board: 'M' — мина, число 0-8 — сколько мин вокруг
+    board = []
+    for i in range(cells):
+        if i in mine_positions:
+            board.append("M")
+        else:
+            # Считаем мины вокруг
+            row, col = divmod(i, size)
+            count = 0
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = row + dr, col + dc
+                    if 0 <= nr < size and 0 <= nc < size:
+                        ni = nr * size + nc
+                        if ni in mine_positions:
+                            count += 1
+            board.append(str(count))
+
+    board_str = "".join(board)
+    # revealed: '0' — закрыто, '1' — открыто
+    revealed_str = "0" * cells
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO minesweeper_games (user_id, board, revealed, bet, status)
+        VALUES (?, ?, ?, ?, 'active')
+    """, (user_id, board_str, revealed_str, bet))
+    game_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return game_id
+
+
+def ms_get_game(game_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, user_id, board, revealed, bet, status, field_size, mines_count
+        FROM minesweeper_games WHERE id = ?
+    """, (game_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "user_id": row[1], "board": row[2],
+        "revealed": row[3], "bet": row[4], "status": row[5],
+        "field_size": row[6], "mines_count": row[7],
+    }
+
+
+def ms_open_cell(game_id: int, cell: int, user_id: int) -> tuple:
+    """Открывает клетку. Возвращает (ok, result, message). result: 'boom' | 'safe' | 'win'."""
+    game = ms_get_game(game_id)
+    if not game or game["status"] != "active":
+        return False, "error", "Игра неактивна"
+    if game["user_id"] != user_id:
+        return False, "error", "Не твоя игра"
+
+    size = game["field_size"]
+    board = list(game["board"])
+    revealed = list(game["revealed"])
+
+    if revealed[cell] == "1":
+        return False, "error", "Клетка уже открыта"
+
+    # === Попал на мину ===
+    if board[cell] == "M":
+        # Открываем все мины
+        for i in range(size * size):
+            if board[i] == "M":
+                revealed[i] = "1"
+        revealed_str = "".join(revealed)
+
+        conn = sqlite3.connect(DB_NAME)
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE minesweeper_games SET revealed = ?, status = 'lose' WHERE id = ?
+        """, (revealed_str, game_id))
+        conn.commit()
+        conn.close()
+        return True, "boom", "💥 Мина! Ты проиграл."
+
+    # === Безопасная клетка ===
+    # Авто-раскрытие пустых клеток (у которых 0 мин вокруг)
+    to_reveal = [cell]
+    while to_reveal:
+        c = to_reveal.pop()
+        if revealed[c] == "1":
+            continue
+        revealed[c] = "1"
+        # Если 0 мин вокруг — открываем соседей
+        if board[c] == "0":
+            row, col = divmod(c, size)
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = row + dr, col + dc
+                    if 0 <= nr < size and 0 <= nc < size:
+                        ni = nr * size + nc
+                        if revealed[ni] == "0" and board[ni] != "M":
+                            to_reveal.append(ni)
+
+    revealed_str = "".join(revealed)
+
+    # === Проверка победы: все не-минные клетки открыты ===
+    win = True
+    for i in range(size * size):
+        if board[i] != "M" and revealed[i] == "0":
+            win = False
+            break
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    if win:
+        update_balance(game["user_id"], MS_REWARD)
+        cur.execute("""
+            UPDATE minesweeper_games SET revealed = ?, status = 'win' WHERE id = ?
+        """, (revealed_str, game_id))
+    else:
+        cur.execute("""
+            UPDATE minesweeper_games SET revealed = ? WHERE id = ?
+        """, (revealed_str, game_id))
+    conn.commit()
+    conn.close()
+
+    if win:
+        return True, "win", f"🏆 Победа! Ты выиграл {MS_REWARD} 🪙"
+    return True, "safe", ""
 
 # Инициализация при импорте
 init_db()
