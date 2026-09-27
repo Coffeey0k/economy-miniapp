@@ -447,7 +447,7 @@ def get_professions(init_data: str = Query(..., alias="initData")):
     conn.close()
 
     current = None
-    if row and row["profession"]:
+    if row and row["profession"] and row["profession"] in PROFESSION_INFO:
         salary = PROFESSION_INFO[row["profession"]]["salary"] + (row["level"] - 1) * 50
         current = {
             "profession": row["profession"],
@@ -512,7 +512,10 @@ def work_profession(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=400, detail="У вас нет профессии")
 
-    info = PROFESSION_INFO[row["profession"]]
+    info = PROFESSION_INFO.get(row["profession"])
+    if not info:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Профессия доступна только в боте")
     now = datetime.now()
     if row["last_work"]:
         delta = now - datetime.fromisoformat(row["last_work"])
@@ -745,6 +748,111 @@ def transfer_coins(payload: dict = Body(...)):
     conn.close()
     return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}"}
 
+# ========== API: ИГРЫ ==========
+
+SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
+
+
+@app.post("/api/games/play")
+def play_game(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    game = payload.get("game")
+    bet = int(payload.get("bet") or 0)
+    choice = payload.get("choice")
+    if bet <= 0:
+        raise HTTPException(status_code=400, detail="Ставка должна быть больше нуля")
+
+    conn = db()
+    cur = conn.cursor()
+    if not change_balance(cur, user_id, -bet):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно монет")
+
+    win = 0
+    text = ""
+
+    if game == "slot":
+        result = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
+        text = f"{result[0]} {result[1]} {result[2]}"
+        if result[0] == result[1] == result[2]:
+            mult = 10 if result[0] == "7️⃣" else (5 if result[0] == "💎" else 3)
+            win = bet * mult
+        elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
+            win = bet * 2
+    elif game == "dice":
+        roll = random.randint(1, 6)
+        text = f"🎲 Выпало: {roll}"
+        if str(roll) == str(choice):
+            win = bet * 6
+    elif game == "coin":
+        result = random.choice(["Орел", "Решка"])
+        text = f"🪙 Выпало: {result}"
+        if str(choice) == result:
+            win = bet * 2
+    elif game == "dart":
+        score = random.randint(0, 15)
+        text = f"🎯 Очков: {score}"
+        if score == 15: win = bet * 5
+        elif score >= 12: win = bet * 3
+        elif score >= 8: win = bet * 1
+    elif game == "number":
+        num = random.randint(1, 10)
+        text = f"🃏 Число: {num}"
+        try:
+            guess = int(choice)
+            if guess == num:
+                win = bet * 10
+            elif abs(guess - num) <= 2:
+                win = bet * 2
+        except (ValueError, TypeError):
+            pass
+    else:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Неизвестная игра")
+
+    if win > 0:
+        change_balance(cur, user_id, bet + win)
+        text += f"\n✅ Выигрыш: {win} 🪙"
+    else:
+        text += f"\n❌ Проигрыш: {bet} 🪙"
+
+    conn.commit()
+    conn.close()
+    return {"ok": True, "win": win, "text": text}
+
+
+# ========== API: НАСТРОЙКИ ==========
+
+ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
+
+
+@app.get("/api/settings")
+def get_settings(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT tutorial_done, hints_enabled FROM user_settings WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return {
+        "theme": "dark",
+        "hints_enabled": bool(row["hints_enabled"]) if row else True,
+        "tutorial_done": bool(row["tutorial_done"]) if row else False,
+        "is_admin": user_id in ADMIN_IDS,
+    }
+
+
+@app.post("/api/settings/hints")
+def set_hints(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    enabled = bool(payload.get("enabled"))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,))
+    cur.execute("UPDATE user_settings SET hints_enabled = ? WHERE user_id = ?", (1 if enabled else 0, user_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 @app.get("/")
 def health():
