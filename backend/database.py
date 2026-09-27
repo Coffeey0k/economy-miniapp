@@ -1006,12 +1006,6 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
         UPDATE professions SET last_work = ?, days_worked = ?, level = ?, last_work_day = ?
         WHERE user_id = ?
     """, (now.isoformat(), new_days, new_level, today, user_id))
-    # Обновляем прогресс в profession_progress
-    cur.execute("""
-        INSERT OR REPLACE INTO profession_progress
-        (user_id, profession, level, days_worked, last_work)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, prof["profession"], new_level, new_days, now.isoformat()))
     conn.commit()
     conn.close()
     return True, f"Вы заработали {salary} 🪙! (уровень {new_level}, дней: {new_days}/7)"
