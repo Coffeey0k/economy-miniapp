@@ -53,6 +53,7 @@ def invite_keyboard(invite_id: int) -> InlineKeyboardBuilder:
 @router.message(F.text.lower().startswith("кн "))
 async def ttt_create(message: Message):
     """Команда: 'кн @username 500' или 'кн бот 500'."""
+    print(f">>> ttt_create вызван! text={message.text!r}")
     parts = message.text.split()
     if len(parts) < 3:
         await message.answer(
