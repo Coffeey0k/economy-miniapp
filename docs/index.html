@@ -562,12 +562,25 @@
   async function loadWork() {
     try {
       const data = await apiGet("/api/professions");
-      document.getElementById("work-current").innerHTML = data.current
-        ? `<div class="stat-row"><span>${data.current.name}</span><span>Ур. ${data.current.level}</span></div>
-           <div class="stat-row"><span>Зарплата</span><span>${data.current.salary} 🪙</span></div>
-           <div class="stat-row"><span>Прогресс до уровня</span><span>${data.current.days_worked}/7 дней</span></div>
-           <button class="btn" onclick="workNow()">Работать</button>`
-        : `<div class="label">У вас пока нет профессии — выберите ниже</div>`;
+      if (data.current) {
+        const c = data.current;
+        const progressText = c.level >= 5
+          ? "Максимальный уровень"
+          : `${c.days_worked}/7 дней (осталось ${c.days_needed})`;
+        document.getElementById("work-current").innerHTML = `
+          <div class="stat-row"><span>${c.name}</span><span>Ур. ${c.level}</span></div>
+          <div class="stat-row"><span>Зарплата</span><span>${c.salary} 🪙</span></div>
+          <div class="stat-row"><span>Прогресс до уровня</span><span>${progressText}</span></div>
+          <div style="margin:10px 0;">
+            <div style="background:rgba(139,92,246,0.15);border-radius:8px;height:12px;overflow:hidden;">
+              <div style="background:linear-gradient(90deg,#a78bfa,#6d28d9);height:100%;width:${c.progress_percent}%;transition:width 0.4s;"></div>
+            </div>
+          </div>
+          <button class="btn" onclick="workNow()">Работать</button>
+        `;
+      } else {
+        document.getElementById("work-current").innerHTML = `<div class="label">У вас пока нет профессии — выберите ниже</div>`;
+      }
 
       document.getElementById("work-list").innerHTML = data.all.map(p => `
         <div class="item-row">
