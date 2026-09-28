@@ -1618,6 +1618,7 @@
   
   // ===== СТАРТ =====
   async function init() {
+    // Аватарка
     try {
       const tgUser = tg.initDataUnsafe && tg.initDataUnsafe.user;
       if (tgUser && tgUser.photo_url) {
@@ -1625,12 +1626,15 @@
           `<img class="avatar" src="${tgUser.photo_url}" alt="avatar">`;
       }
     } catch (e) {}
-      // Предзагрузка косметики (для рамок и цвета в профиле)
-      // Предзагрузка косметики + темы
-      try {
-        cosData = await apiGet("/api/cosmetics");
-        applyTheme(cosData.current.theme);
-      } catch (e) {}
+
+    // Предзагрузка косметики + темы
+    try {
+      cosData = await apiGet("/api/cosmetics");
+      if (cosData && cosData.current) applyTheme(cosData.current.theme);
+    } catch (e) {}
+
+    // Загрузка профиля
+    try {
       await loadProfile();
       document.getElementById("status").style.display = "none";
       document.getElementById("app").style.display = "block";
