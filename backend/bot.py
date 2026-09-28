@@ -1,3 +1,5 @@
+from PIL import Image
+import os
 from banner import print_banner
 import asyncio
 from email.mime import message
@@ -23,6 +25,7 @@ from aiogram.types import ChatMemberUpdated
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery
 from aiogram.types import InlineKeyboardButton
+from aiogram.types import FSInputFile
 
 import config
 import database as db
@@ -1377,6 +1380,81 @@ async def bank_ping_handler(message: Message):
     except Exception as e:
         await message.answer(f"❌ Не удалось измерить пинг: {e}")
 
+@dp.message(F.text.lower() == "остров")
+async def island_word(message: Message):
+    user_id = message.from_user.id
+    state = db.island_get(user_id)
+
+    if not state["has_island"]:
+        # Нет острова — просто текст
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(
+            text=f"🏝️ Купить остров — {db.ISLAND_PRICE:,} 🪙",
+            callback_data="island_buy_island"
+        ))
+        await message.answer(
+            "🏝️ У тебя пока нет острова.\n\n"
+            "Купи его, чтобы строить домик, причал и корабль. "
+            "Домик и корабль будут приносить пассивный доход.",
+            reply_markup=builder.as_markup()
+        )
+        return
+
+    # Есть остров — отправляем картинку
+    try:
+        path = build_island_image(user_id, state)
+        photo = FSInputFile(path)
+        caption = (
+            f"🏝️ Твой остров\n\n"
+            f"{'🏠 Домик: есть' if state['has_house'] else '🏠 Домик: нет'}\n"
+            f"{'⚓ Причал: есть' if state['has_pier'] else '⚓ Причал: нет'}\n"
+            f"{'🚢 Корабль: есть' if state['has_ship'] else '🚢 Корабль: нет'}\n\n"
+            f"💰 Баланс: {db.get_balance(user_id):,} 🪙"
+        )
+        # Кнопки покупки того, чего нет
+        builder = InlineKeyboardBuilder()
+        if not state["has_house"]:
+            builder.row(InlineKeyboardButton(
+                text=f"🏠 Построить домик — {db.HOUSE_PRICE:,}",
+                callback_data="island_buy_house"
+            ))
+        if not state["has_pier"]:
+            builder.row(InlineKeyboardButton(
+                text=f"⚓ Построить причал — {db.PIER_PRICE:,}",
+                callback_data="island_buy_pier"
+            ))
+        if state["has_pier"] and not state["has_ship"]:
+            builder.row(InlineKeyboardButton(
+                text=f"🚢 Купить корабль — {db.SHIP_PRICE:,}",
+                callback_data="island_buy_ship"
+            ))
+
+        await message.answer_photo(photo, caption=caption,
+                                   reply_markup=builder.as_markup() if builder._markup else None)
+
+        # Удаляем временный файл
+        try:
+            os.remove(path)
+        except:
+            pass
+    except FileNotFoundError as e:
+        await message.answer(f"❌ Ошибка: {e}. Проверь, что картинки лежат в images/")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка построения острова: {e}")
+
+
+@dp.callback_query(F.data.startswith("island_buy_"))
+async def island_buy_cb(callback: CallbackQuery):
+    item = callback.data.replace("island_buy_", "")
+    ok, msg = db.island_buy(callback.from_user.id, item)
+    if ok:
+        await callback.answer(f"✅ {msg}", show_alert=True)
+        # Перерисовываем
+        await callback.message.delete()
+        await island_word(callback.message)
+    else:
+        await callback.answer(f"❌ {msg}", show_alert=True)
+
 # ==================== ВХОД НОВЫХ УЧАСТНИКОВ ====================
 
 @dp.message(F.new_chat_members)
@@ -1701,8 +1779,76 @@ async def chest_scheduler():
         wait = random.randint(18000, 28800)
         await asyncio.sleep(wait)
         await spawn_chest()
-    
+
+ISLAND_IMG_DIR = "images"
+ISLAND_TEMP_DIR = "temp"
+
+
+def build_island_image(user_id: int, state: dict) -> str:
+    """Склеивает картинку острова с постройками.
+    Возвращает путь к временному файлу."""
+    os.makedirs(ISLAND_TEMP_DIR, exist_ok=True)
+
+    # Базовый остров
+    base_path = os.path.join(ISLAND_IMG_DIR, "island.png")
+    if not os.path.exists(base_path):
+        raise FileNotFoundError(f"Нет картинки {base_path}")
+
+    base = Image.open(base_path).convert("RGBA")
+
+    # Позиции для наложения (можно менять)
+    # Формат: (x, y) — левый верхний угол картинки постройки
+    POSITIONS = {
+        "house": (int(base.width * 0.55), int(base.height * 0.35)),
+        "pier":  (int(base.width * 0.75), int(base.height * 0.55)),
+        "ship":  (int(base.width * 0.78), int(base.height * 0.45)),
+    }
+
+    # Размеры построек (можно менять)
+    SIZES = {
+        "house": (int(base.width * 0.22), int(base.width * 0.22 * 0.7)),
+        "pier":  (int(base.width * 0.25), int(base.width * 0.25 * 0.5)),
+        "ship":  (int(base.width * 0.22), int(base.width * 0.22 * 0.7)),
+    }
+
+    layers = []
+    if state.get("has_house"):
+        layers.append(("house", "house.png"))
+    if state.get("has_pier"):
+        layers.append(("pier", "pier.png"))
+    if state.get("has_ship"):
+        layers.append(("ship", "ship.png"))
+
+    for key, fname in layers:
+        path = os.path.join(ISLAND_IMG_DIR, fname)
+        if not os.path.exists(path):
+            continue
+        sprite = Image.open(path).convert("RGBA")
+        size = SIZES.get(key, (sprite.width, sprite.height))
+        sprite = sprite.resize(size, Image.LANCZOS)
+        base.paste(sprite, POSITIONS.get(key, (0, 0)), sprite)
+
+    out_path = os.path.join(ISLAND_TEMP_DIR, f"island_{user_id}.png")
+    base.convert("RGB").save(out_path, "PNG")
+    return out_path
+
 # ==================== MAIN ====================
+
+async def islands_income_loop():
+    while True:
+        await asyncio.sleep(600)  # каждые 10 минут
+        try:
+            credited = db.islands_income_tick()
+            for user_id, amount, type_, item_name in credited:
+                try:
+                    await bot.send_message(
+                        user_id,
+                        f"💰 Доход с острова!\n{item_name}: +{amount:,} 🪙"
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Ошибка дохода острова: {e}")
 
 async def main():
     from db_compat import init_db
@@ -1721,6 +1867,7 @@ async def main():
     asyncio.create_task(pets_income())
     asyncio.create_task(cursed_egg_scheduler())
     asyncio.create_task(chest_scheduler())
+    asyncio.create_task(islands_income_loop())
     await dp.start_polling(bot)
 
 
