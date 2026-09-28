@@ -1898,8 +1898,127 @@ def apply_cosmetics(payload: dict = Body(...)):
     cur.execute(f"UPDATE user_cosmetics SET {col} = %s WHERE user_id = %s", (item_key, user_id))
     conn.commit()
     conn.close()
-    return {"ok": True}
+    return {"ok": True
 
+# ========== API: ОСТРОВ ==========
+
+ISLAND_PRICES = {
+    "island": 50000,
+    "house": 30000,
+    "pier": 45000,
+    "ship": 100000,
+}
+ISLAND_NAMES = {
+    "island": "🏝️ Остров",
+    "house": "🏠 Домик",
+    "pier": "⚓ Причал",
+    "ship": "🚢 Корабль",
+}
+HOUSE_INCOME = 5000
+HOUSE_COOLDOWN = 5 * 3600
+SHIP_INCOME = 75000
+SHIP_COOLDOWN = 48 * 3600
+
+
+@app.get("/api/island")
+def get_island(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT has_island, has_house, has_pier, has_ship,
+               last_house_income, last_ship_income
+        FROM islands WHERE user_id = %s
+    """, (user_id,))
+    row = cur.fetchone()
+    balance = require_balance(cur, user_id)
+    conn.close()
+
+    if not row:
+        state = {"has_island": False, "has_house": False, "has_pier": False, "has_ship": False,
+                 "last_house_income": None, "last_ship_income": None}
+    else:
+        state = {
+            "has_island": bool(row["has_island"]),
+            "has_house": bool(row["has_house"]),
+            "has_pier": bool(row["has_pier"]),
+            "has_ship": bool(row["has_ship"]),
+            "last_house_income": row["last_house_income"],
+            "last_ship_income": row["last_ship_income"],
+        }
+
+    return {
+        "state": state,
+        "prices": ISLAND_PRICES,
+        "names": ISLAND_NAMES,
+        "balance": balance,
+        "house_income": HOUSE_INCOME,
+        "house_cooldown": HOUSE_COOLDOWN,
+        "ship_income": SHIP_INCOME,
+        "ship_cooldown": SHIP_COOLDOWN,
+    }
+
+
+@app.post("/api/island/buy")
+def buy_island(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    item = payload.get("item")
+
+    if item not in ISLAND_PRICES:
+        raise HTTPException(status_code=400, detail="Неизвестная постройка")
+
+    conn = db()
+    cur = conn.cursor()
+
+    # Проверяем состояние
+    cur.execute("""
+        SELECT has_island, has_house, has_pier, has_ship
+        FROM islands WHERE user_id = %s
+    """, (user_id,))
+    row = cur.fetchone()
+
+    has_island = bool(row["has_island"]) if row else False
+    has_house = bool(row["has_house"]) if row else False
+    has_pier = bool(row["has_pier"]) if row else False
+    has_ship = bool(row["has_ship"]) if row else False
+
+    # Уже куплено?
+    if item == "island" and has_island:
+        conn.close(); raise HTTPException(status_code=400, detail="Уже куплено")
+    if item == "house" and has_house:
+        conn.close(); raise HTTPException(status_code=400, detail="Уже куплено")
+    if item == "pier" and has_pier:
+        conn.close(); raise HTTPException(status_code=400, detail="Уже куплено")
+    if item == "ship" and has_ship:
+        conn.close(); raise HTTPException(status_code=400, detail="Уже куплено")
+
+    # Проверка порядка
+    if item in ("house", "pier", "ship") and not has_island:
+        conn.close(); raise HTTPException(status_code=400, detail="Сначала купи остров")
+    if item == "ship" and not has_pier:
+        conn.close(); raise HTTPException(status_code=400, detail="Сначала построй причал")
+
+    price = ISLAND_PRICES[item]
+    if not change_balance(cur, user_id, -price):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {price:,}")
+
+    cur.execute("INSERT INTO islands (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+    cur.execute(f"UPDATE islands SET has_{item} = TRUE WHERE user_id = %s", (user_id,))
+
+    if item == "house":
+        cur.execute("UPDATE islands SET last_house_income = %s WHERE user_id = %s",
+                    (datetime.now().isoformat(), user_id))
+    if item == "ship":
+        cur.execute("UPDATE islands SET last_ship_income = %s WHERE user_id = %s",
+                    (datetime.now().isoformat(), user_id))
+
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Куплено: {ISLAND_NAMES[item]}", "balance": balance}
+            
 @app.get("/")
 def health():
     return {"status": "ok"}
