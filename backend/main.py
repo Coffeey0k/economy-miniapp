@@ -276,7 +276,7 @@ def fetch_profile(user_id: int) -> dict:
         "nickname_color": cos_row["nickname_color"] if cos_row else None,
         "frame": cos_row["frame"] if cos_row else None,
         "status": cos_row["status"] if cos_row else None,
-        "theme": (cos_row["theme"] if cos_row and cos_row["theme"] else "dark"),
+        "theme": (cos_row["theme"] if cos_row and cos_row["theme"] else "reef"),
     }
 
     # --- значки ---
