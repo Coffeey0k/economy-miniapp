@@ -267,6 +267,22 @@ def fetch_profile(user_id: int) -> dict:
         for r in cur.fetchall()
     ]
 
+    # --- косметика ---
+    cur.execute("""
+        SELECT nickname_color, frame, status, theme FROM user_cosmetics WHERE user_id = %s
+    """, (user_id,))
+    cos_row = cur.fetchone()
+    cosmetics = {
+        "nickname_color": cos_row["nickname_color"] if cos_row else None,
+        "frame": cos_row["frame"] if cos_row else None,
+        "status": cos_row["status"] if cos_row else None,
+        "theme": (cos_row["theme"] if cos_row and cos_row["theme"] else "dark"),
+    }
+
+    # --- значки ---
+    cur.execute("SELECT badge FROM user_badges WHERE user_id = %s", (user_id,))
+    badges = [r["badge"] for r in cur.fetchall()]
+   
     conn.close()
 
     return {
@@ -279,6 +295,8 @@ def fetch_profile(user_id: int) -> dict:
         "stats": stats,
         "pets": pets,
         "purchases": purchases,
+        "cosmetics": cosmetics,
+        "badges": badges,
     }
 
 
@@ -1675,6 +1693,158 @@ def remove_friend(payload: dict = Body(...)):
     conn.commit()
     conn.close()
     return {"ok": True, "message": "Удалён из друзей"}
+
+# ========== API: КОСМЕТИКА ==========
+
+NICK_COLORS = {
+    "red":     {"name": "🔴 Красный",   "hex": "#ef4444"},
+    "orange":  {"name": "🟠 Оранжевый", "hex": "#f97316"},
+    "yellow":  {"name": "🟡 Жёлтый",    "hex": "#eab308"},
+    "green":   {"name": "🟢 Зелёный",   "hex": "#22c55e"},
+    "cyan":    {"name": "🩵 Голубой",   "hex": "#06b6d4"},
+    "blue":    {"name": "🔵 Синий",     "hex": "#3b82f6"},
+    "purple":  {"name": "🟣 Фиолетовый","hex": "#a855f7"},
+    "pink":    {"name": "🩷 Розовый",   "hex": "#ec4899"},
+    "white":   {"name": "⚪ Белый",     "hex": "#ffffff"},
+    "black":   {"name": "⚫ Чёрный",    "hex": "#000000"},
+    "gold":    {"name": "🟨 Золотой",   "hex": "#fbbf24"},
+    "mint":    {"name": "🟩 Мятный",    "hex": "#6ee7b7"},
+}
+NICK_COLOR_PRICE = 15000
+
+FRAMES = {
+    "circle":  {"display": "○ {name} ○",  "price": 5000},
+    "star":    {"display": "⭐ {name} ⭐", "price": 10000},
+    "sparkle": {"display": "✨ {name} ✨", "price": 20000},
+    "spiral":  {"display": "🌀 {name} 🌀", "price": 30000},
+    "diamond": {"display": "💎 {name} 💎", "price": 100000},
+    "crown":   {"display": "👑 {name} 👑", "price": 250000},
+    "rainbow": {"display": "🌈 {name} 🌈", "price": 500000},
+}
+
+STATUSES = {
+    "online":   {"name": "🟢 Онлайн",         "price": 2000},
+    "busy":     {"name": "🔴 Занят",           "price": 2000},
+    "sleep":    {"name": "😴 Сплю",            "price": 2000},
+    "dnd":      {"name": "⛔ Не беспокоить",   "price": 3000},
+    "vacation": {"name": "🏖️ В отпуске",       "price": 3000},
+    "dream":    {"name": "💭 Мечтаю",          "price": 5000},
+}
+
+THEMES = {
+    "dark":  {"name": "🌙 Тёмная",   "price": 0},
+    "light": {"name": "☀️ Светлая",  "price": 0},
+    "neon":  {"name": "🌈 Неоновая", "price": 50000},
+}
+
+BADGES = {
+    "champion": "🏆", "millionaire": "💰", "multi_million": "💎",
+    "sniper": "🎯", "gamer": "🎮", "collector": "🐾",
+    "egg_hunter": "🥚", "builder": "🏝️", "social": "👥",
+    "veteran": "⚔️", "artist": "🎨", "ruler": "👑",
+}
+
+
+@app.get("/api/cosmetics")
+def get_cosmetics_api(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT nickname_color, frame, status, theme FROM user_cosmetics WHERE user_id = %s
+    """, (user_id,))
+    row = cur.fetchone()
+    current = {
+        "nickname_color": row["nickname_color"] if row else None,
+        "frame": row["frame"] if row else None,
+        "status": row["status"] if row else None,
+        "theme": (row["theme"] if row and row["theme"] else "dark"),
+    }
+
+    cur.execute("SELECT badge FROM user_badges WHERE user_id = %s", (user_id,))
+    badges = [r["badge"] for r in cur.fetchall()]
+
+    balance = require_balance(cur, user_id)
+    conn.close()
+
+    return {
+        "current": current,
+        "balance": balance,
+        "colors": NICK_COLORS,
+        "color_price": NICK_COLOR_PRICE,
+        "frames": FRAMES,
+        "statuses": STATUSES,
+        "themes": THEMES,
+        "badges": badges,
+    }
+
+
+@app.post("/api/cosmetics/buy")
+def buy_cosmetics(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    item_type = payload.get("type")  # color / frame / status / theme
+    item_key = payload.get("key")
+
+    price = 0
+    if item_type == "color":
+        if item_key not in NICK_COLORS:
+            raise HTTPException(status_code=404, detail="Неизвестный цвет")
+        price = NICK_COLOR_PRICE
+    elif item_type == "frame":
+        if item_key not in FRAMES:
+            raise HTTPException(status_code=404, detail="Неизвестная рамка")
+        price = FRAMES[item_key]["price"]
+    elif item_type == "status":
+        if item_key not in STATUSES:
+            raise HTTPException(status_code=404, detail="Неизвестный статус")
+        price = STATUSES[item_key]["price"]
+    elif item_type == "theme":
+        if item_key not in THEMES:
+            raise HTTPException(status_code=404, detail="Неизвестная тема")
+        price = THEMES[item_key]["price"]
+    else:
+        raise HTTPException(status_code=400, detail="Неизвестный тип")
+
+    conn = db()
+    cur = conn.cursor()
+    if not change_balance(cur, user_id, -price):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {price}")
+
+    # Применяем
+    col_map = {"color": "nickname_color", "frame": "frame",
+               "status": "status", "theme": "theme"}
+    col = col_map[item_type]
+
+    cur.execute("INSERT INTO user_cosmetics (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+    cur.execute(f"UPDATE user_cosmetics SET {col} = %s WHERE user_id = %s", (item_key, user_id))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Куплено за {price} 🪙", "balance": balance}
+
+
+@app.post("/api/cosmetics/apply")
+def apply_cosmetics(payload: dict = Body(...)):
+    """Применяет уже купленную косметику без оплаты."""
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    item_type = payload.get("type")
+    item_key = payload.get("key")
+
+    col_map = {"color": "nickname_color", "frame": "frame",
+               "status": "status", "theme": "theme"}
+    if item_type not in col_map:
+        raise HTTPException(status_code=400, detail="Неизвестный тип")
+    col = col_map[item_type]
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO user_cosmetics (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+    cur.execute(f"UPDATE user_cosmetics SET {col} = %s WHERE user_id = %s", (item_key, user_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 @app.get("/")
 def health():
