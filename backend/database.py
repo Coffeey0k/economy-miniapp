@@ -334,6 +334,17 @@ def init_db():
             UNIQUE(user_id, badge)
         )
     """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_cosmetics_owned (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            item_type TEXT,
+            item_key TEXT,
+            purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, item_type, item_key)
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -2506,7 +2517,7 @@ def set_cosmetics(user_id: int, **fields) -> bool:
 
 
 def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
-    """Покупает косметику. Возвращает (ok, message)."""
+    """Покупает косметику (если ещё не куплена). Возвращает (ok, message)."""
     if item_type == "color":
         price = NICK_COLOR_PRICE
         if item_key not in NICK_COLORS:
@@ -2526,11 +2537,39 @@ def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
     else:
         return False, "Неизвестный тип"
 
+    # Уже куплено?
+    if owns_cosmetic(user_id, item_type, item_key):
+        # просто применяем без оплаты
+        if item_type == "color":
+            set_cosmetics(user_id, nickname_color=item_key)
+        elif item_type == "frame":
+            set_cosmetics(user_id, frame=item_key)
+        elif item_type == "status":
+            set_cosmetics(user_id, status=item_key)
+        elif item_type == "theme":
+            set_cosmetics(user_id, theme=item_key)
+        return True, "✅ Применено (уже куплено)"
+
+    # Бесплатное
+    if price == 0:
+        mark_owned(user_id, item_type, item_key)
+        if item_type == "color":
+            set_cosmetics(user_id, nickname_color=item_key)
+        elif item_type == "frame":
+            set_cosmetics(user_id, frame=item_key)
+        elif item_type == "status":
+            set_cosmetics(user_id, status=item_key)
+        elif item_type == "theme":
+            set_cosmetics(user_id, theme=item_key)
+        return True, "✅ Применено бесплатно"
+
     if get_balance(user_id) < price:
-        return False, f"Недостаточно монет. Нужно: {price} 🪙"
+        return False, f"Недостаточно монет. Нужно: {price:,} 🪙"
 
     if not update_balance(user_id, -price):
         return False, "Ошибка списания"
+
+    mark_owned(user_id, item_type, item_key)
 
     # Применяем сразу
     if item_type == "color":
@@ -2542,7 +2581,7 @@ def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
     elif item_type == "theme":
         set_cosmetics(user_id, theme=item_key)
 
-    return True, f"Куплено! Списано {price} 🪙"
+    return True, f"Куплено! Списано {price:,} 🪙"
 
 
 def get_display_name(user_id: int) -> str:
@@ -2569,6 +2608,46 @@ def get_display_name(user_id: int) -> str:
 
     return name
 
+def owns_cosmetic(user_id: int, item_type: str, item_key: str) -> bool:
+    """Проверяет, куплена ли уже эта косметика."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT 1 FROM user_cosmetics_owned
+        WHERE user_id = ? AND item_type = ? AND item_key = ?
+    """, (user_id, item_type, item_key))
+    exists = cur.fetchone() is not None
+    conn.close()
+    return exists
+
+
+def mark_owned(user_id: int, item_type: str, item_key: str):
+    """Отмечает косметику как купленную."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT OR IGNORE INTO user_cosmetics_owned (user_id, item_type, item_key)
+        VALUES (?, ?, ?)
+    """, (user_id, item_type, item_key))
+    conn.commit()
+    conn.close()
+
+
+def get_owned_cosmetics(user_id: int) -> dict:
+    """Возвращает dict {item_type: set(item_key)}."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT item_type, item_key FROM user_cosmetics_owned WHERE user_id = ?
+    """, (user_id,))
+    rows = cur.fetchall()
+    conn.close()
+
+    result = {"color": set(), "frame": set(), "status": set(), "theme": set()}
+    for item_type, item_key in rows:
+        if item_type in result:
+            result[item_type].add(item_key)
+    return result
 
 def add_badge(user_id: int, badge: str) -> bool:
     if badge not in BADGES:
