@@ -6,6 +6,47 @@
 <title>Paradise Reef</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
+
+  /* ===== ОСТРОВ ===== */
+  .island-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 500px;
+    margin: 0 auto;
+    aspect-ratio: 1024 / 768;
+    overflow: hidden;
+    border-radius: 16px;
+  }
+  .island-wrapper img {
+    position: absolute;
+    image-rendering: auto;
+  }
+  .island-base {
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    z-index: 1;
+  }
+  .island-sprite {
+    z-index: 2;
+  }
+  .island-house {
+    width: 22%;
+    left: 38%;
+    top: 32%;
+  }
+  .island-pier {
+    width: 25%;
+    left: 72%;
+    top: 55%;
+  }
+  .island-ship {
+    width: 20%;
+    left: 85%;
+    top: 55%;
+  }
+  
   /* ===== ТЕМА: Paradise Reef (по умолчанию) ===== */
   :root, body[data-theme="reef"] {
     --bg: #14112b;
@@ -861,7 +902,7 @@
       <button class="btn" onclick="buyIslandItem('island')">🏝️ Купить остров — 50 000 🪙</button>
     </div>
     <div class="card" id="island-content" style="display:none;">
-      <div id="island-visual" style="text-align:center;"></div>
+      <div id="island-visual"></div>
       <div id="island-buildings" style="margin-top:12px;"></div>
     </div>
   </div>
@@ -1539,13 +1580,6 @@
   // ===== ОСТРОВ =====
   let islandData = null;
 
-  async function loadIsland() {
-    try {
-      islandData = await apiGet("/api/island");
-      renderIsland();
-    } catch (e) { showMsg("island-msg", e.message, false); }
-  }
-
   function renderIsland() {
     if (!islandData) return;
     const { state, prices, names, balance } = islandData;
@@ -1559,16 +1593,17 @@
     document.getElementById("island-empty").style.display = "none";
     document.getElementById("island-content").style.display = "block";
 
-    // Визуал — эмодзи-версия (картинку покажем в боте)
-    let visual = `<div style="font-size:80px;line-height:1;margin:20px 0;">🏝️`;
-    if (state.has_house) visual += `🏠`;
-    if (state.has_pier) visual += `⚓`;
-    if (state.has_ship) visual += `🚢`;
+    // === Визуал через наложение картинок ===
+    let visual = `<div class="island-wrapper">`;
+    visual += `<img class="island-base" src="images/island.png" alt="island">`;
+    if (state.has_house) visual += `<img class="island-sprite island-house" src="images/house.png" alt="house">`;
+    if (state.has_pier)  visual += `<img class="island-sprite island-pier" src="images/pier.png" alt="pier">`;
+    if (state.has_ship)  visual += `<img class="island-sprite island-ship" src="images/ship.png" alt="ship">`;
     visual += `</div>`;
-    visual += `<div class="label">💰 Баланс: ${balance.toLocaleString()} 🪙</div>`;
+    visual += `<div class="label" style="text-align:center;margin-top:8px;">💰 Баланс: ${balance.toLocaleString()} 🪙</div>`;
     document.getElementById("island-visual").innerHTML = visual;
 
-    // Постройки
+    // === Постройки ===
     let html = `<h2>Постройки</h2>`;
 
     const buildRow = (key) => {
