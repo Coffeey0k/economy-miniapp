@@ -852,6 +852,20 @@
     </div>
   </div>
 
+  <!-- ОСТРОВ -->
+  <div class="tab" id="tab-island">
+    <div id="island-msg"></div>
+    <div class="card" id="island-empty" style="display:none;">
+      <h2>🏝️ У тебя нет острова</h2>
+      <p class="label">Купи остров, чтобы строить постройки и получать пассивный доход</p>
+      <button class="btn" onclick="buyIslandItem('island')">🏝️ Купить остров — 50 000 🪙</button>
+    </div>
+    <div class="card" id="island-content" style="display:none;">
+      <div id="island-visual" style="text-align:center;"></div>
+      <div id="island-buildings" style="margin-top:12px;"></div>
+    </div>
+  </div>
+  
   <!-- ЕЩЁ -->
   <div class="tab" id="tab-more">
     <div id="more-msg"></div>
@@ -891,6 +905,7 @@
   <button class="nav-item" data-tab="shop" onclick="switchTab('shop')"><span class="ic">🛒</span>Магазин</button>
   <button class="nav-item" data-tab="games" onclick="switchTab('games')"><span class="ic">🎮</span>Игры</button>
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
+  <button class="nav-item" data-tab="island" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
 </div>
 
@@ -956,6 +971,7 @@
     if (name === "cosmetics") loadCosmetics();
     if (name === "settings") loadSettings();
     if (name === "friends") loadFriends();
+    if (name === "island") loadIsland();
   }
 
   async function loadProfile() {
@@ -1520,6 +1536,75 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  // ===== ОСТРОВ =====
+  let islandData = null;
+
+  async function loadIsland() {
+    try {
+      islandData = await apiGet("/api/island");
+      renderIsland();
+    } catch (e) { showMsg("island-msg", e.message, false); }
+  }
+
+  function renderIsland() {
+    if (!islandData) return;
+    const { state, prices, names, balance } = islandData;
+
+    if (!state.has_island) {
+      document.getElementById("island-empty").style.display = "block";
+      document.getElementById("island-content").style.display = "none";
+      return;
+    }
+
+    document.getElementById("island-empty").style.display = "none";
+    document.getElementById("island-content").style.display = "block";
+
+    // Визуал — эмодзи-версия (картинку покажем в боте)
+    let visual = `<div style="font-size:80px;line-height:1;margin:20px 0;">🏝️`;
+    if (state.has_house) visual += `🏠`;
+    if (state.has_pier) visual += `⚓`;
+    if (state.has_ship) visual += `🚢`;
+    visual += `</div>`;
+    visual += `<div class="label">💰 Баланс: ${balance.toLocaleString()} 🪙</div>`;
+    document.getElementById("island-visual").innerHTML = visual;
+
+    // Постройки
+    let html = `<h2>Постройки</h2>`;
+
+    const buildRow = (key) => {
+      const owned = state[`has_${key}`];
+      const canBuild = !owned && (
+        key === "island" ? true :
+        key === "ship" ? state.has_pier :
+        state.has_island
+      );
+      const status = owned ? " ✅" : "";
+      const button = owned 
+        ? `<span class="label">куплено</span>`
+        : `<button class="btn btn-small" ${canBuild ? "" : "disabled"} onclick="buyIslandItem('${key}')">${prices[key].toLocaleString()} 🪙</button>`;
+      return `<div class="item-row">
+        <span>${names[key]}${status}</span>
+        ${button}
+      </div>`;
+    };
+
+    html += buildRow("house");
+    html += buildRow("pier");
+    html += buildRow("ship");
+
+    document.getElementById("island-buildings").innerHTML = html;
+  }
+
+  async function buyIslandItem(item) {
+    if (!confirm(`Купить ${islandData.names[item]} за ${islandData.prices[item].toLocaleString()} 🪙?`)) return;
+    try {
+      const res = await apiPost("/api/island/buy", { item });
+      toast(res.message, false);
+      await loadIsland();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+  
   // ===== ДРУЗЬЯ =====
   async function loadFriends() {
     try {
@@ -1723,7 +1808,7 @@
   function applyTheme(theme) {
     document.body.setAttribute("data-theme", theme || "reef");
   }
-
+  
   // ===== СТАРТ =====
   async function init() {
     try {
