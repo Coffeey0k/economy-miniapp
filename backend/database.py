@@ -2580,5 +2580,32 @@ def get_badges(user_id: int) -> list:
     conn.close()
     return [r[0] for r in rows]
 
+def check_badges(user_id: int):
+    """Проверяет и выдаёт значки по текущему прогрессу."""
+    balance = get_balance(user_id)
+    if balance >= 1_000_000:
+        add_badge(user_id, "millionaire")
+    if balance >= 10_000_000:
+        add_badge(user_id, "multi_million")
+
+    # Художник — купил цветной ник
+    cosmetics = get_cosmetics(user_id)
+    if cosmetics["nickname_color"]:
+        add_badge(user_id, "artist")
+
+    # Коллекционер — 10 питомцев
+    pets = get_user_pets(user_id)
+    if len(pets) >= 10:
+        add_badge(user_id, "collector")
+
+    # Строитель — всё на острове (когда добавим остров, вернёмся)
+
+    # Душа компании — 20 друзей
+    try:
+        if friend_count(user_id) >= 20:
+            add_badge(user_id, "social")
+    except Exception:
+        pass
+
 # Инициализация при импорте
 init_db()
