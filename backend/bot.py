@@ -1799,16 +1799,16 @@ def build_island_image(user_id: int, state: dict) -> str:
     # Позиции для наложения (можно менять)
     # Формат: (x, y) — левый верхний угол картинки постройки
     POSITIONS = {
-        "house": (int(base.width * 0.55), int(base.height * 0.35)),
-        "pier":  (int(base.width * 0.75), int(base.height * 0.55)),
-        "ship":  (int(base.width * 0.78), int(base.height * 0.45)),
+        "house": (int(base.width * 0.38), int(base.height * 0.32)),   # ближе к дорожке
+        "pier":  (int(base.width * 0.72), int(base.height * 0.55)),   # на месте
+        "ship":  (int(base.width * 0.85), int(base.height * 0.55)),   # правее и ниже причала
     }
 
     # Размеры построек (можно менять)
     SIZES = {
         "house": (int(base.width * 0.22), int(base.width * 0.22 * 0.7)),
         "pier":  (int(base.width * 0.25), int(base.width * 0.25 * 0.5)),
-        "ship":  (int(base.width * 0.22), int(base.width * 0.22 * 0.7)),
+        "ship":  (int(base.width * 0.20), int(base.width * 0.20 * 0.7)),  # чуть меньше
     }
 
     layers = []
