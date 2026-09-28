@@ -300,8 +300,9 @@ async def show_home(callback: CallbackQuery):
     text = "🏆 Топ игроков ParadiseCoin\n\n"
     for i, (uid, uname, bal) in enumerate(top_users, 1):
         medal = medals[i - 1] if i <= 3 else f"{i}."
-        name = f"@{uname}" if uname else f"ID:{uid}"
-        text += f"{medal} {name} — {bal:,} 🪙\n"
+        # Используем display_name с косметикой
+        display_name = db.get_display_name(uid)
+        text += f"{medal} {display_name} — {bal:,} 🪙\n"
     await callback.message.edit_text(text, reply_markup=home_menu(), parse_mode=None)
     await callback.answer()
 
@@ -312,7 +313,6 @@ async def refresh_top(callback: CallbackQuery):
 
 
 # ==================== ПРОФИЛЬ ====================
-
 @dp.callback_query(F.data == "profile")
 async def show_profile(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -328,9 +328,25 @@ async def show_profile(callback: CallbackQuery):
     pets = db.get_user_pets(user_id)
     stats = _get_game_stats(user_id)
     prof = db.get_profession(user_id)
+    cosmetics = db.get_cosmetics(user_id)
+    badges = db.get_badges(user_id)
+
+    # === Формируем отображаемое имя с косметикой ===
+    display_name = db.get_display_name(user_id)
+    # Статус
+    status_text = ""
+    if cosmetics["status"] and cosmetics["status"] in db.STATUSES:
+        status_text = f"{db.STATUSES[cosmetics['status']]['name']}\n"
+    # Значки
+    badges_text = ""
+    if badges:
+        badges_text = " ".join(db.BADGES[b]["emoji"] for b in badges if b in db.BADGES) + "\n"
 
     text = (
-        f"👤 Профиль\n@{uname}\n\n"
+        f"👤 Профиль\n"
+        f"{display_name}\n"
+        f"{status_text}"
+        f"{badges_text}\n"
         f"🪙 Баланс: {balance:,}\n"
         f"🏆 Место: #{rank}\n"
         f"⚠️ Предупреждения: {warns}\n\n"
@@ -356,7 +372,6 @@ async def show_profile(callback: CallbackQuery):
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode=None)
     await callback.answer()
-
 
 @dp.callback_query(F.data == "refresh_profile")
 async def refresh_profile(callback: CallbackQuery):
@@ -1313,13 +1328,19 @@ async def profile_word_handler(message: Message):
     prof = db.get_profession(target_id)
 
     # Собираем текст
-    lines = [
-        f"👤 Профиль @{uname}",
-        f"",
-        f"🪙 Баланс: {balance:,}",
-        f"🏆 Место в топе: #{rank}",
-        f"⚠️ Предупреждения: {warns}",
-    ]
+    display_name = db.get_display_name(target_id)
+    cosmetics = db.get_cosmetics(target_id)
+    badges = db.get_badges(target_id)
+
+    lines = [f"👤 Профиль {display_name}"]
+    if cosmetics["status"] and cosmetics["status"] in db.STATUSES:
+        lines.append(db.STATUSES[cosmetics["status"]]["name"])
+    if badges:
+        lines.append(" ".join(db.BADGES[b]["emoji"] for b in badges if b in db.BADGES))
+    lines.append("")
+    lines.append(f"🪙 Баланс: {balance:,}")
+    lines.append(f"🏆 Место в топе: #{rank}")
+    lines.append(f"⚠️ Предупреждения: {warns}")
 
     if prof and prof["profession"]:
         from database import PROFESSIONS
