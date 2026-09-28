@@ -1898,7 +1898,7 @@ def apply_cosmetics(payload: dict = Body(...)):
     cur.execute(f"UPDATE user_cosmetics SET {col} = %s WHERE user_id = %s", (item_key, user_id))
     conn.commit()
     conn.close()
-    return {"ok":} True
+    return {"ok": True}
 
 # ========== API: ОСТРОВ ==========
 
