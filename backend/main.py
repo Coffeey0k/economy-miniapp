@@ -1732,10 +1732,23 @@ STATUSES = {
 }
 
 THEMES = {
-    "reef":   {"name": "🏝️ Paradise Reef", "price": 0},
-    "dark":   {"name": "🌙 Тёмная",        "price": 0},
-    "light":  {"name": "☀️ Светлая",       "price": 0},
-    "neon":   {"name": "🌈 Неоновая",      "price": 50000},
+    "reef":     {"name": "🏝️ Paradise Reef", "price": 0},
+    "dark":     {"name": "🌙 Тёмная",        "price": 0},
+    "light":    {"name": "☀️ Светлая",       "price": 0},
+    "neon":     {"name": "🌈 Неоновая",      "price": 50000},
+    "autumn":   {"name": "🍂 Осенняя",       "price": 25000},
+    "azure":    {"name": "🌊 Лазурная",      "price": 25000},
+    "sand":     {"name": "🏖️ Песочная",      "price": 25000},
+    "white":    {"name": "🤍 Белая",         "price": 30000},
+    "green":    {"name": "🌿 Зелёная",       "price": 25000},
+    "hell":     {"name": "😈 Адская",        "price": 75000},
+    "orange":   {"name": "🔶 Чёрно-оранжевая","price": 50000},
+    "paper":    {"name": "📜 Бумажная",      "price": 35000},
+    "glass":    {"name": "🪟 Прозрачная",    "price": 100000},
+    "pixel":    {"name": "👾 Пиксельная",    "price": 80000},
+    "terminal": {"name": "💻 Терминал",      "price": 60000},
+    "ice":      {"name": "❄️ Ледяная",       "price": 40000},
+    "graphite": {"name": "🩶 Графитовая",    "price": 20000},
 }
 
 BADGES = {
