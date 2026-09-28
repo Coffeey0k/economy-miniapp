@@ -2427,9 +2427,10 @@ STATUSES = {
 
 # Темы
 THEMES = {
-    "dark":   {"name": "🌙 Тёмная",       "price": 0},
-    "light":  {"name": "☀️ Светлая",      "price": 0},
-    "neon":   {"name": "🌈 Неоновая",     "price": 50000},
+    "reef":   {"name": "🏝️ Paradise Reef", "price": 0},
+    "dark":   {"name": "🌙 Тёмная",        "price": 0},
+    "light":  {"name": "☀️ Светлая",       "price": 0},
+    "neon":   {"name": "🌈 Неоновая",      "price": 50000},
 }
 
 # Значки
