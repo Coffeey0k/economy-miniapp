@@ -317,6 +317,7 @@ async def refresh_top(callback: CallbackQuery):
 async def show_profile(callback: CallbackQuery):
     user_id = callback.from_user.id
     user = db.get_user(user_id)
+    db.check_badges(user_id)
     if not user:
         await callback.answer("❌ Не найден", show_alert=True)
         return
@@ -1290,6 +1291,7 @@ async def work_word_handler(message: Message):
 async def profile_word_handler(message: Message):
     """Ворд-триггер 'профиль' — показывает профиль свой или другого игрока"""
     user_id = message.from_user.id
+    db.check_badges(target_id)
     text = message.text.strip()
 
     # Определяем, чей профиль: свой или другого
