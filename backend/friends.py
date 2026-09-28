@@ -151,11 +151,10 @@ async def friends_list_word(message: Message):
         for p in pending:
             text += f"• @{p['from_username']}\n"
         text += "\n(Прими или отклони через кнопки в личных сообщениях)\n\n"
-
     if friends:
         text += "Твои друзья:\n"
         for f in friends[:20]:
-            name = f"@{f['username']}" if f['username'] else f"ID {f['user_id']}"
+            name = db.get_display_name(f["user_id"])
             text += f"• {name} — {f['balance']:,} 🪙\n"
         if len(friends) > 20:
             text += f"...и ещё {len(friends) - 20}\n"
