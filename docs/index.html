@@ -23,6 +23,7 @@
     --hover-bg: rgba(139,92,246,0.18);
     --progress-bg: rgba(139,92,246,0.2);
   }
+
   /* ===== ТЕМА: Тёмная (нейтральная) ===== */
   body[data-theme="dark"] {
     --bg: #1a1a1f;
@@ -58,6 +59,7 @@
     --hover-bg: rgba(124,58,237,0.08);
     --progress-bg: rgba(124,58,237,0.15);
   }
+  body[data-theme="light"] .card { box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
 
   /* ===== ТЕМА: Неоновая ===== */
   body[data-theme="neon"] {
@@ -76,18 +78,297 @@
     --hover-bg: rgba(255,0,255,0.15);
     --progress-bg: rgba(255,0,255,0.2);
   }
+  body[data-theme="neon"] .card { box-shadow: 0 0 12px rgba(255,0,255,0.4); }
+  body[data-theme="neon"] .btn { box-shadow: 0 0 16px rgba(255,0,255,0.6); }
 
-  body[data-theme="neon"] .card {
-    box-shadow: 0 0 12px rgba(255,0,255,0.4);
+  /* ===== ТЕМА: Осенняя ===== */
+  body[data-theme="autumn"] {
+    --bg: #2b1810;
+    --text: #f5e6d3;
+    --hint: #b89968;
+    --link: #d4a574;
+    --accent: #8b1e1e;
+    --accent2: #6b1515;
+    --button: #8b1e1e;
+    --button-text: #f5e6d3;
+    --secondary-bg: #3d2218;
+    --card-border: rgba(212,165,116,0.25);
+    --nav-bg: #1f1109;
+    --input-bg: #2b1810;
+    --hover-bg: rgba(139,30,30,0.2);
+    --progress-bg: rgba(139,30,30,0.25);
   }
 
-  body[data-theme="neon"] .btn {
-    box-shadow: 0 0 16px rgba(255,0,255,0.6);
+  /* ===== ТЕМА: Лазурная ===== */
+  body[data-theme="azure"] {
+    --bg: #0a2540;
+    --text: #e0f2fe;
+    --hint: #7dd3fc;
+    --link: #22d3ee;
+    --accent: #0284c7;
+    --accent2: #0369a1;
+    --button: #0284c7;
+    --button-text: #ffffff;
+    --secondary-bg: #0f3457;
+    --card-border: rgba(125,211,252,0.3);
+    --nav-bg: #061a2e;
+    --input-bg: #0a2540;
+    --hover-bg: rgba(2,132,199,0.2);
+    --progress-bg: rgba(2,132,199,0.25);
   }
 
-  body[data-theme="light"] .card {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  /* ===== ТЕМА: Песочная ===== */
+  body[data-theme="sand"] {
+    --bg: #f5e6c8;
+    --text: #3d2914;
+    --hint: #8b7355;
+    --link: #b8860b;
+    --accent: #c19a6b;
+    --accent2: #8b7355;
+    --button: #c19a6b;
+    --button-text: #3d2914;
+    --secondary-bg: #faf0d7;
+    --card-border: rgba(139,115,85,0.25);
+    --nav-bg: #ede0be;
+    --input-bg: #faf0d7;
+    --hover-bg: rgba(193,154,107,0.2);
+    --progress-bg: rgba(193,154,107,0.25);
   }
+
+  /* ===== ТЕМА: Белая (райская) ===== */
+  body[data-theme="white"] {
+    --bg: #fef8ff;
+    --text: #2d1b4e;
+    --hint: #9d8ec4;
+    --link: #10b981;
+    --accent: #c4b5fd;
+    --accent2: #a78bfa;
+    --button: #c4b5fd;
+    --button-text: #2d1b4e;
+    --secondary-bg: #ffffff;
+    --card-border: rgba(167,139,250,0.2);
+    --nav-bg: #ffffff;
+    --input-bg: #faf5ff;
+    --hover-bg: rgba(167,139,250,0.1);
+    --progress-bg: rgba(167,139,250,0.15);
+  }
+
+  /* ===== ТЕМА: Зелёная ===== */
+  body[data-theme="green"] {
+    --bg: #1a2416;
+    --text: #d4e8c8;
+    --hint: #7a9461;
+    --link: #84cc16;
+    --accent: #4d7c0f;
+    --accent2: #365314;
+    --button: #4d7c0f;
+    --button-text: #ffffff;
+    --secondary-bg: #24331d;
+    --card-border: rgba(132,204,22,0.25);
+    --nav-bg: #0f1610;
+    --input-bg: #1a2416;
+    --hover-bg: rgba(77,124,15,0.25);
+    --progress-bg: rgba(77,124,15,0.3);
+  }
+
+  /* ===== ТЕМА: Адская ===== */
+  body[data-theme="hell"] {
+    --bg: #1a0000;
+    --text: #ffcc99;
+    --hint: #ff6b00;
+    --link: #ffaa00;
+    --accent: #dc2626;
+    --accent2: #991b1b;
+    --button: #dc2626;
+    --button-text: #ffffff;
+    --secondary-bg: #2b0808;
+    --card-border: rgba(220,38,38,0.4);
+    --nav-bg: #0d0000;
+    --input-bg: #1a0000;
+    --hover-bg: rgba(220,38,38,0.2);
+    --progress-bg: rgba(220,38,38,0.3);
+  }
+  body[data-theme="hell"] .card { box-shadow: 0 0 12px rgba(220,38,38,0.5); }
+  body[data-theme="hell"] .btn { box-shadow: 0 0 16px rgba(220,38,38,0.6); }
+
+  /* ===== ТЕМА: Чёрно-оранжевая ===== */
+  body[data-theme="orange"] {
+    --bg: #0a0a0a;
+    --text: #ff9500;
+    --hint: #b36a00;
+    --link: #ffb700;
+    --accent: #ff6b00;
+    --accent2: #cc5500;
+    --button: #ff6b00;
+    --button-text: #000000;
+    --secondary-bg: #1a1a1a;
+    --card-border: rgba(255,107,0,0.4);
+    --nav-bg: #000000;
+    --input-bg: #0a0a0a;
+    --hover-bg: rgba(255,107,0,0.15);
+    --progress-bg: rgba(255,107,0,0.2);
+  }
+  body[data-theme="orange"] .btn { box-shadow: 0 0 14px rgba(255,107,0,0.5); }
+
+  /* ===== ТЕМА: Бумажная (крафт) ===== */
+  body[data-theme="paper"] {
+    --bg: #d9c9a3;
+    --text: #3d2b18;
+    --hint: #6b5438;
+    --link: #8b4513;
+    --accent: #a67c52;
+    --accent2: #6b5438;
+    --button: #a67c52;
+    --button-text: #ffffff;
+    --secondary-bg: #ebdcb8;
+    --card-border: rgba(107,84,56,0.3);
+    --nav-bg: #c9b890;
+    --input-bg: #ebdcb8;
+    --hover-bg: rgba(166,124,82,0.2);
+    --progress-bg: rgba(166,124,82,0.3);
+  }
+  body[data-theme="paper"] .card {
+    background-image: radial-gradient(rgba(107,84,56,0.05) 1px, transparent 1px);
+    background-size: 8px 8px;
+  }
+
+  /* ===== ТЕМА: Прозрачная (glass) ===== */
+  body[data-theme="glass"] {
+    --bg: #1e3a5f;
+    --text: #ffffff;
+    --hint: #b8d4f0;
+    --link: #00e5ff;
+    --accent: #4a90e2;
+    --accent2: #2563eb;
+    --button: #4a90e2;
+    --button-text: #ffffff;
+    --secondary-bg: rgba(255,255,255,0.1);
+    --card-border: rgba(255,255,255,0.25);
+    --nav-bg: rgba(0,0,0,0.3);
+    --input-bg: rgba(255,255,255,0.1);
+    --hover-bg: rgba(255,255,255,0.15);
+    --progress-bg: rgba(255,255,255,0.2);
+    background: linear-gradient(135deg, #1e3a5f 0%, #4a1e5f 50%, #1e5f4a 100%);
+    background-attachment: fixed;
+  }
+  body[data-theme="glass"] .card {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+
+  /* ===== ТЕМА: Пиксельная ===== */
+  body[data-theme="pixel"] {
+    --bg: #0d0221;
+    --text: #f7f7f7;
+    --hint: #a78bfa;
+    --link: #ffd93d;
+    --accent: #ff2e63;
+    --accent2: #08d9d6;
+    --button: #ff2e63;
+    --button-text: #ffffff;
+    --secondary-bg: #1a0a3e;
+    --card-border: #ff2e63;
+    --nav-bg: #05010f;
+    --input-bg: #0d0221;
+    --hover-bg: rgba(255,46,99,0.2);
+    --progress-bg: rgba(255,46,99,0.3);
+  }
+  body[data-theme="pixel"] * {
+    font-family: "Courier New", monospace !important;
+    letter-spacing: 0.5px;
+  }
+  body[data-theme="pixel"] .card {
+    border-width: 3px;
+    border-radius: 0;
+    box-shadow: 4px 4px 0 #08d9d6;
+  }
+  body[data-theme="pixel"] .btn {
+    border-radius: 0;
+    box-shadow: 3px 3px 0 #08d9d6;
+    border: 2px solid #ffffff;
+  }
+  body[data-theme="pixel"] .nav-item .ic {
+    font-size: 18px;
+    filter: contrast(1.5) saturate(2);
+  }
+
+  /* ===== ТЕМА: Ретро-терминал ===== */
+  body[data-theme="terminal"] {
+    --bg: #0a0e0a;
+    --text: #00ff41;
+    --hint: #00aa2a;
+    --link: #00ff41;
+    --accent: #00ff41;
+    --accent2: #008f28;
+    --button: #00ff41;
+    --button-text: #000000;
+    --secondary-bg: #0f140f;
+    --card-border: rgba(0,255,65,0.3);
+    --nav-bg: #000000;
+    --input-bg: #0a0e0a;
+    --hover-bg: rgba(0,255,65,0.1);
+    --progress-bg: rgba(0,255,65,0.2);
+  }
+  body[data-theme="terminal"] * {
+    font-family: "Courier New", monospace !important;
+  }
+  body[data-theme="terminal"] .card {
+    box-shadow: 0 0 12px rgba(0,255,65,0.3), inset 0 0 20px rgba(0,255,65,0.05);
+  }
+  body[data-theme="terminal"] .btn {
+    box-shadow: 0 0 14px rgba(0,255,65,0.5);
+  }
+
+  /* ===== ТЕМА: Ледяная ===== */
+  body[data-theme="ice"] {
+    --bg: #0c1a2b;
+    --text: #e0f7ff;
+    --hint: #7dd3fc;
+    --link: #00e5ff;
+    --accent: #38bdf8;
+    --accent2: #0284c7;
+    --button: #38bdf8;
+    --button-text: #0c1a2b;
+    --secondary-bg: #122a44;
+    --card-border: rgba(125,211,252,0.3);
+    --nav-bg: #071426;
+    --input-bg: #0c1a2b;
+    --hover-bg: rgba(56,189,248,0.15);
+    --progress-bg: rgba(56,189,248,0.25);
+  }
+  body[data-theme="ice"] .card {
+    box-shadow: 0 0 16px rgba(56,189,248,0.2);
+  }
+
+  /* ===== ТЕМА: Графитовая ===== */
+  body[data-theme="graphite"] {
+    --bg: #18181b;
+    --text: #e4e4e7;
+    --hint: #71717a;
+    --link: #a1a1aa;
+    --accent: #52525b;
+    --accent2: #3f3f46;
+    --button: #52525b;
+    --button-text: #ffffff;
+    --secondary-bg: #27272a;
+    --card-border: rgba(255,255,255,0.08);
+    --nav-bg: #09090b;
+    --input-bg: #18181b;
+    --hover-bg: rgba(255,255,255,0.05);
+    --progress-bg: rgba(255,255,255,0.1);
+  }
+
+  /* ===== БАЗОВЫЕ ===== */
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  body { padding: 14px 14px 72px; }
   .card { background: var(--secondary-bg); border: 1px solid var(--card-border); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
   .balance { font-size: 28px; font-weight: 700; color: var(--link); }
   .label { color: var(--hint); font-size: 13px; margin-bottom: 4px; }
@@ -103,15 +384,11 @@
   .used { color: var(--hint); text-decoration: line-through; }
   .active-tag { font-size: 11px; background: var(--accent); color: #fff; border-radius: 6px; padding: 2px 6px; margin-left: 6px; }
   .btn {
-    background: linear-gradient(135deg, #a78bfa, var(--accent2)); color: var(--button-text); border: none; border-radius: 12px;
-    padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer;
-    box-shadow: 0 4px 14px rgba(139,92,246,0.35);
-  }
-  .btn {
     background: linear-gradient(135deg, var(--accent), var(--accent2)); color: var(--button-text); border: none; border-radius: 12px;
     padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer;
     box-shadow: 0 4px 14px rgba(0,0,0,0.2);
   }
+  .btn:disabled { opacity: 0.5; box-shadow: none; }
   .btn-small { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
   input[type=text], input[type=number] {
     width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--card-border);
@@ -122,7 +399,7 @@
   .msg { text-align: center; padding: 10px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
   .msg.ok { background: rgba(74,222,128,0.15); }
   .msg.err { background: rgba(248,113,113,0.18); }
-  
+
   .nav {
     position: fixed; bottom: 0; left: 0; right: 0;
     display: flex;
@@ -134,8 +411,7 @@
     scrollbar-width: none;
   }
   .nav::-webkit-scrollbar { display: none; }
-  
-   .nav-item {
+  .nav-item {
     display: flex; flex-direction: column; align-items: center; gap: 2px;
     color: var(--hint); font-size: 10px; background: none; border: none; padding: 4px 8px;
     flex: 0 0 auto;
@@ -148,7 +424,7 @@
   .tile {
     background: linear-gradient(135deg, var(--accent), var(--accent2));
     border-radius: 16px; padding: 18px 14px; text-align: center;
-    box-shadow: 0 4px 16px rgba(109,40,217,0.4);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
     border: none; color: #fff; font-size: 14px; font-weight: 600;
   }
   .tile .ic { font-size: 24px; display: block; margin-bottom: 6px; }
@@ -158,7 +434,7 @@
   .tab.active { display: block; }
   .tabs-sub { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; }
   .tabs-sub button {
-    background: rgba(128,128,128,0.15); border: none; border-radius: 10px;
+    background: var(--hover-bg); border: none; border-radius: 10px;
     padding: 8px 12px; font-size: 13px; color: var(--text); white-space: nowrap;
   }
   .tabs-sub button.active { background: var(--link); color: #fff; }
@@ -175,7 +451,7 @@
     font-size: 14px;
     font-weight: 600;
     z-index: 9999;
-    box-shadow: 0 6px 20px rgba(109,40,217,0.5);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
     transition: transform 0.3s ease;
     max-width: 90%;
     text-align: center;
@@ -268,9 +544,7 @@
     transform-style: preserve-3d;
     transition: transform 1.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  .coin.spinning {
-    transform: rotateY(1800deg);
-  }
+  .coin.spinning { transform: rotateY(1800deg); }
 
   .dice-cube {
     width: 80px;
@@ -284,7 +558,7 @@
     color: #fff;
     font-weight: 700;
     margin: 20px auto;
-    box-shadow: 0 4px 20px rgba(139,92,246,0.5);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     transition: transform 1s ease-out;
   }
   .dice-cube.spinning {
@@ -313,7 +587,7 @@
     justify-content: center;
     font-size: 44px;
     overflow: hidden;
-    box-shadow: 0 4px 16px rgba(139,92,246,0.3);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   }
   .slot-reel.spinning .symbol {
     animation: slotRoll 0.08s linear infinite;
@@ -323,9 +597,7 @@
     50% { transform: translateY(0); opacity: 1; }
     100% { transform: translateY(30px); opacity: 0; }
   }
-  .slot-reel .symbol {
-    display: block;
-  }
+  .slot-reel .symbol { display: block; }
 
   .dart-target {
     position: relative;
@@ -347,10 +619,8 @@
   }
   .dart-arrow {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 10px;
-    height: 10px;
+    top: 50%; left: 50%;
+    width: 10px; height: 10px;
     background: #fbbf24;
     border-radius: 50%;
     box-shadow: 0 0 12px #fbbf24;
@@ -358,10 +628,7 @@
     opacity: 0;
     transition: all 0.5s ease-out;
   }
-  .dart-arrow.thrown {
-    opacity: 1;
-  }
-  
+  .dart-arrow.thrown { opacity: 1; }
 </style>
 </head>
 <body>
@@ -481,6 +748,7 @@
       <div id="wheel-sectors"></div>
     </div>
   </div>
+
   <!-- ИГРЫ -->
   <div class="tab" id="tab-games">
     <div id="games-msg"></div>
@@ -518,21 +786,17 @@
       <div class="label">Загрузка...</div>
     </div>
   </div>
-  
+
   <!-- НАСТРОЙКИ -->
   <div class="tab" id="tab-settings">
     <div id="settings-msg"></div>
     <div class="card">
       <h2>⚙️ Настройки</h2>
       <div class="item-row">
-        <span>🌗 Тема</span>
-        <button class="btn btn-small" disabled>Скоро</button>
-      </div>
-      <div class="item-row">
         <span>🔔 Подсказки</span>
         <button class="btn btn-small" id="hints-btn" onclick="toggleHints()">Загрузка…</button>
       </div>
-            <div class="item-row">
+      <div class="item-row">
         <span>🔊 Звуки</span>
         <button class="switch" id="sound-toggle" onclick="toggleSound()"></button>
       </div>
@@ -559,7 +823,7 @@
         <span>🚫 Бан/разбан</span>
         <button class="btn btn-small" onclick="adminBan()">Открыть</button>
       </div>
-            <div class="item-row">
+      <div class="item-row">
         <span>📡 Пинг бота</span>
         <button class="btn btn-small" onclick="adminPing()">Проверить</button>
       </div>
@@ -587,8 +851,8 @@
       <div id="friends-list"></div>
     </div>
   </div>
-  
-  <!-- ЕЩЁ (бонус + перевод) -->
+
+  <!-- ЕЩЁ -->
   <div class="tab" id="tab-more">
     <div id="more-msg"></div>
     <div class="card">
@@ -629,9 +893,10 @@
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
 </div>
-    <div id="ptr">🔄 Обновление…</div>
+
+<div id="ptr">🔄 Обновление…</div>
 <div id="toast" class="toast"></div>
-  
+
 <script>
   window.onerror = function (msg, url, line, col, err) {
     const el = document.getElementById("status");
@@ -647,7 +912,6 @@
   tg.ready();
   tg.expand();
 
-  // ЗАМЕНИ на адрес своего задеплоенного backend (без слэша на конце)
   const API_BASE = "https://economy-miniapp.onrender.com";
   const initData = tg.initData;
 
@@ -666,16 +930,12 @@
     if (!res.ok) throw new Error(data.detail || "Ошибка запроса");
     return data;
   }
-  function showMsg(elId, text, ok) {
-    toast(text, !ok);
-  }
-  
+  function showMsg(elId, text, ok) { toast(text, !ok); }
   function fmtTime(seconds) {
     const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
     return `${h} ч ${m} мин`;
   }
 
-  // ===== НАВИГАЦИЯ =====
   const loaded = {};
   function switchTab(name) {
     haptic("light");
@@ -685,7 +945,7 @@
     document.querySelector(`.nav-item[data-tab="${name}"]`).classList.add("active");
     if (!loaded[name]) { loadTab(name); loaded[name] = true; }
   }
-    function loadTab(name) {
+  function loadTab(name) {
     if (name === "top") loadTop();
     if (name === "shop") loadShop();
     if (name === "pets") loadPets();
@@ -698,10 +958,8 @@
     if (name === "friends") loadFriends();
   }
 
-  // ===== ПРОФИЛЬ =====
   async function loadProfile() {
     const data = await apiGet("/api/profile");
-        // Имя с рамкой
     let displayName = data.username ? "@" + data.username : "ID " + data.user_id;
     if (data.cosmetics) {
       if (data.cosmetics.frame && cosData && cosData.frames[data.cosmetics.frame]) {
@@ -709,22 +967,10 @@
       }
       if (data.cosmetics.nickname_color && cosData && cosData.colors[data.cosmetics.nickname_color]) {
         const hex = cosData.colors[data.cosmetics.nickname_color].hex;
-        const nameEl = document.getElementById("p-username");
-        nameEl.style.color = hex;
+        document.getElementById("p-username").style.color = hex;
       }
     }
     document.getElementById("p-username").textContent = displayName;
-
-    // Статус и значки
-    let statusLine = "";
-    if (data.cosmetics && data.cosmetics.status && cosData && cosData.statuses[data.cosmetics.status]) {
-      statusLine = cosData.statuses[data.cosmetics.status].name;
-    }
-    let badgesLine = "";
-    if (data.badges && data.badges.length > 0 && cosData) {
-      badgesLine = data.badges.map(b => cosData.badges[b] || "").join(" ");
-    }
-    // Показать статус/значки — можно добавить отдельным элементом в HTML
     document.getElementById("p-balance").textContent = data.balance + " 🪙";
     document.getElementById("p-rank").textContent = data.rank;
     document.getElementById("p-warns").textContent = data.warns;
@@ -744,7 +990,6 @@
       : `<div class="label">Покупок пока нет</div>`;
   }
 
-  // ===== ТОП =====
   async function loadTop() {
     try {
       const data = await apiGet("/api/top");
@@ -757,7 +1002,6 @@
     } catch (e) { showMsg("top-msg", e.message, false); }
   }
 
-  // ===== МАГАЗИН =====
   function showShopSub(which) {
     document.querySelectorAll(".tabs-sub button").forEach(b => b.classList.remove("active"));
     event.target.classList.add("active");
@@ -776,7 +1020,6 @@
             <button class="btn btn-small" onclick="buyItem('${it.item_type}')">Купить</button>
           </span>
         </div>`).join("") : `<div class="label">Каталог пуст</div>`;
-
       const eggs = await apiGet("/api/eggs");
       document.getElementById("eggs-list").innerHTML = eggs.eggs.map(e => `
         <div class="item-row">
@@ -805,10 +1048,9 @@
     } catch (e) { showMsg("shop-msg", e.message, false); }
   }
 
-  // ===== ПИТОМЦЫ =====
   async function loadPets() {
     try {
-      const data = await apiGet("/api/profile"); // питомцы уже приходят в профиле
+      const data = await apiGet("/api/profile");
       document.getElementById("pets-list").innerHTML = data.pets.length
         ? data.pets.map(p => `
           <div class="item-row">
@@ -826,7 +1068,6 @@
     } catch (e) { toast(e.message, true); }
   }
 
-  // ===== РАБОТА =====
   async function loadWork() {
     try {
       const data = await apiGet("/api/professions");
@@ -849,13 +1090,11 @@
       } else {
         document.getElementById("work-current").innerHTML = `<div class="label">У вас пока нет профессии — выберите ниже</div>`;
       }
-
       document.getElementById("work-list").innerHTML = data.all.map(p => `
         <div class="item-row">
           <span>${p.name}<br><span class="label">${p.salary} 🪙 / ${p.cooldown_hours}ч</span></span>
           <button class="btn btn-small" onclick="hireProfession('${p.key}')">Устроиться (${data.hire_cost}🪙+)</button>
         </div>`).join("");
-
       const tasks = await apiGet("/api/tasks");
       document.getElementById("work-tasks").innerHTML = tasks.tasks.length
         ? tasks.tasks.map(t => `
@@ -883,7 +1122,6 @@
     } catch (e) { showMsg("work-msg", e.message, false); }
   }
 
-  // ===== КОЛЕСО =====
   async function loadWheel() {
     try {
       const data = await apiGet("/api/wheel");
@@ -904,7 +1142,6 @@
     } catch (e) { showMsg("wheel-msg", e.message, false); }
   }
 
-  // ===== ЕЩЁ (бонус + перевод) =====
   async function loadMore() {
     try {
       const data = await apiGet("/api/bonus");
@@ -935,17 +1172,14 @@
     } catch (e) { showMsg("more-msg", e.message, false); }
   }
 
-  // ===== ИГРЫ =====
   let currentGame = "slot";
   function selectGame(game, ev) {
     currentGame = game;
     document.querySelectorAll(".game-tab").forEach(b => b.classList.remove("active"));
     if (ev) ev.target.classList.add("active");
-
     document.getElementById("game-area").style.display = "none";
     document.getElementById("minesweeper-area").style.display = "none";
     document.getElementById("battleship-area").style.display = "none";
-
     if (game === "minesweeper") {
       document.getElementById("minesweeper-area").style.display = "block";
       renderMinesweeperStart();
@@ -957,14 +1191,13 @@
       renderGameUI();
     }
   }
-  
   function renderGameUI() {
     const area = document.getElementById("game-area");
     const bets = [10, 50, 100, 500, 1000];
     let extra = "";
     if (currentGame === "dice") extra = `<input type="number" id="game-choice" placeholder="Число 1-6" min="1" max="6">`;
     if (currentGame === "number") extra = `<input type="number" id="game-choice" placeholder="Число 1-10" min="1" max="10">`;
-    if (currentGame === "coin") extra = `<select id="game-choice" style="width:100%;padding:10px;border-radius:10px;background:var(--bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;"><option value="Орел">🦅 Орёл</option><option value="Решка">🪙 Решка</option></select>`;
+    if (currentGame === "coin") extra = `<select id="game-choice" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;"><option value="Орел">🦅 Орёл</option><option value="Решка">🪙 Решка</option></select>`;
     area.innerHTML = `
       ${extra}
       <div class="tabs-sub" style="flex-wrap:wrap;">
@@ -977,17 +1210,11 @@
   async function playGame(bet) {
     const choiceEl = document.getElementById("game-choice");
     const choice = choiceEl ? choiceEl.value : null;
-
-    if (currentGame === "coin") {
-      await animateCoin(choice, bet);
-    } else if (currentGame === "dice") {
-      await animateDice(choice, bet);
-    } else if (currentGame === "slot") {
-      await animateSlot(bet);
-    } else if (currentGame === "dart") {
-      await animateDart(bet);
-    } else {
-      // number — без анимации
+    if (currentGame === "coin") await animateCoin(choice, bet);
+    else if (currentGame === "dice") await animateDice(choice, bet);
+    else if (currentGame === "slot") await animateSlot(bet);
+    else if (currentGame === "dart") await animateDart(bet);
+    else {
       try {
         const res = await apiPost("/api/games/play", { game: currentGame, bet, choice });
         document.getElementById("game-result").innerHTML = `<div class="msg ok">${res.text}</div>`;
@@ -1000,9 +1227,7 @@
     }
   }
 
-  // ===== САПЁР =====
   let msState = null;
-
   function renderMinesweeperStart() {
     document.getElementById("minesweeper-area").innerHTML = `
       <div class="card">
@@ -1012,37 +1237,27 @@
       </div>
     `;
   }
-
   async function startMinesweeper() {
     try {
       const res = await apiPost("/api/minesweeper/start", {});
-      msState = {
-        game_id: res.game_id,
-        board: res.board,
-        revealed: res.revealed,
-        size: res.size,
-      };
+      msState = { game_id: res.game_id, board: res.board, revealed: res.revealed, size: res.size };
       renderMinesweeperBoard();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
-
   function renderMinesweeperBoard() {
     if (!msState) return;
-    const { game_id, board, revealed, size } = msState;
+    const { board, revealed, size } = msState;
     const numEmoji = {"0":"⬜","1":"1️⃣","2":"2️⃣","3":"3️⃣","4":"4️⃣","5":"5️⃣","6":"6️⃣","7":"7️⃣","8":"8️⃣"};
     let html = `<div style="display:grid;grid-template-columns:repeat(${size},1fr);gap:4px;max-width:400px;margin:0 auto;">`;
     for (let i = 0; i < size * size; i++) {
       let content = "⬛";
-      if (revealed[i] === "1") {
-        content = board[i] === "M" ? "💥" : (numEmoji[board[i]] || "⬜");
-      }
+      if (revealed[i] === "1") content = board[i] === "M" ? "💥" : (numEmoji[board[i]] || "⬜");
       html += `<button onclick="openMsCell(${i})" style="background:none;border:none;font-size:22px;padding:2px;cursor:pointer;">${content}</button>`;
     }
     html += `</div>`;
     document.getElementById("minesweeper-area").innerHTML = html;
   }
-
   async function openMsCell(cell) {
     if (!msState) return;
     try {
@@ -1051,24 +1266,14 @@
       msState.board = res.board;
       msState.revealed = res.revealed;
       renderMinesweeperBoard();
-      if (res.result === "boom") {
-        toast("💥 Мина! Проиграл.", true);
-        msState = null;
-        setTimeout(() => renderMinesweeperStart(), 1500);
-      } else if (res.result === "win") {
-        toast(`🏆 Победа! +${res.reward} 🪙`, false);
-        playSound("success");
-        msState = null;
-        setTimeout(() => renderMinesweeperStart(), 1500);
-      }
+      if (res.result === "boom") { toast("💥 Мина! Проиграл.", true); msState = null; setTimeout(() => renderMinesweeperStart(), 1500); }
+      else if (res.result === "win") { toast(`🏆 Победа! +${res.reward} 🪙`, false); playSound("success"); msState = null; setTimeout(() => renderMinesweeperStart(), 1500); }
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
 
-  // ===== МОРСКОЙ БОЙ =====
   let bsState = null;
   let bsViewEnemy = true;
-
   function renderBattleshipStart() {
     document.getElementById("battleship-area").innerHTML = `
       <div class="card">
@@ -1076,77 +1281,57 @@
         <p class="label">Стандартный флот: 1×4, 2×3, 3×2, 4×1</p>
         <p class="label">Минимальная ставка: 500 🪙. Победа = x2</p>
         <div style="display:flex;gap:8px;margin-top:10px;">
-          <input type="number" id="bs-bet" value="500" min="500" style="flex:1;padding:10px;border-radius:10px;background:var(--bg);color:var(--text);border:1px solid var(--card-border);">
+          <input type="number" id="bs-bet" value="500" min="500" style="flex:1;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);">
           <button class="btn" onclick="startBattleship()">Начать</button>
         </div>
       </div>
     `;
   }
-
   async function startBattleship() {
     const bet = parseInt(document.getElementById("bs-bet").value, 10);
     if (!bet || bet < 500) { toast("Ставка минимум 500 🪙", true); return; }
     try {
       const res = await apiPost("/api/battleship/start", { bet });
-      bsState = res;
-      bsViewEnemy = true;
-      renderBattleship();
+      bsState = res; bsViewEnemy = true; renderBattleship();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
-
   function renderBattleship() {
     if (!bsState) return;
     const area = document.getElementById("battleship-area");
     const field = bsViewEnemy ? bsState.bot_field : bsState.player_field;
     const shots = bsViewEnemy ? bsState.player_shots : bsState.bot_shots;
     const size = 10;
-
     let board = `<div style="display:grid;grid-template-columns:repeat(${size},1fr);gap:3px;max-width:420px;margin:0 auto 12px auto;">`;
     for (let i = 0; i < size * size; i++) {
       let text = "·";
-      let bg = "rgba(139,92,246,0.15)";
-      let color = "#9691c4";
+      let bg = "var(--hover-bg)";
+      let color = "var(--hint)";
       if (shots[i] === "1") { text = "•"; bg = "rgba(150,145,196,0.35)"; color = "#fff"; }
       else if (shots[i] === "2") { text = "✕"; bg = "rgba(239,68,68,0.7)"; color = "#fff"; }
       else if (shots[i] === "3") { text = "☠"; bg = "rgba(100,0,0,0.8)"; color = "#fff"; }
       else if (!bsViewEnemy && field[i] === "S") { text = ""; bg = "rgba(74,222,128,0.5)"; }
-
       const clickable = bsViewEnemy && shots[i] === "0" && bsState.status === "active" && bsState.turn === "player";
       const onclick = clickable ? `onclick="fireBattleship(${Math.floor(i / size)}, ${i % size})"` : "";
       board += `<button ${onclick} style="aspect-ratio:1;background:${bg};border:none;border-radius:6px;font-size:14px;color:${color};cursor:${clickable ? 'pointer' : 'default'};padding:0;">${text}</button>`;
     }
     board += `</div>`;
-
     let info = `<div style="text-align:center;margin-bottom:12px;">`;
     info += `<div class="label">💰 Ставка: ${bsState.bet} 🪙 • Победа: ${bsState.reward} 🪙</div>`;
-    if (bsState.status === "active") {
-      info += `<div class="label">Ход: ${bsState.turn === "player" ? "🎯 Твой" : "🤖 Бота"}</div>`;
-    } else if (bsState.status === "win") {
-      info += `<div style="color:var(--link);font-weight:700;">🏆 Победа!</div>`;
-    } else if (bsState.status === "lose") {
-      info += `<div style="color:#ef4444;font-weight:700;">💀 Поражение</div>`;
-    }
+    if (bsState.status === "active") info += `<div class="label">Ход: ${bsState.turn === "player" ? "🎯 Твой" : "🤖 Бота"}</div>`;
+    else if (bsState.status === "win") info += `<div style="color:var(--link);font-weight:700;">🏆 Победа!</div>`;
+    else if (bsState.status === "lose") info += `<div style="color:#ef4444;font-weight:700;">💀 Поражение</div>`;
     info += `</div>`;
-
     const toggleBtn = bsViewEnemy
       ? `<button class="btn" onclick="switchBsView()">👁️ Моё поле</button>`
       : `<button class="btn" onclick="switchBsView()">🎯 Поле врага</button>`;
-
     area.innerHTML = info + board + `<div style="text-align:center;margin-top:12px;">${toggleBtn}</div>`;
   }
-
-  function switchBsView() {
-    bsViewEnemy = !bsViewEnemy;
-    renderBattleship();
-  }
-
+  function switchBsView() { bsViewEnemy = !bsViewEnemy; renderBattleship(); }
   async function fireBattleship(row, col) {
     if (!bsState) return;
     try {
-      const res = await apiPost("/api/battleship/fire", {
-        game_id: bsState.game_id, row, col
-      });
+      const res = await apiPost("/api/battleship/fire", { game_id: bsState.game_id, row, col });
       bsState = res;
       if (res.status === "win") { playSound("success"); toast(`🏆 Победа! +${res.reward} 🪙`, false); }
       else if (res.status === "lose") { playSound("error"); toast("💀 Поражение", true); }
@@ -1156,212 +1341,102 @@
   }
 
   // ===== АНИМАЦИИ =====
-
   function animateCoin(choice, bet) {
     return new Promise(async (resolve) => {
       const area = document.getElementById("game-area");
-      area.innerHTML = `
-        <div class="coin-container">
-          <div class="coin" id="coin-anim">🪙</div>
-        </div>
-        <div style="text-align:center;color:var(--hint);">Подбрасываем...</div>
-      `;
+      area.innerHTML = `<div class="coin-container"><div class="coin" id="coin-anim">🪙</div></div><div style="text-align:center;color:var(--hint);">Подбрасываем...</div>`;
       const coin = document.getElementById("coin-anim");
       setTimeout(() => coin.classList.add("spinning"), 50);
       setTimeout(() => coin.textContent = "🦅", 700);
       setTimeout(() => coin.textContent = "🪙", 1000);
-
       try {
         const res = await apiPost("/api/games/play", { game: "coin", bet, choice });
         setTimeout(() => {
-          // Показываем финальный результат
           const isEagle = res.text.includes("Орел") || res.text.includes("Орёл");
           coin.textContent = isEagle ? "🦅" : "🪙";
           coin.classList.remove("spinning");
           coin.style.transform = "rotateY(0deg)";
-          area.innerHTML = `
-            <div class="coin-container">
-              <div class="coin" style="transform:rotateY(0);">${isEagle ? "🦅" : "🪙"}</div>
-            </div>
-            <div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>
-          `;
-          if (res.win > 0) { playSound("success"); haptic("success"); }
-          else { playSound("error"); haptic("error"); }
-          loaded.profile = false;
-          loadProfile();
-          resolve();
+          area.innerHTML = `<div class="coin-container"><div class="coin" style="transform:rotateY(0);">${isEagle ? "🦅" : "🪙"}</div></div><div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>`;
+          if (res.win > 0) { playSound("success"); haptic("success"); } else { playSound("error"); haptic("error"); }
+          loaded.profile = false; loadProfile(); resolve();
         }, 1300);
-      } catch (e) {
-        toast(e.message, true);
-        renderGameUI();
-        resolve();
-      }
+      } catch (e) { toast(e.message, true); renderGameUI(); resolve(); }
     });
   }
-
   function animateDice(choice, bet) {
     return new Promise(async (resolve) => {
       const area = document.getElementById("game-area");
-      area.innerHTML = `
-        <div class="dice-cube spinning" id="dice-anim">🎲</div>
-        <div style="text-align:center;color:var(--hint);">Бросаем кубик...</div>
-      `;
+      area.innerHTML = `<div class="dice-cube spinning" id="dice-anim">🎲</div><div style="text-align:center;color:var(--hint);">Бросаем кубик...</div>`;
       const dice = document.getElementById("dice-anim");
       try {
         const res = await apiPost("/api/games/play", { game: "dice", bet, choice });
         const match = res.text.match(/Выпало:\s*(\d)/);
         const num = match ? match[1] : "?";
         setTimeout(() => {
-          dice.classList.remove("spinning");
-          dice.textContent = num;
-          area.innerHTML = `
-            <div class="dice-cube">${num}</div>
-            <div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>
-          `;
-          if (res.win > 0) { playSound("success"); haptic("success"); }
-          else { playSound("error"); haptic("error"); }
-          loaded.profile = false;
-          loadProfile();
-          resolve();
+          dice.classList.remove("spinning"); dice.textContent = num;
+          area.innerHTML = `<div class="dice-cube">${num}</div><div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>`;
+          if (res.win > 0) { playSound("success"); haptic("success"); } else { playSound("error"); haptic("error"); }
+          loaded.profile = false; loadProfile(); resolve();
         }, 1000);
-      } catch (e) {
-        toast(e.message, true);
-        renderGameUI();
-        resolve();
-      }
+      } catch (e) { toast(e.message, true); renderGameUI(); resolve(); }
     });
   }
-
   function animateSlot(bet) {
     return new Promise(async (resolve) => {
       const area = document.getElementById("game-area");
       const symbols = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"];
-      area.innerHTML = `
-        <div class="slot-container">
-          <div class="slot-reel spinning" id="reel1"><span class="symbol">🍒</span></div>
-          <div class="slot-reel spinning" id="reel2"><span class="symbol">🍒</span></div>
-          <div class="slot-reel spinning" id="reel3"><span class="symbol">🍒</span></div>
-        </div>
-        <div style="text-align:center;color:var(--hint);">Крутим барабаны...</div>
-      `;
-      const r1 = document.getElementById("reel1");
-      const r2 = document.getElementById("reel2");
-      const r3 = document.getElementById("reel3");
-
-      // Показываем крутящиеся символы
+      area.innerHTML = `<div class="slot-container"><div class="slot-reel spinning" id="reel1"><span class="symbol">🍒</span></div><div class="slot-reel spinning" id="reel2"><span class="symbol">🍒</span></div><div class="slot-reel spinning" id="reel3"><span class="symbol">🍒</span></div></div><div style="text-align:center;color:var(--hint);">Крутим барабаны...</div>`;
+      const r1 = document.getElementById("reel1"), r2 = document.getElementById("reel2"), r3 = document.getElementById("reel3");
       const interval = setInterval(() => {
         r1.querySelector(".symbol").textContent = symbols[Math.floor(Math.random() * 6)];
         r2.querySelector(".symbol").textContent = symbols[Math.floor(Math.random() * 6)];
         r3.querySelector(".symbol").textContent = symbols[Math.floor(Math.random() * 6)];
       }, 80);
-
       try {
         const res = await apiPost("/api/games/play", { game: "slot", bet });
-        // Парсим результат: "🍒 🍋 🍊"
         const parts = res.text.split("\n")[0].split(" ");
         const [s1, s2, s3] = parts.length >= 3 ? parts : ["🍒", "🍒", "🍒"];
-
-        // Останавливаем по очереди
+        setTimeout(() => { clearInterval(interval); r1.classList.remove("spinning"); r1.querySelector(".symbol").textContent = s1; }, 800);
+        setTimeout(() => { r2.classList.remove("spinning"); r2.querySelector(".symbol").textContent = s2; }, 1200);
+        setTimeout(() => { r3.classList.remove("spinning"); r3.querySelector(".symbol").textContent = s3; }, 1600);
         setTimeout(() => {
-          clearInterval(interval);
-          r1.classList.remove("spinning");
-          r1.querySelector(".symbol").textContent = s1;
-        }, 800);
-
-        setTimeout(() => {
-          r2.classList.remove("spinning");
-          r2.querySelector(".symbol").textContent = s2;
-        }, 1200);
-
-        setTimeout(() => {
-          r3.classList.remove("spinning");
-          r3.querySelector(".symbol").textContent = s3;
-        }, 1600);
-
-        setTimeout(() => {
-          area.innerHTML = `
-            <div class="slot-container">
-              <div class="slot-reel"><span class="symbol">${s1}</span></div>
-              <div class="slot-reel"><span class="symbol">${s2}</span></div>
-              <div class="slot-reel"><span class="symbol">${s3}</span></div>
-            </div>
-            <div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>
-          `;
-          if (res.win > 0) { playSound("success"); haptic("success"); }
-          else { playSound("error"); haptic("error"); }
-          loaded.profile = false;
-          loadProfile();
-          resolve();
+          area.innerHTML = `<div class="slot-container"><div class="slot-reel"><span class="symbol">${s1}</span></div><div class="slot-reel"><span class="symbol">${s2}</span></div><div class="slot-reel"><span class="symbol">${s3}</span></div></div><div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>`;
+          if (res.win > 0) { playSound("success"); haptic("success"); } else { playSound("error"); haptic("error"); }
+          loaded.profile = false; loadProfile(); resolve();
         }, 1900);
-      } catch (e) {
-        clearInterval(interval);
-        toast(e.message, true);
-        renderGameUI();
-        resolve();
-      }
+      } catch (e) { clearInterval(interval); toast(e.message, true); renderGameUI(); resolve(); }
     });
   }
-
   function animateDart(bet) {
     return new Promise(async (resolve) => {
       const area = document.getElementById("game-area");
-      area.innerHTML = `
-        <div class="dart-target" id="dart-target">
-          <div class="dart-arrow" id="dart-arrow"></div>
-        </div>
-        <div style="text-align:center;color:var(--hint);">Бросок...</div>
-      `;
-      const target = document.getElementById("dart-target");
+      area.innerHTML = `<div class="dart-target" id="dart-target"><div class="dart-arrow" id="dart-arrow"></div></div><div style="text-align:center;color:var(--hint);">Бросок...</div>`;
       const arrow = document.getElementById("dart-arrow");
-
       try {
         const res = await apiPost("/api/games/play", { game: "dart", bet });
         const match = res.text.match(/Очков:\s*(\d+)/);
         const score = match ? parseInt(match[1]) : 0;
-
-        // Позиция на мишени в зависимости от очков
-        // 15 очков — в самый центр (радиус 5%), 0 — на краю (радиус 80%)
-        const maxRadius = 75; // 80% от 100
-        const minRadius = 5;
+        const maxRadius = 75, minRadius = 5;
         const percentFromCenter = Math.max(minRadius, maxRadius - (score / 15) * (maxRadius - minRadius));
         const angle = Math.random() * 2 * Math.PI;
         const center = 80;
         const x = center + (percentFromCenter / 100) * center * Math.cos(angle);
         const y = center + (percentFromCenter / 100) * center * Math.sin(angle);
-
         arrow.style.left = (x / 160 * 100) + "%";
         arrow.style.top = (y / 160 * 100) + "%";
-
+        setTimeout(() => { arrow.classList.add("thrown"); arrow.style.transform = "translate(-50%, -50%) scale(1.2)"; }, 100);
         setTimeout(() => {
-          arrow.classList.add("thrown");
-          arrow.style.transform = "translate(-50%, -50%) scale(1.2)";
-        }, 100);
-
-        setTimeout(() => {
-          area.innerHTML = `
-            <div class="dart-target" style="position:relative;">
-              <div class="dart-arrow thrown" style="left:${(x / 160 * 100)}%;top:${(y / 160 * 100)}%;transform:translate(-50%, -50%) scale(1.2);"></div>
-            </div>
-            <div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>
-          `;
-          if (res.win > 0) { playSound("success"); haptic("success"); }
-          else { playSound("error"); haptic("error"); }
-          loaded.profile = false;
-          loadProfile();
-          resolve();
+          area.innerHTML = `<div class="dart-target" style="position:relative;"><div class="dart-arrow thrown" style="left:${(x / 160 * 100)}%;top:${(y / 160 * 100)}%;transform:translate(-50%, -50%) scale(1.2);"></div></div><div class="msg ${res.win > 0 ? 'ok' : 'err'}" style="text-align:center;">${res.text}</div>`;
+          if (res.win > 0) { playSound("success"); haptic("success"); } else { playSound("error"); haptic("error"); }
+          loaded.profile = false; loadProfile(); resolve();
         }, 1400);
-      } catch (e) {
-        toast(e.message, true);
-        renderGameUI();
-        resolve();
-      }
+      } catch (e) { toast(e.message, true); renderGameUI(); resolve(); }
     });
   }
 
   // ===== КОСМЕТИКА =====
   let cosData = null;
   let cosTab = "color";
-
   async function loadCosmetics() {
     try {
       cosData = await apiGet("/api/cosmetics");
@@ -1370,23 +1445,18 @@
       renderCosTab();
     } catch (e) { showMsg("cosmetics-msg", e.message, false); }
   }
-
   function selectCosTab(tab, ev) {
     cosTab = tab;
     document.querySelectorAll(".cos-tab").forEach(b => b.classList.remove("active"));
     if (ev) ev.target.classList.add("active");
     renderCosTab();
   }
-
   function renderCosTab() {
     if (!cosData) return;
     const el = document.getElementById("cos-content");
     const current = cosData.current;
-
     if (cosTab === "color") {
-      let html = `<h2>🎨 Цвет ника</h2>
-        <p class="label">Цена: ${cosData.color_price.toLocaleString()} 🪙</p>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;">`;
+      let html = `<h2>🎨 Цвет ника</h2><p class="label">Цена: ${cosData.color_price.toLocaleString()} 🪙</p><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;">`;
       for (const [key, info] of Object.entries(cosData.colors)) {
         const isCurrent = current.nickname_color === key;
         html += `<button onclick="buyCos('color','${key}')" style="background:${info.hex};border:${isCurrent ? '3px solid #4ade80' : '2px solid transparent'};border-radius:8px;height:44px;cursor:pointer;font-size:20px;">${isCurrent ? '✅' : ''}</button>`;
@@ -1397,20 +1467,14 @@
       let html = `<h2>🖼️ Рамки</h2>`;
       for (const [key, info] of Object.entries(cosData.frames)) {
         const isCurrent = current.frame === key;
-        html += `<div class="item-row">
-          <span>${info.display.replace('{name}', '@you')}${isCurrent ? ' ✅' : ''}</span>
-          <button class="btn btn-small" onclick="buyCos('frame','${key}')">${info.price.toLocaleString()} 🪙</button>
-        </div>`;
+        html += `<div class="item-row"><span>${info.display.replace('{name}', '@you')}${isCurrent ? ' ✅' : ''}</span><button class="btn btn-small" onclick="buyCos('frame','${key}')">${info.price.toLocaleString()} 🪙</button></div>`;
       }
       el.innerHTML = html;
     } else if (cosTab === "status") {
       let html = `<h2>🏷️ Статусы</h2>`;
       for (const [key, info] of Object.entries(cosData.statuses)) {
         const isCurrent = current.status === key;
-        html += `<div class="item-row">
-          <span>${info.name}${isCurrent ? ' ✅' : ''}</span>
-          <button class="btn btn-small" onclick="buyCos('status','${key}')">${info.price.toLocaleString()} 🪙</button>
-        </div>`;
+        html += `<div class="item-row"><span>${info.name}${isCurrent ? ' ✅' : ''}</span><button class="btn btn-small" onclick="buyCos('status','${key}')">${info.price.toLocaleString()} 🪙</button></div>`;
       }
       el.innerHTML = html;
     } else if (cosTab === "theme") {
@@ -1418,10 +1482,7 @@
       for (const [key, info] of Object.entries(cosData.themes)) {
         const isCurrent = current.theme === key;
         const price = info.price === 0 ? "бесплатно" : `${info.price.toLocaleString()} 🪙`;
-        html += `<div class="item-row">
-          <span>${info.name}${isCurrent ? ' ✅' : ''}</span>
-          <button class="btn btn-small" onclick="buyCos('theme','${key}')">${price}</button>
-        </div>`;
+        html += `<div class="item-row"><span>${info.name}${isCurrent ? ' ✅' : ''}</span><button class="btn btn-small" onclick="buyCos('theme','${key}')">${price}</button></div>`;
       }
       el.innerHTML = html;
     }
@@ -1435,44 +1496,28 @@
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
-  
+
   // ===== ДРУЗЬЯ =====
   async function loadFriends() {
     try {
       const data = await apiGet("/api/friends");
       document.getElementById("friends-bonus").textContent = `Бонус к зарплате: +${data.bonus}%`;
-
-      // Входящие заявки
       const pendingCard = document.getElementById("friends-pending-card");
       if (data.pending.length > 0) {
         pendingCard.style.display = "block";
         document.getElementById("friends-pending").innerHTML = data.pending.map(p => `
-          <div class="item-row">
-            <span>@${p.from_username}</span>
-            <span>
-              <button class="btn btn-small" onclick="acceptFriend(${p.request_id})">✅</button>
-              <button class="btn btn-small" onclick="declineFriend(${p.request_id})">❌</button>
-            </span>
-          </div>
+          <div class="item-row"><span>@${p.from_username}</span><span><button class="btn btn-small" onclick="acceptFriend(${p.request_id})">✅</button> <button class="btn btn-small" onclick="declineFriend(${p.request_id})">❌</button></span></div>
         `).join("");
-      } else {
-        pendingCard.style.display = "none";
-      }
-
-      // Список друзей
+      } else pendingCard.style.display = "none";
       if (data.friends.length > 0) {
         document.getElementById("friends-list").innerHTML = data.friends.map(f => `
-          <div class="item-row">
-            <span>@${f.username || f.user_id}<br><span class="label">${f.balance.toLocaleString()} 🪙</span></span>
-            <button class="btn btn-small" onclick="removeFriend(${f.user_id})">Удалить</button>
-          </div>
+          <div class="item-row"><span>@${f.username || f.user_id}<br><span class="label">${f.balance.toLocaleString()} 🪙</span></span><button class="btn btn-small" onclick="removeFriend(${f.user_id})">Удалить</button></div>
         `).join("");
       } else {
         document.getElementById("friends-list").innerHTML = `<div class="label">Пока нет друзей</div>`;
       }
     } catch (e) { showMsg("friends-msg", e.message, false); }
   }
-
   async function addFriend() {
     const username = document.getElementById("friend-username").value.trim();
     if (!username) { toast("Введи username", true); return; }
@@ -1483,7 +1528,6 @@
       loadFriends();
     } catch (e) { toast(e.message, true); }
   }
-
   async function acceptFriend(requestId) {
     try {
       const res = await apiPost("/api/friends/accept", { request_id: requestId });
@@ -1492,7 +1536,6 @@
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
-
   async function declineFriend(requestId) {
     try {
       await apiPost("/api/friends/decline", { request_id: requestId });
@@ -1500,7 +1543,6 @@
       loadFriends();
     } catch (e) { toast(e.message, true); }
   }
-
   async function removeFriend(friendId) {
     if (!confirm("Удалить из друзей?")) return;
     try {
@@ -1510,7 +1552,7 @@
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
-  
+
   // ===== НАСТРОЙКИ =====
   let userSettings = null;
   async function loadSettings() {
@@ -1521,7 +1563,6 @@
       updateSoundUI();
     } catch (e) { showMsg("settings-msg", e.message, false); }
   }
-  
   async function toggleHints() {
     if (!userSettings) return;
     try {
@@ -1580,7 +1621,7 @@
       showMsg("admin-result", `📡 Пинг: ${res.ping_ms} мс ${res.status}`, true);
     } catch (e) { showMsg("admin-result", e.message, false); }
   }
-  
+
   // ===== TOAST + HAPTIC =====
   let toastTimer = null;
   function toast(text, isError) {
@@ -1634,17 +1675,12 @@
   // ===== PULL TO REFRESH =====
   let ptrStartY = 0, ptrActive = false;
   document.addEventListener("touchstart", (e) => {
-    if (window.scrollY === 0) {
-      ptrStartY = e.touches[0].clientY;
-      ptrActive = true;
-    }
+    if (window.scrollY === 0) { ptrStartY = e.touches[0].clientY; ptrActive = true; }
   }, { passive: true });
   document.addEventListener("touchmove", (e) => {
     if (!ptrActive) return;
     const dy = e.touches[0].clientY - ptrStartY;
-    if (dy > 80 && window.scrollY === 0) {
-      document.getElementById("ptr").classList.add("active");
-    }
+    if (dy > 80 && window.scrollY === 0) document.getElementById("ptr").classList.add("active");
   }, { passive: true });
   document.addEventListener("touchend", async () => {
     if (!ptrActive) return;
@@ -1655,10 +1691,7 @@
       const activeTab = navActive ? navActive.dataset.tab : "profile";
       loaded[activeTab] = false;
       loadTab(activeTab);
-      if (activeTab !== "profile") {
-        loaded.profile = false;
-        loadProfile().catch(() => {});
-      }
+      if (activeTab !== "profile") { loaded.profile = false; loadProfile().catch(() => {}); }
       setTimeout(() => ptr.classList.remove("active"), 500);
     }
     ptrActive = false;
@@ -1667,25 +1700,21 @@
   function applyTheme(theme) {
     document.body.setAttribute("data-theme", theme || "reef");
   }
-  
+
   // ===== СТАРТ =====
   async function init() {
-    // Аватарка
     try {
       const tgUser = tg.initDataUnsafe && tg.initDataUnsafe.user;
       if (tgUser && tgUser.photo_url) {
-        document.getElementById("p-avatar-wrapper").innerHTML =
-          `<img class="avatar" src="${tgUser.photo_url}" alt="avatar">`;
+        document.getElementById("p-avatar-wrapper").innerHTML = `<img class="avatar" src="${tgUser.photo_url}" alt="avatar">`;
       }
     } catch (e) {}
 
-    // Предзагрузка косметики + темы
     try {
       cosData = await apiGet("/api/cosmetics");
       if (cosData && cosData.current) applyTheme(cosData.current.theme);
     } catch (e) {}
 
-    // Загрузка профиля
     try {
       await loadProfile();
       document.getElementById("status").style.display = "none";
@@ -1697,8 +1726,7 @@
     }
   }
   init();
-  
 </script>
-  
+
 </body>
 </html>
