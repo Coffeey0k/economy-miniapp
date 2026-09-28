@@ -6,7 +6,26 @@
 <title>Paradise Reef</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  :root {
+  /* ===== ТЕМА: Paradise Reef (по умолчанию) ===== */
+  :root, body[data-theme="reef"] {
+    --bg: #0f1f2e;
+    --text: #e8f4f8;
+    --hint: #7ba7bc;
+    --link: #4ade80;
+    --accent: #14b8a6;
+    --accent2: #0d9488;
+    --button: #14b8a6;
+    --button-text: #ffffff;
+    --secondary-bg: #16303f;
+    --card-border: rgba(20,184,166,0.35);
+    --nav-bg: #0b1a26;
+    --input-bg: #0a1620;
+    --hover-bg: rgba(20,184,166,0.15);
+    --progress-bg: rgba(20,184,166,0.2);
+  }
+
+  /* ===== ТЕМА: Тёмная (нейтральная) ===== */
+  body[data-theme="dark"] {
     --bg: #14112b;
     --text: #f2f0fb;
     --hint: #9691c4;
@@ -18,22 +37,30 @@
     --secondary-bg: #1e1a3f;
     --card-border: rgba(139,92,246,0.25);
     --nav-bg: #191536;
+    --input-bg: #14112b;
+    --hover-bg: rgba(139,92,246,0.15);
+    --progress-bg: rgba(139,92,246,0.2);
   }
 
+  /* ===== ТЕМА: Светлая ===== */
   body[data-theme="light"] {
-    --bg: #f4f1ff;
-    --text: #1a1535;
-    --hint: #6b6690;
+    --bg: #f0f4f8;
+    --text: #1a2332;
+    --hint: #64748b;
     --link: #16a34a;
-    --accent: #7c3aed;
-    --accent2: #5b21b6;
-    --button: #7c3aed;
+    --accent: #0d9488;
+    --accent2: #0f766e;
+    --button: #0d9488;
     --button-text: #ffffff;
     --secondary-bg: #ffffff;
-    --card-border: rgba(124,58,237,0.2);
+    --card-border: rgba(13,148,136,0.2);
     --nav-bg: #ffffff;
+    --input-bg: #f0f4f8;
+    --hover-bg: rgba(13,148,136,0.08);
+    --progress-bg: rgba(13,148,136,0.15);
   }
 
+  /* ===== ТЕМА: Неоновая ===== */
   body[data-theme="neon"] {
     --bg: #0a0015;
     --text: #00ffea;
@@ -46,6 +73,9 @@
     --secondary-bg: #14002b;
     --card-border: rgba(255,0,255,0.5);
     --nav-bg: #0a0015;
+    --input-bg: #0a0015;
+    --hover-bg: rgba(255,0,255,0.15);
+    --progress-bg: rgba(255,0,255,0.2);
   }
 
   body[data-theme="neon"] .card {
@@ -82,7 +112,7 @@
   .btn-small { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
   input[type=text], input[type=number] {
     width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--card-border);
-    background: var(--bg); color: var(--text); font-size: 14px; margin-bottom: 10px;
+    background: var(--input-bg); color: var(--text); font-size: 14px; margin-bottom: 10px;
   }
   .you { font-weight: 700; color: var(--link); }
   .medal { margin-right: 6px; }
@@ -106,7 +136,7 @@
 
   .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
   .tile {
-    background: linear-gradient(135deg, #9061f9, #6d28d9);
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
     border-radius: 16px; padding: 18px 14px; text-align: center;
     box-shadow: 0 4px 16px rgba(109,40,217,0.4);
     border: none; color: #fff; font-size: 14px; font-weight: 600;
@@ -265,7 +295,7 @@
   .slot-reel {
     width: 70px;
     height: 90px;
-    background: linear-gradient(135deg, #1e1a3f, #14112b);
+    background: var(--secondary-bg);
     border: 2px solid var(--accent);
     border-radius: 12px;
     display: flex;
@@ -788,8 +818,8 @@
           <div class="stat-row"><span>Зарплата</span><span>${c.salary} 🪙</span></div>
           <div class="stat-row"><span>Прогресс до уровня</span><span>${progressText}</span></div>
           <div style="margin:10px 0;">
-            <div style="background:rgba(139,92,246,0.15);border-radius:8px;height:12px;overflow:hidden;">
-              <div style="background:linear-gradient(90deg,#a78bfa,#6d28d9);height:100%;width:${c.progress_percent}%;transition:width 0.4s;"></div>
+            <div style="background:var(--progress-bg);border-radius:8px;height:12px;overflow:hidden;">
+              <div style="background:var(--accent);height:100%;width:${c.progress_percent}%;transition:width 0.4s;"></div>
             </div>
           </div>
           <button class="btn" onclick="workNow()">Работать</button>
