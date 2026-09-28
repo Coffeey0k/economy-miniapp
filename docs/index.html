@@ -17,14 +17,47 @@
     --button-text: #ffffff;
     --secondary-bg: #1e1a3f;
     --card-border: rgba(139,92,246,0.25);
+    --nav-bg: #191536;
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 14px 14px 72px;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  body[data-theme="light"] {
+    --bg: #f4f1ff;
+    --text: #1a1535;
+    --hint: #6b6690;
+    --link: #16a34a;
+    --accent: #7c3aed;
+    --accent2: #5b21b6;
+    --button: #7c3aed;
+    --button-text: #ffffff;
+    --secondary-bg: #ffffff;
+    --card-border: rgba(124,58,237,0.2);
+    --nav-bg: #ffffff;
+  }
+
+  body[data-theme="neon"] {
+    --bg: #0a0015;
+    --text: #00ffea;
+    --hint: #ff00ff;
+    --link: #00ffea;
+    --accent: #ff00ff;
+    --accent2: #7c00ff;
+    --button: #ff00ff;
+    --button-text: #000000;
+    --secondary-bg: #14002b;
+    --card-border: rgba(255,0,255,0.5);
+    --nav-bg: #0a0015;
+  }
+
+  body[data-theme="neon"] .card {
+    box-shadow: 0 0 12px rgba(255,0,255,0.4);
+  }
+
+  body[data-theme="neon"] .btn {
+    box-shadow: 0 0 16px rgba(255,0,255,0.6);
+  }
+
+  body[data-theme="light"] .card {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   }
   .card { background: var(--secondary-bg); border: 1px solid var(--card-border); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
   .balance { font-size: 28px; font-weight: 700; color: var(--link); }
@@ -60,7 +93,7 @@
   .nav {
     position: fixed; bottom: 0; left: 0; right: 0;
     display: flex; justify-content: space-around;
-    background: #191536;
+    background: var(--nav-bg);
     padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--card-border);
   }
@@ -1281,6 +1314,7 @@
     try {
       cosData = await apiGet("/api/cosmetics");
       document.getElementById("cos-balance").textContent = cosData.balance + " 🪙";
+      applyTheme(cosData.current.theme);
       renderCosTab();
     } catch (e) { showMsg("cosmetics-msg", e.message, false); }
   }
@@ -1340,12 +1374,12 @@
       el.innerHTML = html;
     }
   }
-
   async function buyCos(type, key) {
     try {
       const res = await apiPost("/api/cosmetics/buy", { type, key });
       toast(res.message, false);
       await loadCosmetics();
+      if (type === "theme") applyTheme(key);
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
@@ -1577,6 +1611,10 @@
     }
     ptrActive = false;
   });
+
+  function applyTheme(theme) {
+    document.body.setAttribute("data-theme", theme || "dark");
+  }
   
   // ===== СТАРТ =====
   async function init() {
@@ -1588,7 +1626,11 @@
       }
     } catch (e) {}
       // Предзагрузка косметики (для рамок и цвета в профиле)
-    try { cosData = await apiGet("/api/cosmetics"); } catch (e) {}
+      // Предзагрузка косметики + темы
+      try {
+        cosData = await apiGet("/api/cosmetics");
+        applyTheme(cosData.current.theme);
+      } catch (e) {}
       await loadProfile();
       document.getElementById("status").style.display = "none";
       document.getElementById("app").style.display = "block";
