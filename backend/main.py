@@ -1732,9 +1732,10 @@ STATUSES = {
 }
 
 THEMES = {
-    "dark":  {"name": "🌙 Тёмная",   "price": 0},
-    "light": {"name": "☀️ Светлая",  "price": 0},
-    "neon":  {"name": "🌈 Неоновая", "price": 50000},
+    "reef":   {"name": "🏝️ Paradise Reef", "price": 0},
+    "dark":   {"name": "🌙 Тёмная",        "price": 0},
+    "light":  {"name": "☀️ Светлая",       "price": 0},
+    "neon":   {"name": "🌈 Неоновая",      "price": 50000},
 }
 
 BADGES = {
@@ -1759,7 +1760,7 @@ def get_cosmetics_api(init_data: str = Query(..., alias="initData")):
         "nickname_color": row["nickname_color"] if row else None,
         "frame": row["frame"] if row else None,
         "status": row["status"] if row else None,
-        "theme": (row["theme"] if row and row["theme"] else "dark"),
+        "theme": (row["theme"] if row and row["theme"] else "reef"),
     }
 
     cur.execute("SELECT badge FROM user_badges WHERE user_id = %s", (user_id,))
