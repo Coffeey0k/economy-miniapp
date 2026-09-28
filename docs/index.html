@@ -8,24 +8,6 @@
 <style>
   /* ===== ТЕМА: Paradise Reef (по умолчанию) ===== */
   :root, body[data-theme="reef"] {
-    --bg: #0f1f2e;
-    --text: #e8f4f8;
-    --hint: #7ba7bc;
-    --link: #4ade80;
-    --accent: #14b8a6;
-    --accent2: #0d9488;
-    --button: #14b8a6;
-    --button-text: #ffffff;
-    --secondary-bg: #16303f;
-    --card-border: rgba(20,184,166,0.35);
-    --nav-bg: #0b1a26;
-    --input-bg: #0a1620;
-    --hover-bg: rgba(20,184,166,0.15);
-    --progress-bg: rgba(20,184,166,0.2);
-  }
-
-  /* ===== ТЕМА: Тёмная (нейтральная) ===== */
-  body[data-theme="dark"] {
     --bg: #14112b;
     --text: #f2f0fb;
     --hint: #9691c4;
@@ -38,26 +20,43 @@
     --card-border: rgba(139,92,246,0.25);
     --nav-bg: #191536;
     --input-bg: #14112b;
-    --hover-bg: rgba(139,92,246,0.15);
+    --hover-bg: rgba(139,92,246,0.18);
     --progress-bg: rgba(139,92,246,0.2);
+  }
+  /* ===== ТЕМА: Тёмная (нейтральная) ===== */
+  body[data-theme="dark"] {
+    --bg: #1a1a1f;
+    --text: #e8e8ec;
+    --hint: #8b8b96;
+    --link: #4ade80;
+    --accent: #6b7280;
+    --accent2: #4b5563;
+    --button: #6b7280;
+    --button-text: #ffffff;
+    --secondary-bg: #26262c;
+    --card-border: rgba(255,255,255,0.08);
+    --nav-bg: #131318;
+    --input-bg: #1a1a1f;
+    --hover-bg: rgba(255,255,255,0.05);
+    --progress-bg: rgba(255,255,255,0.08);
   }
 
   /* ===== ТЕМА: Светлая ===== */
   body[data-theme="light"] {
-    --bg: #f0f4f8;
-    --text: #1a2332;
-    --hint: #64748b;
+    --bg: #f4f1ff;
+    --text: #1a1535;
+    --hint: #6b6690;
     --link: #16a34a;
-    --accent: #0d9488;
-    --accent2: #0f766e;
-    --button: #0d9488;
+    --accent: #7c3aed;
+    --accent2: #5b21b6;
+    --button: #7c3aed;
     --button-text: #ffffff;
     --secondary-bg: #ffffff;
-    --card-border: rgba(13,148,136,0.2);
+    --card-border: rgba(124,58,237,0.2);
     --nav-bg: #ffffff;
-    --input-bg: #f0f4f8;
-    --hover-bg: rgba(13,148,136,0.08);
-    --progress-bg: rgba(13,148,136,0.15);
+    --input-bg: #f4f1ff;
+    --hover-bg: rgba(124,58,237,0.08);
+    --progress-bg: rgba(124,58,237,0.15);
   }
 
   /* ===== ТЕМА: Неоновая ===== */
@@ -593,6 +592,21 @@
   <div class="tab" id="tab-more">
     <div id="more-msg"></div>
     <div class="card">
+      <h2>📂 Дополнительно</h2>
+      <div class="item-row">
+        <span>👥 Друзья</span>
+        <button class="btn btn-small" onclick="switchTab('friends')">Открыть</button>
+      </div>
+      <div class="item-row">
+        <span>🎨 Косметика</span>
+        <button class="btn btn-small" onclick="switchTab('cosmetics')">Открыть</button>
+      </div>
+      <div class="item-row">
+        <span>⚙️ Настройки</span>
+        <button class="btn btn-small" onclick="switchTab('settings')">Открыть</button>
+      </div>
+    </div>
+    <div class="card">
       <h2>🎁 Бонус</h2>
       <p class="label" id="bonus-status">Загрузка…</p>
       <button class="btn" id="bonus-btn" onclick="claimBonus()">Забрать бонус</button>
@@ -613,10 +627,7 @@
   <button class="nav-item" data-tab="shop" onclick="switchTab('shop')"><span class="ic">🛒</span>Магазин</button>
   <button class="nav-item" data-tab="games" onclick="switchTab('games')"><span class="ic">🎮</span>Игры</button>
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
-  <button class="nav-item" data-tab="friends" onclick="switchTab('friends')"><span class="ic">👥</span>Друзья</button>
-  <button class="nav-item" data-tab="cosmetics" onclick="switchTab('cosmetics')"><span class="ic">🎨</span>Косметика</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
-  <button class="nav-item" data-tab="settings" onclick="switchTab('settings')"><span class="ic">⚙️</span>Настройки</button>
 </div>
     <div id="ptr">🔄 Обновление…</div>
 <div id="toast" class="toast"></div>
@@ -1654,7 +1665,7 @@
   });
 
   function applyTheme(theme) {
-    document.body.setAttribute("data-theme", theme || "dark");
+    document.body.setAttribute("data-theme", theme || "reef");
   }
   
   // ===== СТАРТ =====
