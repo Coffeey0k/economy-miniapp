@@ -1455,11 +1455,17 @@
     if (!cosData) return;
     const el = document.getElementById("cos-content");
     const current = cosData.current;
+    const owned = cosData.owned || {color: [], frame: [], status: [], theme: []};
+
     if (cosTab === "color") {
-      let html = `<h2>🎨 Цвет ника</h2><p class="label">Цена: ${cosData.color_price.toLocaleString()} 🪙</p><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;">`;
+      let html = `<h2>🎨 Цвет ника</h2>
+        <p class="label">Цена: ${cosData.color_price.toLocaleString()} 🪙 (первая покупка)</p>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;">`;
       for (const [key, info] of Object.entries(cosData.colors)) {
         const isCurrent = current.nickname_color === key;
-        html += `<button onclick="buyCos('color','${key}')" style="background:${info.hex};border:${isCurrent ? '3px solid #4ade80' : '2px solid transparent'};border-radius:8px;height:44px;cursor:pointer;font-size:20px;">${isCurrent ? '✅' : ''}</button>`;
+        const isOwned = owned.color.includes(key);
+        const badge = isCurrent ? "✅" : (isOwned ? "🔓" : "");
+        html += `<button onclick="buyCos('color','${key}')" title="${info.name}" style="background:${info.hex};border:${isCurrent ? '3px solid #4ade80' : '2px solid transparent'};border-radius:8px;height:44px;cursor:pointer;font-size:20px;">${badge}</button>`;
       }
       html += `</div>`;
       el.innerHTML = html;
@@ -1467,22 +1473,39 @@
       let html = `<h2>🖼️ Рамки</h2>`;
       for (const [key, info] of Object.entries(cosData.frames)) {
         const isCurrent = current.frame === key;
-        html += `<div class="item-row"><span>${info.display.replace('{name}', '@you')}${isCurrent ? ' ✅' : ''}</span><button class="btn btn-small" onclick="buyCos('frame','${key}')">${info.price.toLocaleString()} 🪙</button></div>`;
+        const isOwned = owned.frame.includes(key);
+        const badge = isCurrent ? " ✅" : (isOwned ? " 🔓" : "");
+        const priceText = isOwned ? "Применить" : `${info.price.toLocaleString()} 🪙`;
+        html += `<div class="item-row">
+          <span>${info.display.replace('{name}', '@you')}${badge}</span>
+          <button class="btn btn-small" onclick="buyCos('frame','${key}')">${priceText}</button>
+        </div>`;
       }
       el.innerHTML = html;
     } else if (cosTab === "status") {
       let html = `<h2>🏷️ Статусы</h2>`;
       for (const [key, info] of Object.entries(cosData.statuses)) {
         const isCurrent = current.status === key;
-        html += `<div class="item-row"><span>${info.name}${isCurrent ? ' ✅' : ''}</span><button class="btn btn-small" onclick="buyCos('status','${key}')">${info.price.toLocaleString()} 🪙</button></div>`;
+        const isOwned = owned.status.includes(key);
+        const badge = isCurrent ? " ✅" : (isOwned ? " 🔓" : "");
+        const priceText = isOwned ? "Применить" : `${info.price.toLocaleString()} 🪙`;
+        html += `<div class="item-row">
+          <span>${info.name}${badge}</span>
+          <button class="btn btn-small" onclick="buyCos('status','${key}')">${priceText}</button>
+        </div>`;
       }
       el.innerHTML = html;
     } else if (cosTab === "theme") {
       let html = `<h2>🌈 Темы</h2>`;
       for (const [key, info] of Object.entries(cosData.themes)) {
         const isCurrent = current.theme === key;
-        const price = info.price === 0 ? "бесплатно" : `${info.price.toLocaleString()} 🪙`;
-        html += `<div class="item-row"><span>${info.name}${isCurrent ? ' ✅' : ''}</span><button class="btn btn-small" onclick="buyCos('theme','${key}')">${price}</button></div>`;
+        const isOwned = owned.theme.includes(key);
+        const badge = isCurrent ? " ✅" : (isOwned ? " 🔓" : "");
+        const priceText = isOwned || info.price === 0 ? "Применить" : `${info.price.toLocaleString()} 🪙`;
+        html += `<div class="item-row">
+          <span>${info.name}${badge}</span>
+          <button class="btn btn-small" onclick="buyCos('theme','${key}')">${priceText}</button>
+        </div>`;
       }
       el.innerHTML = html;
     }
