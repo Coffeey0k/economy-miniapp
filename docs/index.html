@@ -428,6 +428,24 @@
     </div>
   </div>
 
+  <!-- КОСМЕТИКА -->
+  <div class="tab" id="tab-cosmetics">
+    <div id="cosmetics-msg"></div>
+    <div class="tabs-sub">
+      <button class="cos-tab active" onclick="selectCosTab('color', event)">🎨 Ник</button>
+      <button class="cos-tab" onclick="selectCosTab('frame', event)">🖼️ Рамки</button>
+      <button class="cos-tab" onclick="selectCosTab('status', event)">🏷️ Статусы</button>
+      <button class="cos-tab" onclick="selectCosTab('theme', event)">🌈 Темы</button>
+    </div>
+    <div class="card">
+      <div class="label">Ваш баланс</div>
+      <div class="balance" id="cos-balance">0</div>
+    </div>
+    <div class="card" id="cos-content">
+      <div class="label">Загрузка...</div>
+    </div>
+  </div>
+  
   <!-- НАСТРОЙКИ -->
   <div class="tab" id="tab-settings">
     <div id="settings-msg"></div>
@@ -523,6 +541,7 @@
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
   <button class="nav-item" data-tab="friends" onclick="switchTab('friends')"><span class="ic">👥</span>Друзья</button>
+  <button class="nav-item" data-tab="cosmetics" onclick="switchTab('cosmetics')"><span class="ic">🎨</span>Косметика</button>
   <button class="nav-item" data-tab="settings" onclick="switchTab('settings')"><span class="ic">⚙️</span>Настройки</button>
 </div>
     <div id="ptr">🔄 Обновление…</div>
@@ -589,6 +608,7 @@
     if (name === "wheel") loadWheel();
     if (name === "more") loadMore();
     if (name === "games") loadGames();
+    if (name === "cosmetics") loadCosmetics();
     if (name === "settings") loadSettings();
     if (name === "friends") loadFriends();
   }
@@ -596,7 +616,30 @@
   // ===== ПРОФИЛЬ =====
   async function loadProfile() {
     const data = await apiGet("/api/profile");
-    document.getElementById("p-username").textContent = data.username ? "@" + data.username : "ID " + data.user_id;
+        // Имя с рамкой
+    let displayName = data.username ? "@" + data.username : "ID " + data.user_id;
+    if (data.cosmetics) {
+      if (data.cosmetics.frame && cosData && cosData.frames[data.cosmetics.frame]) {
+        displayName = cosData.frames[data.cosmetics.frame].display.replace("{name}", displayName);
+      }
+      if (data.cosmetics.nickname_color && cosData && cosData.colors[data.cosmetics.nickname_color]) {
+        const hex = cosData.colors[data.cosmetics.nickname_color].hex;
+        const nameEl = document.getElementById("p-username");
+        nameEl.style.color = hex;
+      }
+    }
+    document.getElementById("p-username").textContent = displayName;
+
+    // Статус и значки
+    let statusLine = "";
+    if (data.cosmetics && data.cosmetics.status && cosData && cosData.statuses[data.cosmetics.status]) {
+      statusLine = cosData.statuses[data.cosmetics.status].name;
+    }
+    let badgesLine = "";
+    if (data.badges && data.badges.length > 0 && cosData) {
+      badgesLine = data.badges.map(b => cosData.badges[b] || "").join(" ");
+    }
+    // Показать статус/значки — можно добавить отдельным элементом в HTML
     document.getElementById("p-balance").textContent = data.balance + " 🪙";
     document.getElementById("p-rank").textContent = data.rank;
     document.getElementById("p-warns").textContent = data.warns;
@@ -1230,6 +1273,83 @@
     });
   }
 
+  // ===== КОСМЕТИКА =====
+  let cosData = null;
+  let cosTab = "color";
+
+  async function loadCosmetics() {
+    try {
+      cosData = await apiGet("/api/cosmetics");
+      document.getElementById("cos-balance").textContent = cosData.balance + " 🪙";
+      renderCosTab();
+    } catch (e) { showMsg("cosmetics-msg", e.message, false); }
+  }
+
+  function selectCosTab(tab, ev) {
+    cosTab = tab;
+    document.querySelectorAll(".cos-tab").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+    renderCosTab();
+  }
+
+  function renderCosTab() {
+    if (!cosData) return;
+    const el = document.getElementById("cos-content");
+    const current = cosData.current;
+
+    if (cosTab === "color") {
+      let html = `<h2>🎨 Цвет ника</h2>
+        <p class="label">Цена: ${cosData.color_price.toLocaleString()} 🪙</p>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;">`;
+      for (const [key, info] of Object.entries(cosData.colors)) {
+        const isCurrent = current.nickname_color === key;
+        html += `<button onclick="buyCos('color','${key}')" style="background:${info.hex};border:${isCurrent ? '3px solid #4ade80' : '2px solid transparent'};border-radius:8px;height:44px;cursor:pointer;font-size:20px;">${isCurrent ? '✅' : ''}</button>`;
+      }
+      html += `</div>`;
+      el.innerHTML = html;
+    } else if (cosTab === "frame") {
+      let html = `<h2>🖼️ Рамки</h2>`;
+      for (const [key, info] of Object.entries(cosData.frames)) {
+        const isCurrent = current.frame === key;
+        html += `<div class="item-row">
+          <span>${info.display.replace('{name}', '@you')}${isCurrent ? ' ✅' : ''}</span>
+          <button class="btn btn-small" onclick="buyCos('frame','${key}')">${info.price.toLocaleString()} 🪙</button>
+        </div>`;
+      }
+      el.innerHTML = html;
+    } else if (cosTab === "status") {
+      let html = `<h2>🏷️ Статусы</h2>`;
+      for (const [key, info] of Object.entries(cosData.statuses)) {
+        const isCurrent = current.status === key;
+        html += `<div class="item-row">
+          <span>${info.name}${isCurrent ? ' ✅' : ''}</span>
+          <button class="btn btn-small" onclick="buyCos('status','${key}')">${info.price.toLocaleString()} 🪙</button>
+        </div>`;
+      }
+      el.innerHTML = html;
+    } else if (cosTab === "theme") {
+      let html = `<h2>🌈 Темы</h2>`;
+      for (const [key, info] of Object.entries(cosData.themes)) {
+        const isCurrent = current.theme === key;
+        const price = info.price === 0 ? "бесплатно" : `${info.price.toLocaleString()} 🪙`;
+        html += `<div class="item-row">
+          <span>${info.name}${isCurrent ? ' ✅' : ''}</span>
+          <button class="btn btn-small" onclick="buyCos('theme','${key}')">${price}</button>
+        </div>`;
+      }
+      el.innerHTML = html;
+    }
+  }
+
+  async function buyCos(type, key) {
+    try {
+      const res = await apiPost("/api/cosmetics/buy", { type, key });
+      toast(res.message, false);
+      await loadCosmetics();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+  
   // ===== ДРУЗЬЯ =====
   async function loadFriends() {
     try {
@@ -1467,7 +1587,8 @@
           `<img class="avatar" src="${tgUser.photo_url}" alt="avatar">`;
       }
     } catch (e) {}
-    try {
+      // Предзагрузка косметики (для рамок и цвета в профиле)
+    try { cosData = await apiGet("/api/cosmetics"); } catch (e) {}
       await loadProfile();
       document.getElementById("status").style.display = "none";
       document.getElementById("app").style.display = "block";
