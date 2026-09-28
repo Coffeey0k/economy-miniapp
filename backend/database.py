@@ -313,6 +313,27 @@ def init_db():
             UNIQUE(from_user, to_user)
         )
     """)
+
+    # === КОСМЕТИКА ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_cosmetics (
+            user_id BIGINT PRIMARY KEY,
+            nickname_color TEXT,
+            frame TEXT,
+            status TEXT,
+            theme TEXT DEFAULT 'dark'
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_badges (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            badge TEXT,
+            obtained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, badge)
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -2362,6 +2383,202 @@ def friend_pending_requests(user_id: int) -> List[dict]:
         })
     conn.close()
     return result
+
+# ==================== КОСМЕТИКА ====================
+
+# Палитра цветов для ника (название → hex)
+NICK_COLORS = {
+    "red":     {"name": "🔴 Красный",   "hex": "#ef4444"},
+    "orange":  {"name": "🟠 Оранжевый", "hex": "#f97316"},
+    "yellow":  {"name": "🟡 Жёлтый",    "hex": "#eab308"},
+    "green":   {"name": "🟢 Зелёный",   "hex": "#22c55e"},
+    "cyan":    {"name": "🩵 Голубой",   "hex": "#06b6d4"},
+    "blue":    {"name": "🔵 Синий",     "hex": "#3b82f6"},
+    "purple":  {"name": "🟣 Фиолетовый","hex": "#a855f7"},
+    "pink":    {"name": "🩷 Розовый",   "hex": "#ec4899"},
+    "white":   {"name": "⚪ Белый",     "hex": "#ffffff"},
+    "black":   {"name": "⚫ Чёрный",    "hex": "#000000"},
+    "gold":    {"name": "🟨 Золотой",   "hex": "#fbbf24"},
+    "mint":    {"name": "🟩 Мятный",    "hex": "#6ee7b7"},
+}
+
+NICK_COLOR_PRICE = 15000
+
+# Рамки
+FRAMES = {
+    "circle":   {"name": "○", "price": 5000,  "rarity": "base", "display": "○ {name} ○"},
+    "star":     {"name": "⭐", "price": 10000, "rarity": "base", "display": "⭐ {name} ⭐"},
+    "sparkle":  {"name": "✨", "price": 20000, "rarity": "base", "display": "✨ {name} ✨"},
+    "spiral":   {"name": "🌀", "price": 30000, "rarity": "base", "display": "🌀 {name} 🌀"},
+    "diamond":  {"name": "💎", "price": 100000, "rarity": "rare", "display": "💎 {name} 💎"},
+    "crown":    {"name": "👑", "price": 250000, "rarity": "rare", "display": "👑 {name} 👑"},
+    "rainbow":  {"name": "🌈", "price": 500000, "rarity": "rare", "display": "🌈 {name} 🌈"},
+}
+
+# Статусы
+STATUSES = {
+    "online":  {"name": "🟢 Онлайн",         "price": 2000},
+    "busy":    {"name": "🔴 Занят",           "price": 2000},
+    "sleep":   {"name": "😴 Сплю",            "price": 2000},
+    "dnd":     {"name": "⛔ Не беспокоить",   "price": 3000},
+    "vacation":{"name": "🏖️ В отпуске",       "price": 3000},
+    "dream":   {"name": "💭 Мечтаю",          "price": 5000},
+}
+
+# Темы
+THEMES = {
+    "dark":   {"name": "🌙 Тёмная",       "price": 0},
+    "light":  {"name": "☀️ Светлая",      "price": 0},
+    "neon":   {"name": "🌈 Неоновая",     "price": 50000},
+}
+
+# Значки
+BADGES = {
+    "champion":     {"emoji": "🏆", "name": "Чемпион"},
+    "millionaire":  {"emoji": "💰", "name": "Миллионер"},
+    "multi_million":{"emoji": "💎", "name": "Мультимиллионер"},
+    "sniper":       {"emoji": "🎯", "name": "Снайпер"},
+    "gamer":        {"emoji": "🎮", "name": "Игрок"},
+    "collector":    {"emoji": "🐾", "name": "Коллекционер"},
+    "egg_hunter":   {"emoji": "🥚", "name": "Яйцелов"},
+    "builder":      {"emoji": "🏝️", "name": "Строитель"},
+    "social":       {"emoji": "👥", "name": "Душа компании"},
+    "veteran":      {"emoji": "⚔️", "name": "Ветеран"},
+    "artist":       {"emoji": "🎨", "name": "Художник"},
+    "ruler":        {"emoji": "👑", "name": "Правитель"},
+}
+
+
+def get_cosmetics(user_id: int) -> dict:
+    """Возвращает косметику пользователя (или дефолт)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT nickname_color, frame, status, theme FROM user_cosmetics WHERE user_id = ?
+    """, (user_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.execute("INSERT INTO user_cosmetics (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+        row = (None, None, None, "dark")
+    conn.close()
+    return {
+        "nickname_color": row[0],
+        "frame": row[1],
+        "status": row[2],
+        "theme": row[3] or "dark",
+    }
+
+
+def set_cosmetics(user_id: int, **fields) -> bool:
+    """Обновляет поля косметики."""
+    allowed = ["nickname_color", "frame", "status", "theme"]
+    sets = []
+    params = []
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k} = ?")
+            params.append(v)
+    if not sets:
+        return False
+    params.append(user_id)
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO user_cosmetics (user_id) VALUES (?)", (user_id,))
+    cur.execute(f"UPDATE user_cosmetics SET {', '.join(sets)} WHERE user_id = ?", params)
+    conn.commit()
+    conn.close()
+    return True
+
+
+def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
+    """Покупает косметику. Возвращает (ok, message)."""
+    if item_type == "color":
+        price = NICK_COLOR_PRICE
+        if item_key not in NICK_COLORS:
+            return False, "Неизвестный цвет"
+    elif item_type == "frame":
+        if item_key not in FRAMES:
+            return False, "Неизвестная рамка"
+        price = FRAMES[item_key]["price"]
+    elif item_type == "status":
+        if item_key not in STATUSES:
+            return False, "Неизвестный статус"
+        price = STATUSES[item_key]["price"]
+    elif item_type == "theme":
+        if item_key not in THEMES:
+            return False, "Неизвестная тема"
+        price = THEMES[item_key]["price"]
+    else:
+        return False, "Неизвестный тип"
+
+    if get_balance(user_id) < price:
+        return False, f"Недостаточно монет. Нужно: {price} 🪙"
+
+    if not update_balance(user_id, -price):
+        return False, "Ошибка списания"
+
+    # Применяем сразу
+    if item_type == "color":
+        set_cosmetics(user_id, nickname_color=item_key)
+    elif item_type == "frame":
+        set_cosmetics(user_id, frame=item_key)
+    elif item_type == "status":
+        set_cosmetics(user_id, status=item_key)
+    elif item_type == "theme":
+        set_cosmetics(user_id, theme=item_key)
+
+    return True, f"Куплено! Списано {price} 🪙"
+
+
+def get_display_name(user_id: int) -> str:
+    """Возвращает отформатированное имя с косметикой."""
+    user = get_user(user_id)
+    if not user:
+        return f"ID{user_id}"
+    uname = user["username"] or str(user_id)
+    cosmetics = get_cosmetics(user_id)
+
+    # Рамка
+    frame = cosmetics["frame"]
+    if frame and frame in FRAMES:
+        name = FRAMES[frame]["display"].format(name=uname)
+    else:
+        name = f"@{uname}"
+
+    # Цвет — эмодзи-индикатор
+    color = cosmetics["nickname_color"]
+    if color and color in NICK_COLORS:
+        # Берём первый символ из имени цвета (эмодзи кружок)
+        color_emoji = NICK_COLORS[color]["name"].split()[0]
+        name = f"{color_emoji} {name}"
+
+    return name
+
+
+def add_badge(user_id: int, badge: str) -> bool:
+    if badge not in BADGES:
+        return False
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("INSERT OR IGNORE INTO user_badges (user_id, badge) VALUES (?, ?)",
+                    (user_id, badge))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def get_badges(user_id: int) -> list:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT badge FROM user_badges WHERE user_id = ?", (user_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 # Инициализация при импорте
 init_db()
