@@ -119,17 +119,24 @@
   .msg { text-align: center; padding: 10px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
   .msg.ok { background: rgba(74,222,128,0.15); }
   .msg.err { background: rgba(248,113,113,0.18); }
-
+  
   .nav {
     position: fixed; bottom: 0; left: 0; right: 0;
-    display: flex; justify-content: space-around;
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     background: var(--nav-bg);
     padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--card-border);
+    scrollbar-width: none;
   }
-  .nav-item {
+  .nav::-webkit-scrollbar { display: none; }
+  
+   .nav-item {
     display: flex; flex-direction: column; align-items: center; gap: 2px;
-    color: var(--hint); font-size: 10px; background: none; border: none; padding: 4px;
+    color: var(--hint); font-size: 10px; background: none; border: none; padding: 4px 8px;
+    flex: 0 0 auto;
+    min-width: 56px;
   }
   .nav-item.active { color: #c4b5fd; }
   .nav-item .ic { font-size: 20px; }
@@ -602,9 +609,9 @@
   <button class="nav-item" data-tab="shop" onclick="switchTab('shop')"><span class="ic">🛒</span>Магазин</button>
   <button class="nav-item" data-tab="games" onclick="switchTab('games')"><span class="ic">🎮</span>Игры</button>
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
-  <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
   <button class="nav-item" data-tab="friends" onclick="switchTab('friends')"><span class="ic">👥</span>Друзья</button>
   <button class="nav-item" data-tab="cosmetics" onclick="switchTab('cosmetics')"><span class="ic">🎨</span>Косметика</button>
+  <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
   <button class="nav-item" data-tab="settings" onclick="switchTab('settings')"><span class="ic">⚙️</span>Настройки</button>
 </div>
     <div id="ptr">🔄 Обновление…</div>
