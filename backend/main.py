@@ -1765,6 +1765,7 @@ def get_cosmetics_api(init_data: str = Query(..., alias="initData")):
     conn = db()
     cur = conn.cursor()
 
+    # Текущая косметика пользователя
     cur.execute("""
         SELECT nickname_color, frame, status, theme FROM user_cosmetics WHERE user_id = %s
     """, (user_id,))
@@ -1776,8 +1777,19 @@ def get_cosmetics_api(init_data: str = Query(..., alias="initData")):
         "theme": (row["theme"] if row and row["theme"] else "reef"),
     }
 
+    # Значки
     cur.execute("SELECT badge FROM user_badges WHERE user_id = %s", (user_id,))
     badges = [r["badge"] for r in cur.fetchall()]
+
+    # Купленная косметика
+    cur.execute("""
+        SELECT item_type, item_key FROM user_cosmetics_owned WHERE user_id = %s
+    """, (user_id,))
+    owned_rows = cur.fetchall()
+    owned = {"color": [], "frame": [], "status": [], "theme": []}
+    for o_row in owned_rows:
+        if o_row["item_type"] in owned:
+            owned[o_row["item_type"]].append(o_row["item_key"])
 
     balance = require_balance(cur, user_id)
     conn.close()
@@ -1791,13 +1803,14 @@ def get_cosmetics_api(init_data: str = Query(..., alias="initData")):
         "statuses": STATUSES,
         "themes": THEMES,
         "badges": badges,
+        "owned": owned,
     }
 
 
 @app.post("/api/cosmetics/buy")
 def buy_cosmetics(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    item_type = payload.get("type")  # color / frame / status / theme
+    item_type = payload.get("type")
     item_key = payload.get("key")
 
     price = 0
@@ -1822,21 +1835,48 @@ def buy_cosmetics(payload: dict = Body(...)):
 
     conn = db()
     cur = conn.cursor()
-    if not change_balance(cur, user_id, -price):
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {price}")
+
+    # Уже куплено?
+    cur.execute("""
+        SELECT 1 FROM user_cosmetics_owned
+        WHERE user_id = %s AND item_type = %s AND item_key = %s
+    """, (user_id, item_type, item_key))
+    already_owned = cur.fetchone() is not None
 
     # Применяем
     col_map = {"color": "nickname_color", "frame": "frame",
                "status": "status", "theme": "theme"}
     col = col_map[item_type]
 
+    if already_owned or price == 0:
+        # Просто применяем, без списания
+        cur.execute("INSERT INTO user_cosmetics (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+        cur.execute(f"UPDATE user_cosmetics SET {col} = %s WHERE user_id = %s", (item_key, user_id))
+        if not already_owned:
+            cur.execute("""
+                INSERT INTO user_cosmetics_owned (user_id, item_type, item_key)
+                VALUES (%s, %s, %s) ON CONFLICT DO NOTHING
+            """, (user_id, item_type, item_key))
+        conn.commit()
+        balance = require_balance(cur, user_id)
+        conn.close()
+        msg = "✅ Применено (уже куплено)" if already_owned else "✅ Применено бесплатно"
+        return {"ok": True, "message": msg, "balance": balance}
+
+    if not change_balance(cur, user_id, -price):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {price:,}")
+
     cur.execute("INSERT INTO user_cosmetics (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
     cur.execute(f"UPDATE user_cosmetics SET {col} = %s WHERE user_id = %s", (item_key, user_id))
+    cur.execute("""
+        INSERT INTO user_cosmetics_owned (user_id, item_type, item_key)
+        VALUES (%s, %s, %s) ON CONFLICT DO NOTHING
+    """, (user_id, item_type, item_key))
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
-    return {"ok": True, "message": f"Куплено за {price} 🪙", "balance": balance}
+    return {"ok": True, "message": f"Куплено за {price:,} 🪙", "balance": balance}
 
 
 @app.post("/api/cosmetics/apply")
