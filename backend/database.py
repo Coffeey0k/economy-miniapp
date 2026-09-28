@@ -345,6 +345,20 @@ def init_db():
             UNIQUE(user_id, item_type, item_key)
         )
     """)
+
+    # === ОСТРОВ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS islands (
+            user_id BIGINT PRIMARY KEY,
+            has_island BOOLEAN DEFAULT FALSE,
+            has_house BOOLEAN DEFAULT FALSE,
+            has_pier BOOLEAN DEFAULT FALSE,
+            has_ship BOOLEAN DEFAULT FALSE,
+            last_house_income TIMESTAMP,
+            last_ship_income TIMESTAMP,
+            purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -2699,6 +2713,144 @@ def check_badges(user_id: int):
             add_badge(user_id, "social")
     except Exception:
         pass
+
+# ==================== ОСТРОВ ====================
+
+ISLAND_PRICE = 50000
+HOUSE_PRICE = 30000
+PIER_PRICE = 45000
+SHIP_PRICE = 100000
+
+HOUSE_INCOME = 5000
+HOUSE_COOLDOWN = 5 * 3600      # 5 часов
+SHIP_INCOME = 75000
+SHIP_COOLDOWN = 48 * 3600      # 48 часов
+
+
+def island_get(user_id: int) -> dict:
+    """Возвращает состояние острова пользователя."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT has_island, has_house, has_pier, has_ship,
+               last_house_income, last_ship_income
+        FROM islands WHERE user_id = ?
+    """, (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return {
+            "has_island": False, "has_house": False,
+            "has_pier": False, "has_ship": False,
+            "last_house_income": None, "last_ship_income": None,
+        }
+    return {
+        "has_island": bool(row[0]),
+        "has_house": bool(row[1]),
+        "has_pier": bool(row[2]),
+        "has_ship": bool(row[3]),
+        "last_house_income": row[4],
+        "last_ship_income": row[5],
+    }
+
+
+def island_buy(user_id: int, item: str) -> tuple:
+    """Покупает постройку. item: island / house / pier / ship.
+    Возвращает (ok, message)."""
+    state = island_get(user_id)
+
+    prices = {
+        "island": ISLAND_PRICE,
+        "house": HOUSE_PRICE,
+        "pier": PIER_PRICE,
+        "ship": SHIP_PRICE,
+    }
+    names = {
+        "island": "🏝️ Остров",
+        "house": "🏠 Домик",
+        "pier": "⚓ Причал",
+        "ship": "🚢 Корабль",
+    }
+
+    if item not in prices:
+        return False, "Неизвестная постройка"
+
+    # Уже куплено?
+    if state[f"has_{item}"]:
+        return False, "Уже куплено"
+
+    # Проверка порядка
+    if item == "island" and state["has_island"]:
+        return False, "Остров уже куплен"
+    if item in ("house", "pier", "ship") and not state["has_island"]:
+        return False, "Сначала купи остров"
+    if item == "ship" and not state["has_pier"]:
+        return False, "Сначала построй причал"
+
+    price = prices[item]
+    if get_balance(user_id) < price:
+        return False, f"Недостаточно монет. Нужно: {price:,} 🪙"
+
+    if not update_balance(user_id, -price):
+        return False, "Ошибка списания"
+
+    # Пишем в БД
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO islands (user_id) VALUES (?)", (user_id,))
+    cur.execute(f"UPDATE islands SET has_{item} = 1 WHERE user_id = ?", (user_id,))
+
+    # Первый доход считаем от момента покупки
+    if item == "house":
+        cur.execute("UPDATE islands SET last_house_income = ? WHERE user_id = ?",
+                    (datetime.now().isoformat(), user_id))
+    if item == "ship":
+        cur.execute("UPDATE islands SET last_ship_income = ? WHERE user_id = ?",
+                    (datetime.now().isoformat(), user_id))
+
+    conn.commit()
+    conn.close()
+    return True, f"Куплено: {names[item]} за {price:,} 🪙"
+
+
+def islands_income_tick():
+    """Фоновая задача: начисляет доход с домиков и кораблей.
+    Возвращает список (user_id, amount, type, item_name)."""
+    now = datetime.now()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id, has_house, has_ship, last_house_income, last_ship_income
+        FROM islands WHERE has_house = 1 OR has_ship = 1
+    """)
+    rows = cur.fetchall()
+
+    to_credit = []
+
+    for user_id, has_house, has_ship, last_h, last_s in rows:
+        # Домик
+        if has_house:
+            last = datetime.fromisoformat(last_h) if last_h else now
+            if (now - last).total_seconds() >= HOUSE_COOLDOWN:
+                to_credit.append((user_id, HOUSE_INCOME, "house", "🏠 Домик"))
+                cur.execute("UPDATE islands SET last_house_income = ? WHERE user_id = ?",
+                            (now.isoformat(), user_id))
+        # Корабль
+        if has_ship:
+            last = datetime.fromisoformat(last_s) if last_s else now
+            if (now - last).total_seconds() >= SHIP_COOLDOWN:
+                to_credit.append((user_id, SHIP_INCOME, "ship", "🚢 Корабль"))
+                cur.execute("UPDATE islands SET last_ship_income = ? WHERE user_id = ?",
+                            (now.isoformat(), user_id))
+
+    conn.commit()
+    conn.close()
+
+    # Начисляем
+    for user_id, amount, _, _ in to_credit:
+        update_balance(user_id, amount)
+
+    return to_credit
 
 # Инициализация при импорте
 init_db()
