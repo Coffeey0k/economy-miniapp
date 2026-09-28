@@ -28,13 +28,13 @@ def main_menu(user_id: int = None) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📋 Задания", callback_data="tasks_menu"),
         InlineKeyboardButton(text="🎡 Колесо", callback_data="wheel_menu")
     )
+    builder.row(
+        InlineKeyboardButton(text="🎨 Косметика", callback_data="cosmetics_menu")
+    )
     if user_id and user_id in config.ADMIN_IDS:
         builder.row(
             InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")
         )
-    builder.row(
-        InlineKeyboardButton(text="🎨 Косметика", callback_data="cosmetics_menu")
-    )
     return builder.as_markup()
 
 
