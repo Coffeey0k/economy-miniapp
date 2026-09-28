@@ -2461,13 +2461,13 @@ def get_cosmetics(user_id: int) -> dict:
     if not row:
         cur.execute("INSERT INTO user_cosmetics (user_id) VALUES (?)", (user_id,))
         conn.commit()
-        row = (None, None, None, "dark")
+        row = (None, None, None, "reef")
     conn.close()
     return {
         "nickname_color": row[0],
         "frame": row[1],
         "status": row[2],
-        "theme": row[3] or "dark",
+        "theme": row[3] or "reef",
     }
 
 
