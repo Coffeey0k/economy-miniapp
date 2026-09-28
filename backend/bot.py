@@ -1293,14 +1293,11 @@ async def profile_word_handler(message: Message):
     user_id = message.from_user.id
     text = message.text.strip()
 
-    # Определяем, чей профиль: свой или другого
     target_id = user_id
-    db.check_badges(target_id)
     target_name = None
 
     parts = text.split(maxsplit=1)
     if len(parts) > 1:
-        # Написано "профиль @username" или "профиль username"
         arg = parts[1].strip().lstrip("@")
         if arg.isdigit():
             target_id = int(arg)
@@ -1316,11 +1313,13 @@ async def profile_word_handler(message: Message):
             target_id = row[0]
             target_name = row[1]
 
-    # Проверяем, есть ли пользователь в базе
     user = db.get_user(target_id)
     if not user:
         await message.answer("❌ Профиль не найден.")
         return
+
+    # Проверяем значки (target_id уже точно есть)
+    db.check_badges(target_id)
 
     uname = user["username"] or str(target_id)
     balance = user["balance"]
@@ -1329,7 +1328,6 @@ async def profile_word_handler(message: Message):
     pets = db.get_user_pets(target_id)
     prof = db.get_profession(target_id)
 
-    # Собираем текст
     display_name = db.get_display_name(target_id)
     cosmetics = db.get_cosmetics(target_id)
     badges = db.get_badges(target_id)
