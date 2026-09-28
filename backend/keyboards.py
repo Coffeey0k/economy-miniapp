@@ -32,6 +32,9 @@ def main_menu(user_id: int = None) -> InlineKeyboardMarkup:
         builder.row(
             InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")
         )
+    builder.row(
+        InlineKeyboardButton(text="🎨 Косметика", callback_data="cosmetics_menu")
+    )
     return builder.as_markup()
 
 
