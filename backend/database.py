@@ -2892,7 +2892,7 @@ def islands_income_tick():
 
 # ==================== КЛАНЫ ====================
 
-CLAN_CREATE_COST = 500000       # стоимость создания клана
+CLAN_CREATE_COST = 10000       # стоимость создания клана
 CLAN_MAX_MEMBERS = 20           # максимум участников
 CLAN_BONUS_PER_MEMBER = 1       # +1% к зарплате за каждого участника
 CLAN_BONUS_MAX = 10             # максимум +10%
