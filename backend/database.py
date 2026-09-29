@@ -314,6 +314,39 @@ def init_db():
         )
     """)
 
+    # === КЛАНЫ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clans (
+            id SERIAL PRIMARY KEY,
+            name TEXT UNIQUE,
+            emoji TEXT,
+            leader_id BIGINT,
+            description TEXT,
+            bank BIGINT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clan_members (
+            user_id BIGINT PRIMARY KEY,
+            clan_id INTEGER,
+            role TEXT DEFAULT 'member',
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clan_requests (
+            id SERIAL PRIMARY KEY,
+            clan_id INTEGER,
+            user_id BIGINT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(clan_id, user_id)
+        )
+    """)
+    
     # === КОСМЕТИКА ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_cosmetics (
@@ -1118,8 +1151,10 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
             remaining = cooldown - int(delta.total_seconds())
             return False, f"Отдых ещё не закончен. Осталось: {remaining // 3600} ч {(remaining % 3600) // 60} мин"
     base_salary = get_profession_salary(prof["profession"], prof["level"])
-    bonus_percent = friend_income_bonus(user_id)
-    salary = base_salary + (base_salary * bonus_percent // 100)
+    friend_bonus = friend_income_bonus(user_id)
+    clan_bonus = clan_income_bonus(user_id)
+    total_bonus = friend_bonus + clan_bonus
+    salary = base_salary + (base_salary * total_bonus // 100)
     update_balance(user_id, salary)
     today = now.date().isoformat()
     conn = sqlite3.connect(DB_NAME)
@@ -1140,7 +1175,10 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     """, (now.isoformat(), new_days, new_level, today, user_id))
     conn.commit()
     conn.close()
-    bonus_text = f" (+{bonus_percent}% от друзей)" if bonus_percent > 0 else ""
+    bonus_parts = []
+    if friend_bonus > 0: bonus_parts.append(f"+{friend_bonus}% друзья")
+    if clan_bonus > 0: bonus_parts.append(f"+{clan_bonus}% клан")
+    bonus_text = f" ({', '.join(bonus_parts)})" if bonus_parts else ""
     return True, f"Вы заработали {salary} 🪙{bonus_text}! (уровень {new_level}, дней: {new_days}/7)"
 
 
@@ -2851,6 +2889,327 @@ def islands_income_tick():
         update_balance(user_id, amount)
 
     return to_credit
+
+# ==================== КЛАНЫ ====================
+
+CLAN_CREATE_COST = 500000       # стоимость создания клана
+CLAN_MAX_MEMBERS = 20           # максимум участников
+CLAN_BONUS_PER_MEMBER = 1       # +1% к зарплате за каждого участника
+CLAN_BONUS_MAX = 10             # максимум +10%
+
+
+def clan_create(user_id: int, name: str, emoji: str, description: str = "") -> tuple:
+    """Создаёт клан. Возвращает (ok, message)."""
+    name = name.strip()
+    if len(name) < 3 or len(name) > 20:
+        return False, "Название должно быть 3–20 символов"
+    if not emoji:
+        emoji = "🏛️"
+
+    # Уже в клане?
+    if clan_get_user_clan(user_id):
+        return False, "Ты уже в клане"
+
+    if get_balance(user_id) < CLAN_CREATE_COST:
+        return False, f"Недостаточно монет. Нужно: {CLAN_CREATE_COST:,} 🪙"
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM clans WHERE LOWER(name) = ?", (name.lower(),))
+    if cur.fetchone():
+        conn.close()
+        return False, "Такое название уже занято"
+
+    if not update_balance(user_id, -CLAN_CREATE_COST):
+        conn.close()
+        return False, "Ошибка списания"
+
+    cur.execute("""
+        INSERT INTO clans (name, emoji, leader_id, description)
+        VALUES (?, ?, ?, ?)
+    """, (name, emoji, user_id, description))
+    clan_id = cur.lastrowid
+
+    cur.execute("""
+        INSERT INTO clan_members (user_id, clan_id, role)
+        VALUES (?, ?, 'leader')
+    """, (user_id, clan_id))
+    conn.commit()
+    conn.close()
+    return True, f"Клан {emoji} {name} создан!"
+
+
+def clan_get_user_clan(user_id: int) -> Optional[dict]:
+    """Возвращает клан пользователя или None."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT c.id, c.name, c.emoji, c.leader_id, c.description, c.bank, cm.role
+        FROM clans c
+        JOIN clan_members cm ON cm.clan_id = c.id
+        WHERE cm.user_id = ?
+    """, (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "name": row[1], "emoji": row[2],
+        "leader_id": row[3], "description": row[4],
+        "bank": row[5], "role": row[6],
+    }
+
+
+def clan_get(clan_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, name, emoji, leader_id, description, bank, created_at
+        FROM clans WHERE id = ?
+    """, (clan_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "name": row[1], "emoji": row[2],
+        "leader_id": row[3], "description": row[4],
+        "bank": row[5], "created_at": row[6],
+    }
+
+
+def clan_get_members(clan_id: int) -> list:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT cm.user_id, cm.role, u.username, u.balance
+        FROM clan_members cm
+        JOIN users u ON u.user_id = cm.user_id
+        WHERE cm.clan_id = ?
+        ORDER BY
+            CASE cm.role WHEN 'leader' THEN 1 WHEN 'deputy' THEN 2 ELSE 3 END,
+            cm.joined_at
+    """, (clan_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {"user_id": r[0], "role": r[1], "username": r[2], "balance": r[3]}
+        for r in rows
+    ]
+
+
+def clan_member_count(clan_id: int) -> int:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM clan_members WHERE clan_id = ?", (clan_id,))
+    count = cur.fetchone()[0]
+    conn.close()
+    return count
+
+
+def clan_send_request(clan_id: int, user_id: int) -> tuple:
+    if clan_get_user_clan(user_id):
+        return False, "Ты уже в клане"
+    if clan_member_count(clan_id) >= CLAN_MAX_MEMBERS:
+        return False, "В клане нет мест"
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM clan_requests WHERE clan_id = ? AND user_id = ? AND status = 'pending'",
+                (clan_id, user_id))
+    if cur.fetchone():
+        conn.close()
+        return False, "Заявка уже отправлена"
+
+    cur.execute("""
+        INSERT INTO clan_requests (clan_id, user_id) VALUES (?, ?)
+        ON CONFLICT(clan_id, user_id) DO UPDATE SET status = 'pending'
+    """, (clan_id, user_id))
+    conn.commit()
+    conn.close()
+    return True, "Заявка отправлена"
+
+
+def clan_get_pending_requests(clan_id: int) -> list:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT cr.id, cr.user_id, u.username
+        FROM clan_requests cr
+        JOIN users u ON u.user_id = cr.user_id
+        WHERE cr.clan_id = ? AND cr.status = 'pending'
+    """, (clan_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return [{"request_id": r[0], "user_id": r[1], "username": r[2]} for r in rows]
+
+
+def clan_accept_request(request_id: int, reviewer_id: int) -> tuple:
+    """Принимает заявку. reviewer_id — тот, кто принимает (лидер/заместитель)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT clan_id, user_id, status FROM clan_requests WHERE id = ?", (request_id,))
+    row = cur.fetchone()
+    if not row or row[2] != "pending":
+        conn.close()
+        return False, "Заявка не найдена"
+
+    clan_id, target_user, _ = row
+
+    # Проверяем, что reviewer — лидер или заместитель этого клана
+    cur.execute("SELECT role FROM clan_members WHERE user_id = ? AND clan_id = ?",
+                (reviewer_id, clan_id))
+    reviewer_row = cur.fetchone()
+    if not reviewer_row or reviewer_row[0] not in ("leader", "deputy"):
+        conn.close()
+        return False, "Нет прав"
+
+    if clan_member_count(clan_id) >= CLAN_MAX_MEMBERS:
+        conn.close()
+        return False, "В клане нет мест"
+
+    if clan_get_user_clan(target_user):
+        cur.execute("UPDATE clan_requests SET status = 'rejected' WHERE id = ?", (request_id,))
+        conn.commit()
+        conn.close()
+        return False, "Пользователь уже в клане"
+
+    cur.execute("UPDATE clan_requests SET status = 'accepted' WHERE id = ?", (request_id,))
+    cur.execute("INSERT INTO clan_members (user_id, clan_id, role) VALUES (?, ?, 'member')",
+                (target_user, clan_id))
+    conn.commit()
+    conn.close()
+    return True, "Принят в клан"
+
+
+def clan_decline_request(request_id: int, reviewer_id: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT clan_id FROM clan_requests WHERE id = ? AND status = 'pending'", (request_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return False
+    clan_id = row[0]
+
+    cur.execute("SELECT role FROM clan_members WHERE user_id = ? AND clan_id = ?",
+                (reviewer_id, clan_id))
+    reviewer_row = cur.fetchone()
+    if not reviewer_row or reviewer_row[0] not in ("leader", "deputy"):
+        conn.close()
+        return False
+
+    cur.execute("UPDATE clan_requests SET status = 'rejected' WHERE id = ?", (request_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def clan_leave(user_id: int) -> tuple:
+    clan = clan_get_user_clan(user_id)
+    if not clan:
+        return False, "Ты не в клане"
+    if clan["role"] == "leader":
+        return False, "Лидер не может выйти. Передай лидерство или распусти клан."
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM clan_members WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return True, "Ты вышел из клана"
+
+
+def clan_kick(leader_id: int, target_user_id: int) -> tuple:
+    clan = clan_get_user_clan(leader_id)
+    if not clan:
+        return False, "Ты не в клане"
+    if clan["role"] not in ("leader", "deputy"):
+        return False, "Нет прав"
+
+    target_clan = clan_get_user_clan(target_user_id)
+    if not target_clan or target_clan["id"] != clan["id"]:
+        return False, "Игрок не из твоего клана"
+    if target_user_id == clan["leader_id"]:
+        return False, "Нельзя кикнуть лидера"
+    if target_clan["role"] == "deputy" and clan["role"] != "leader":
+        return False, "Зам не может кикнуть зама"
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM clan_members WHERE user_id = ?", (target_user_id,))
+    conn.commit()
+    conn.close()
+    return True, "Игрок кикнут"
+
+
+def clan_deposit(user_id: int, amount: int) -> tuple:
+    clan = clan_get_user_clan(user_id)
+    if not clan:
+        return False, "Ты не в клане"
+    if amount <= 0:
+        return False, "Сумма должна быть больше 0"
+    if get_balance(user_id) < amount:
+        return False, f"Недостаточно монет. У тебя: {get_balance(user_id):,}"
+
+    if not update_balance(user_id, -amount):
+        return False, "Ошибка списания"
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE clans SET bank = bank + ? WHERE id = ?", (amount, clan["id"]))
+    conn.commit()
+    conn.close()
+    return True, f"Внесено {amount:,} 🪙 в казну клана"
+
+
+def clan_disband(leader_id: int) -> tuple:
+    clan = clan_get_user_clan(leader_id)
+    if not clan:
+        return False, "Ты не в клане"
+    if clan["role"] != "leader":
+        return False, "Только лидер может распустить клан"
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    # Остаток казны отдаём лидеру
+    if clan["bank"] > 0:
+        update_balance(leader_id, clan["bank"])
+    cur.execute("DELETE FROM clan_members WHERE clan_id = ?", (clan["id"],))
+    cur.execute("DELETE FROM clan_requests WHERE clan_id = ?", (clan["id"],))
+    cur.execute("DELETE FROM clans WHERE id = ?", (clan["id"],))
+    conn.commit()
+    conn.close()
+    return True, f"Клан распущен. Казна ({clan['bank']:,} 🪙) возвращена лидеру."
+
+
+def clan_top(limit: int = 10) -> list:
+    """Топ кланов по казне."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT c.id, c.name, c.emoji, c.bank,
+               (SELECT COUNT(*) FROM clan_members WHERE clan_id = c.id) AS members
+        FROM clans c
+        ORDER BY c.bank DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "name": r[1], "emoji": r[2], "bank": r[3], "members": r[4]}
+        for r in rows
+    ]
+
+
+def clan_income_bonus(user_id: int) -> int:
+    """Возвращает % бонуса к зарплате от клана."""
+    clan = clan_get_user_clan(user_id)
+    if not clan:
+        return 0
+    members = clan_member_count(clan["id"])
+    bonus = members * CLAN_BONUS_PER_MEMBER
+    return min(bonus, CLAN_BONUS_MAX)
 
 # Инициализация при импорте
 init_db()
