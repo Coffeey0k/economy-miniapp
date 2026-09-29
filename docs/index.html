@@ -1580,6 +1580,13 @@
   // ===== ОСТРОВ =====
   let islandData = null;
 
+  async function loadIsland() {
+    try {
+      islandData = await apiGet("/api/island");
+      renderIsland();
+    } catch (e) { showMsg("island-msg", e.message, false); }
+  }
+  
   function renderIsland() {
     if (!islandData) return;
     const { state, prices, names, balance } = islandData;
