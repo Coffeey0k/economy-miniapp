@@ -2015,7 +2015,394 @@ def buy_island(payload: dict = Body(...)):
     balance = require_balance(cur, user_id)
     conn.close()
     return {"ok": True, "message": f"Куплено: {ISLAND_NAMES[item]}", "balance": balance}
-            
+
+# ========== API: КЛАНЫ ==========
+
+CLAN_CREATE_COST = 500000
+CLAN_MAX_MEMBERS = 20
+CLAN_BONUS_PER_MEMBER = 1
+CLAN_BONUS_MAX = 10
+
+
+def _get_user_clan(user_id: int):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT c.id, c.name, c.emoji, c.leader_id, c.description, c.bank, cm.role
+        FROM clans c
+        JOIN clan_members cm ON cm.clan_id = c.id
+        WHERE cm.user_id = %s
+    """, (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row["id"], "name": row["name"], "emoji": row["emoji"],
+        "leader_id": row["leader_id"], "description": row["description"],
+        "bank": row["bank"], "role": row["role"],
+    }
+
+
+def _clan_member_count(cur, clan_id: int) -> int:
+    cur.execute("SELECT COUNT(*) c FROM clan_members WHERE clan_id = %s", (clan_id,))
+    return cur.fetchone()["c"]
+
+
+@app.get("/api/clans")
+def get_clans(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+
+    # Мой клан
+    my_clan = None
+    cur.execute("""
+        SELECT c.id, c.name, c.emoji, c.leader_id, c.description, c.bank, cm.role
+        FROM clans c
+        JOIN clan_members cm ON cm.clan_id = c.id
+        WHERE cm.user_id = %s
+    """, (user_id,))
+    row = cur.fetchone()
+    if row:
+        clan_id = row["id"]
+        # Участники
+        cur.execute("""
+            SELECT cm.user_id, cm.role, u.username, u.balance
+            FROM clan_members cm
+            JOIN users u ON u.user_id = cm.user_id
+            WHERE cm.clan_id = %s
+            ORDER BY
+                CASE cm.role WHEN 'leader' THEN 1 WHEN 'deputy' THEN 2 ELSE 3 END,
+                cm.joined_at
+        """, (clan_id,))
+        members = [
+            {"user_id": m["user_id"], "role": m["role"],
+             "username": m["username"], "balance": m["balance"]}
+            for m in cur.fetchall()
+        ]
+
+        # Заявки (только для лидера/зама)
+        pending = []
+        if row["role"] in ("leader", "deputy"):
+            cur.execute("""
+                SELECT cr.id, cr.user_id, u.username
+                FROM clan_requests cr
+                JOIN users u ON u.user_id = cr.user_id
+                WHERE cr.clan_id = %s AND cr.status = 'pending'
+            """, (clan_id,))
+            pending = [
+                {"request_id": p["id"], "user_id": p["user_id"], "username": p["username"]}
+                for p in cur.fetchall()
+            ]
+
+        my_clan = {
+            "id": row["id"], "name": row["name"], "emoji": row["emoji"],
+            "leader_id": row["leader_id"], "description": row["description"],
+            "bank": row["bank"], "role": row["role"],
+            "members": members,
+            "pending": pending,
+        }
+
+    # Топ кланов
+    cur.execute("""
+        SELECT c.id, c.name, c.emoji, c.bank,
+               (SELECT COUNT(*) FROM clan_members WHERE clan_id = c.id) AS members
+        FROM clans c
+        ORDER BY c.bank DESC LIMIT 10
+    """)
+    top = [
+        {"id": t["id"], "name": t["name"], "emoji": t["emoji"],
+         "bank": t["bank"], "members": t["members"]}
+        for t in cur.fetchall()
+    ]
+
+    # Все кланы (для поиска)
+    cur.execute("""
+        SELECT c.id, c.name, c.emoji, c.bank,
+               (SELECT COUNT(*) FROM clan_members WHERE clan_id = c.id) AS members
+        FROM clans c ORDER BY c.created_at DESC LIMIT 50
+    """)
+    all_clans = [
+        {"id": t["id"], "name": t["name"], "emoji": t["emoji"],
+         "bank": t["bank"], "members": t["members"]}
+        for t in cur.fetchall()
+    ]
+
+    balance = require_balance(cur, user_id)
+    conn.close()
+
+    return {
+        "my_clan": my_clan,
+        "top": top,
+        "all_clans": all_clans,
+        "balance": balance,
+        "create_cost": CLAN_CREATE_COST,
+        "max_members": CLAN_MAX_MEMBERS,
+    }
+
+
+@app.post("/api/clans/create")
+def create_clan(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    name = (payload.get("name") or "").strip()
+    emoji = (payload.get("emoji") or "🏛️").strip()
+    description = (payload.get("description") or "").strip()
+
+    if len(name) < 3 or len(name) > 20:
+        raise HTTPException(status_code=400, detail="Название должно быть 3–20 символов")
+
+    conn = db()
+    cur = conn.cursor()
+
+    # Уже в клане?
+    cur.execute("SELECT 1 FROM clan_members WHERE user_id = %s", (user_id,))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ты уже в клане")
+
+    cur.execute("SELECT id FROM clans WHERE LOWER(name) = %s", (name.lower(),))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Такое название уже занято")
+
+    if not change_balance(cur, user_id, -CLAN_CREATE_COST):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {CLAN_CREATE_COST:,}")
+
+    cur.execute("""
+        INSERT INTO clans (name, emoji, leader_id, description)
+        VALUES (%s, %s, %s, %s)
+    """, (name, emoji, user_id, description))
+    cur.execute("SELECT currval(pg_get_serial_sequence('clans', 'id'))")
+    clan_id = cur.fetchone()["currval"]
+
+    cur.execute("""
+        INSERT INTO clan_members (user_id, clan_id, role)
+        VALUES (%s, %s, 'leader')
+    """, (user_id, clan_id))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Клан {emoji} {name} создан!", "balance": balance}
+
+
+@app.post("/api/clans/join")
+def join_clan(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    clan_id = int(payload.get("clan_id"))
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT 1 FROM clan_members WHERE user_id = %s", (user_id,))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ты уже в клане")
+
+    cur.execute("SELECT id FROM clans WHERE id = %s", (clan_id,))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Клан не найден")
+
+    if _clan_member_count(cur, clan_id) >= CLAN_MAX_MEMBERS:
+        conn.close()
+        raise HTTPException(status_code=400, detail="В клане нет мест")
+
+    cur.execute("""
+        INSERT INTO clan_requests (clan_id, user_id)
+        VALUES (%s, %s)
+        ON CONFLICT (clan_id, user_id) DO UPDATE SET status = 'pending'
+    """, (clan_id, user_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Заявка отправлена"}
+
+
+@app.post("/api/clans/accept")
+def accept_clan_request(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    request_id = int(payload.get("request_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT clan_id, user_id, status FROM clan_requests WHERE id = %s", (request_id,))
+    row = cur.fetchone()
+    if not row or row["status"] != "pending":
+        conn.close()
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    clan_id, target_user = row["clan_id"], row["user_id"]
+
+    # Проверка роли
+    cur.execute("SELECT role FROM clan_members WHERE user_id = %s AND clan_id = %s",
+                (user_id, clan_id))
+    rev = cur.fetchone()
+    if not rev or rev["role"] not in ("leader", "deputy"):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Нет прав")
+
+    if _clan_member_count(cur, clan_id) >= CLAN_MAX_MEMBERS:
+        conn.close()
+        raise HTTPException(status_code=400, detail="В клане нет мест")
+
+    cur.execute("SELECT 1 FROM clan_members WHERE user_id = %s", (target_user,))
+    if cur.fetchone():
+        cur.execute("UPDATE clan_requests SET status = 'rejected' WHERE id = %s", (request_id,))
+        conn.commit()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Пользователь уже в клане")
+
+    cur.execute("UPDATE clan_requests SET status = 'accepted' WHERE id = %s", (request_id,))
+    cur.execute("INSERT INTO clan_members (user_id, clan_id, role) VALUES (%s, %s, 'member')",
+                (target_user, clan_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Принят в клан"}
+
+
+@app.post("/api/clans/decline")
+def decline_clan_request(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    request_id = int(payload.get("request_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT clan_id FROM clan_requests WHERE id = %s AND status = 'pending'", (request_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    clan_id = row["clan_id"]
+
+    cur.execute("SELECT role FROM clan_members WHERE user_id = %s AND clan_id = %s",
+                (user_id, clan_id))
+    rev = cur.fetchone()
+    if not rev or rev["role"] not in ("leader", "deputy"):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Нет прав")
+
+    cur.execute("UPDATE clan_requests SET status = 'rejected' WHERE id = %s", (request_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/api/clans/leave")
+def leave_clan(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT clan_id, role FROM clan_members WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ты не в клане")
+    if row["role"] == "leader":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Лидер не может выйти. Распусти клан.")
+
+    cur.execute("DELETE FROM clan_members WHERE user_id = %s", (user_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Ты вышел из клана"}
+
+
+@app.post("/api/clans/deposit")
+def deposit_clan(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    amount = int(payload.get("amount") or 0)
+
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT clan_id FROM clan_members WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ты не в клане")
+    clan_id = row["clan_id"]
+
+    if not change_balance(cur, user_id, -amount):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно монет")
+
+    cur.execute("UPDATE clans SET bank = bank + %s WHERE id = %s", (amount, clan_id))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Внесено {amount:,} 🪙", "balance": balance}
+
+
+@app.post("/api/clans/disband")
+def disband_clan(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT clan_id, role FROM clan_members WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ты не в клане")
+    if row["role"] != "leader":
+        conn.close()
+        raise HTTPException(status_code=403, detail="Только лидер может распустить клан")
+
+    clan_id = row["clan_id"]
+    cur.execute("SELECT bank FROM clans WHERE id = %s", (clan_id,))
+    bank = cur.fetchone()["bank"] or 0
+
+    if bank > 0:
+        change_balance(cur, user_id, bank)
+
+    cur.execute("DELETE FROM clan_members WHERE clan_id = %s", (clan_id,))
+    cur.execute("DELETE FROM clan_requests WHERE clan_id = %s", (clan_id,))
+    cur.execute("DELETE FROM clans WHERE id = %s", (clan_id,))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Клан распущен. Казна {bank:,} 🪙 возвращена.", "balance": balance}
+
+
+@app.post("/api/clans/kick")
+def kick_from_clan(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    target_id = int(payload.get("user_id"))
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT clan_id, role FROM clan_members WHERE user_id = %s", (user_id,))
+    rev = cur.fetchone()
+    if not rev or rev["role"] not in ("leader", "deputy"):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Нет прав")
+    clan_id = rev["clan_id"]
+
+    cur.execute("SELECT clan_id, role FROM clan_members WHERE user_id = %s", (target_id,))
+    tgt = cur.fetchone()
+    if not tgt or tgt["clan_id"] != clan_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Игрок не из твоего клана")
+
+    cur.execute("SELECT leader_id FROM clans WHERE id = %s", (clan_id,))
+    leader_id = cur.fetchone()["leader_id"]
+    if target_id == leader_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Нельзя кикнуть лидера")
+    if tgt["role"] == "deputy" and rev["role"] != "leader":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Зам не может кикнуть зама")
+
+    cur.execute("DELETE FROM clan_members WHERE user_id = %s", (target_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Игрок кикнут"}
+
 @app.get("/")
 def health():
     return {"status": "ok"}
