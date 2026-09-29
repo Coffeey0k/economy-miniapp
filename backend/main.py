@@ -43,6 +43,7 @@ from fastapi.middleware.cors import CORSMiddleware
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ВСТАВЬ_СЮДА_ТОКЕН_БОТА")
 # Тот же файл базы, что использует бот (см. DB_NAME в database.py)
 DB_PATH = os.environ.get("DB_PATH", "paradise.db")
+ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
 
 PROFESSIONS = {
     "artist": "🎨 Художник",
@@ -454,7 +455,6 @@ def toggle_pet(payload: dict = Body(...)):
 @app.get("/api/professions")
 def get_professions(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
-    is_admin = user_id in ADMIN_IDS
 
     conn = db()
     cur = conn.cursor()
@@ -854,9 +854,6 @@ def play_game(payload: dict = Body(...)):
 
 
 # ========== API: НАСТРОЙКИ ==========
-
-ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
-
 
 @app.get("/api/settings")
 def get_settings(init_data: str = Query(..., alias="initData")):
