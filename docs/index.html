@@ -893,6 +893,61 @@
     </div>
   </div>
 
+  <!-- КЛАНЫ -->
+  <div class="tab" id="tab-clans">
+    <div id="clans-msg"></div>
+
+    <!-- Если не в клане -->
+    <div id="clans-empty" style="display:none;">
+      <div class="card">
+        <h2>🏛️ Кланы</h2>
+        <p class="label">Создай свой клан или вступи в существующий</p>
+        <div class="label" style="margin-top:8px;">💰 Баланс: <span id="clans-balance">0</span> 🪙</div>
+        <button class="btn" style="margin-top:10px;width:100%;" onclick="clanCreateStart()">
+          🏛️ Создать клан — <span id="clan-create-cost">0</span> 🪙
+        </button>
+      </div>
+      <div class="tabs-sub">
+        <button class="active" onclick="clanShowList(event)">📋 Все кланы</button>
+        <button onclick="clanShowTop(event)">🏆 Топ</button>
+      </div>
+      <div class="card" id="clans-list-container">
+        <div id="clans-list"></div>
+      </div>
+    </div>
+
+    <!-- Если в клане -->
+    <div id="clans-my" style="display:none;">
+      <div class="card">
+        <h2 id="clan-title">—</h2>
+        <div class="label" id="clan-role-line"></div>
+        <div class="label">💰 Казна: <span id="clan-bank">0</span> 🪙</div>
+        <div class="label">👥 Участников: <span id="clan-members-count">0</span></div>
+      </div>
+
+      <div class="card">
+        <h2>💰 Внести в казну</h2>
+        <input type="number" id="clan-deposit-amount" placeholder="Сумма" min="1">
+        <button class="btn" onclick="clanDeposit()">Внести</button>
+      </div>
+
+      <div class="card" id="clan-pending-card" style="display:none;">
+        <h2>📩 Входящие заявки</h2>
+        <div id="clan-pending-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>👥 Участники</h2>
+        <div id="clan-members-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>⚙️ Управление</h2>
+        <div id="clan-actions"></div>
+      </div>
+    </div>
+  </div>
+  
   <!-- ОСТРОВ -->
   <div class="tab" id="tab-island">
     <div id="island-msg"></div>
@@ -947,6 +1002,7 @@
   <button class="nav-item" data-tab="games" onclick="switchTab('games')"><span class="ic">🎮</span>Игры</button>
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
   <button class="nav-item" data-tab="island" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
+  <button class="nav-item" data-tab="clans" onclick="switchTab('clans')"><span class="ic">🏛️</span>Кланы</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
 </div>
 
@@ -1023,6 +1079,7 @@
     if (name === "settings") loadSettings();
     if (name === "friends") loadFriends();
     if (name === "island") loadIsland();
+    if (name === "clans") loadClans();
   }
 
   async function loadProfile() {
@@ -1587,6 +1644,195 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  // ===== КЛАНЫ =====
+  let clanData = null;
+
+  async function loadClans() {
+    try {
+      clanData = await apiGet("/api/clans");
+      renderClans();
+    } catch (e) { showMsg("clans-msg", e.message, false); }
+  }
+
+  function renderClans() {
+    if (!clanData) return;
+    const { my_clan, top, all_clans, balance, create_cost, max_members } = clanData;
+
+    document.getElementById("clans-balance").textContent = balance.toLocaleString();
+    document.getElementById("clan-create-cost").textContent = create_cost.toLocaleString();
+
+    if (!my_clan) {
+      document.getElementById("clans-empty").style.display = "block";
+      document.getElementById("clans-my").style.display = "none";
+      renderClansList(all_clans);
+      return;
+    }
+
+    document.getElementById("clans-empty").style.display = "none";
+    document.getElementById("clans-my").style.display = "block";
+
+    // Заголовок
+    document.getElementById("clan-title").textContent = `${my_clan.emoji} ${my_clan.name}`;
+    const roleNames = {leader: "👑 Лидер", deputy: "⭐ Зам", member: "👤 Участник"};
+    document.getElementById("clan-role-line").textContent = roleNames[my_clan.role] || my_clan.role;
+    document.getElementById("clan-bank").textContent = my_clan.bank.toLocaleString();
+    document.getElementById("clan-members-count").textContent = `${my_clan.members.length}/${max_members}`;
+
+    // Заявки (лидер/зам)
+    const pendingCard = document.getElementById("clan-pending-card");
+    if (my_clan.role === "leader" || my_clan.role === "deputy") {
+      if (my_clan.pending.length > 0) {
+        pendingCard.style.display = "block";
+        document.getElementById("clan-pending-list").innerHTML = my_clan.pending.map(p => `
+          <div class="item-row">
+            <span>@${p.username || p.user_id}</span>
+            <span>
+              <button class="btn btn-small" onclick="clanAccept(${p.request_id})">✅</button>
+              <button class="btn btn-small" onclick="clanDecline(${p.request_id})">❌</button>
+            </span>
+          </div>
+        `).join("");
+      } else {
+        pendingCard.style.display = "none";
+      }
+    } else {
+      pendingCard.style.display = "none";
+    }
+
+    // Участники
+    const roleIcons = {leader: "👑", deputy: "⭐", member: "👤"};
+    document.getElementById("clan-members-list").innerHTML = my_clan.members.map(m => `
+      <div class="item-row">
+        <span>${roleIcons[m.role] || "👤"} @${m.username || m.user_id}</span>
+        <span>${m.balance.toLocaleString()} 🪙</span>
+      </div>
+    `).join("");
+
+    // Действия
+    let actions = "";
+    if (my_clan.role === "leader") {
+      actions = `
+        <button class="btn btn-small" onclick="clanKickPrompt()">🥾 Кикнуть игрока</button>
+        <button class="btn btn-small" onclick="clanDisband()" style="background:#ef4444;">💥 Распустить</button>
+      `;
+    } else if (my_clan.role === "deputy") {
+      actions = `<button class="btn btn-small" onclick="clanKickPrompt()">🥾 Кикнуть игрока</button>`;
+    } else {
+      actions = `<button class="btn btn-small" onclick="clanLeave()">🚪 Выйти из клана</button>`;
+    }
+    document.getElementById("clan-actions").innerHTML = actions;
+  }
+
+  function renderClansList(list) {
+    if (!list || list.length === 0) {
+      document.getElementById("clans-list").innerHTML = `<div class="label">Пока нет ни одного клана</div>`;
+      return;
+    }
+    document.getElementById("clans-list").innerHTML = list.map(c => `
+      <div class="item-row">
+        <span>${c.emoji} <b>${c.name}</b><br><span class="label">${c.members} чел. • ${c.bank.toLocaleString()} 🪙</span></span>
+        <button class="btn btn-small" onclick="clanJoin(${c.id})">Вступить</button>
+      </div>
+    `).join("");
+  }
+
+  function clanShowList(ev) {
+    document.querySelectorAll("#tab-clans .tabs-sub button").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+    renderClansList(clanData.all_clans);
+  }
+
+  function clanShowTop(ev) {
+    document.querySelectorAll("#tab-clans .tabs-sub button").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+    const medals = ["🥇", "🥈", "🥉"];
+    document.getElementById("clans-list").innerHTML = clanData.top.map((c, i) => `
+      <div class="item-row">
+        <span>${medals[i] || (i+1)+"."} ${c.emoji} <b>${c.name}</b><br><span class="label">${c.members} чел.</span></span>
+        <span>${c.bank.toLocaleString()} 🪙</span>
+      </div>
+    `).join("") || `<div class="label">Нет кланов</div>`;
+  }
+
+  async function clanCreateStart() {
+    const name = prompt("Название клана (3–20 символов):");
+    if (!name) return;
+    if (name.length < 3 || name.length > 20) { toast("Название 3–20 символов", true); return; }
+    const emoji = prompt("Эмодзи клана (например: 🏛️):") || "🏛️";
+    const description = prompt("Описание (необязательно):") || "";
+    try {
+      const res = await apiPost("/api/clans/create", { name, emoji, description });
+      toast(res.message, false);
+      await loadClans();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function clanJoin(clanId) {
+    if (!confirm("Отправить заявку в клан?")) return;
+    try {
+      const res = await apiPost("/api/clans/join", { clan_id: clanId });
+      toast(res.message, false);
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function clanAccept(requestId) {
+    try {
+      const res = await apiPost("/api/clans/accept", { request_id: requestId });
+      toast(res.message, false);
+      await loadClans();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function clanDecline(requestId) {
+    try {
+      await apiPost("/api/clans/decline", { request_id: requestId });
+      toast("Заявка отклонена", false);
+      await loadClans();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function clanDeposit() {
+    const amount = parseInt(document.getElementById("clan-deposit-amount").value, 10);
+    if (!amount || amount <= 0) { toast("Введи сумму", true); return; }
+    try {
+      const res = await apiPost("/api/clans/deposit", { amount });
+      toast(res.message, false);
+      document.getElementById("clan-deposit-amount").value = "";
+      await loadClans();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function clanLeave() {
+    if (!confirm("Выйти из клана?")) return;
+    try {
+      const res = await apiPost("/api/clans/leave", {});
+      toast(res.message, false);
+      await loadClans();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function clanDisband() {
+    if (!confirm("⚠️ РАСПУСТИТЬ КЛАН?\n\nКазна вернётся тебе, все участники будут исключены.")) return;
+    try {
+      const res = await apiPost("/api/clans/disband", {});
+      toast(res.message, false);
+      await loadClans();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function clanKickPrompt() {
+    const username = prompt("Username игрока для кика (без @):");
+    if (!username) return;
+    try {
+      const res = await apiPost("/api/clans/kick", { username });
+      toast(res.message, false);
+      await loadClans();
+    } catch (e) { toast(e.message, true); }
+  }
+  
   // ===== ОСТРОВ =====
   let islandData = null;
 
