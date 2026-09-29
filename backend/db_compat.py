@@ -381,6 +381,39 @@ def init_db():
             is_hidden BOOLEAN DEFAULT FALSE
         )
     """)
+
+    # === КЛАНЫ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clans (
+            id SERIAL PRIMARY KEY,
+            name TEXT UNIQUE,
+            emoji TEXT,
+            leader_id BIGINT,
+            description TEXT,
+            bank BIGINT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clan_members (
+            user_id BIGINT PRIMARY KEY,
+            clan_id INTEGER,
+            role TEXT DEFAULT 'member',
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clan_requests (
+            id SERIAL PRIMARY KEY,
+            clan_id INTEGER,
+            user_id BIGINT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(clan_id, user_id)
+        )
+    """)
     
     conn.commit()
     conn.close()
