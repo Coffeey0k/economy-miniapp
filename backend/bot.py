@@ -1856,6 +1856,12 @@ async def main():
     from db_compat import init_db
     init_db()
     print_banner()
+        # Создаём таблицы (и через db_compat, и через database)
+    from db_compat import init_db as init_db_compat
+    init_db_compat()
+
+    import database as db_module
+    db_module.init_db()   # <-- это тоже создаст таблицы, если их нет
     logger.info("🚀 ParadiseCoin запускается...")
     db.remove_bot_from_new_members(bot.id)
     await bot.set_my_commands([
