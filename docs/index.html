@@ -997,8 +997,18 @@
     haptic("light");
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
     document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
-    document.getElementById("tab-" + name).classList.add("active");
-    document.querySelector(`.nav-item[data-tab="${name}"]`).classList.add("active");
+
+    const tabEl = document.getElementById("tab-" + name);
+    if (tabEl) tabEl.classList.add("active");
+
+    const navBtn = document.querySelector(`.nav-item[data-tab="${name}"]`);
+    if (navBtn) navBtn.classList.add("active");
+    else {
+      // Если вкладки нет в навбаре — подсвечиваем «Ещё»
+      const moreBtn = document.querySelector('.nav-item[data-tab="more"]');
+      if (moreBtn) moreBtn.classList.add("active");
+    }
+
     if (!loaded[name]) { loadTab(name); loaded[name] = true; }
   }
   function loadTab(name) {
