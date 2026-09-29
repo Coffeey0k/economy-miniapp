@@ -2371,7 +2371,21 @@ def disband_clan(payload: dict = Body(...)):
 @app.post("/api/clans/kick")
 def kick_from_clan(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    target_id = int(payload.get("user_id"))
+    target_query = payload.get("username") or payload.get("user_id")
+
+    conn_tmp = db()
+    cur_tmp = conn_tmp.cursor()
+    if isinstance(target_query, str) and not target_query.isdigit():
+        q = target_query.lstrip("@").lower()
+        cur_tmp.execute("SELECT user_id FROM users WHERE LOWER(username) = %s", (q,))
+        row = cur_tmp.fetchone()
+        conn_tmp.close()
+        if not row:
+            raise HTTPException(status_code=404, detail="Игрок не найден")
+        target_id = row["user_id"]
+    else:
+        conn_tmp.close()
+        target_id = int(target_query)
 
     conn = db()
     cur = conn.cursor()
