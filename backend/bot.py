@@ -157,7 +157,6 @@ TUTORIAL_STEPS = [
     "Удачи… она тебе пригодится."
 ]
 
-
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     user_id = message.from_user.id
@@ -174,42 +173,45 @@ async def cmd_start(message: Message):
 
     settings = db.get_user_settings(user_id)
 
-    # Очистка старых записей (наивная, по размеру)
+    # Очистка старых записей
     if len(message_owners) > 5000:
         message_owners.clear()
 
-    # Назначаем ежедневные задания (если ещё не назначены)
+    # Назначаем ежедневные задания
     db.assign_daily_tasks(user_id)
 
-    # Туториал
-    sent = await message.answer(
-        TUTORIAL_STEPS[0],
-        reply_markup=tutorial_nav_menu(1, len(TUTORIAL_STEPS) - 1)
-    )
-    message_owners[sent.message_id] = user_id
+    # Если туториал ещё не пройден — показываем его
+    if not settings["tutorial_done"]:
+        sent = await message.answer(
+            TUTORIAL_STEPS[0],
+            reply_markup=tutorial_nav_menu(1, len(TUTORIAL_STEPS) - 1)
+        )
+        message_owners[sent.message_id] = user_id
+        return
 
-    # Подсказки для новичков
-    if settings["hints_enabled"] and is_new:
-        try:
-            await message.answer(
-                "💡 **Подсказки для новичка:**\n\n"
-                "🎁 Зайди в раздел «Бонус» — получишь от 15 до 100 🪙\n"
-                "💬 Напиши слово `банк` в чате — тоже получишь бонус\n"
-                "🎮 Попробуй игры — можно заработать монеты\n"
-                "📋 Выполняй ежедневные задания — они дают до 250 🪙\n\n"
-                "Удачи! 🤍",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-
+    # Иначе — сразу главное меню + подсказки (одним сообщением)
     welcome_text = (
         f"🏝️ ParadiseCoin\n\n"
         f"💰 Баланс: {db.get_balance(user_id)} 🪙\n"
         f"🏆 Место в топе: #{db.get_user_rank(user_id)}\n\n"
-        "Выберите раздел:"
     )
-    sent = await message.answer(welcome_text, reply_markup=main_menu(user_id), parse_mode=None)
+
+    if settings["hints_enabled"] and is_new:
+        welcome_text += (
+            "💡 **Подсказки для новичка:**\n"
+            "🎁 Раздел «Бонус» — от 15 до 100 🪙\n"
+            "💬 Слово `банк` в чате — тоже бонус\n"
+            "🎮 Игры — заработок монет\n"
+            "📋 Ежедневные задания — до 250 🪙\n\n"
+        )
+
+    welcome_text += "Выберите раздел:"
+
+    sent = await message.answer(
+        welcome_text,
+        reply_markup=main_menu(user_id),
+        parse_mode="Markdown"
+    )
     message_owners[sent.message_id] = user_id
 
 
