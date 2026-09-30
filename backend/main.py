@@ -109,10 +109,21 @@ PET_EGGS = {
 }
 
 DAILY_TASK_NAMES = {
-    "activist": "💬 Активист", "resident": "🌴 Житель Paradise Reef",
-    "friendly": "🤍 Дружелюбный", "joker": "😂 Весельчак",
-    "favorite": "❤️ Любимчик", "photographer": "📸 Фотограф",
-    "musician": "🎵 Музыкант", "night_owl": "🌙 Ночной житель",
+    "activist":     "💬 Активист",
+    "resident":     "🌴 Житель Paradise Reef",
+    "friendly":     "🤍 Дружелюбный",
+    "photographer": "📸 Фотограф",
+    "musician":     "🎵 Музыкант",
+    "night_owl":    "🌙 Ночной житель",
+}
+
+DAILY_TASK_DESCS = {
+    "activist":     "Отправь 30 сообщений в чат",
+    "resident":     "Отправь 50 сообщений в чат",
+    "friendly":     "Ответь (реплаем) на 5 разных сообщений",
+    "photographer": "Отправь фото в чат",
+    "musician":     "Отправь музыку или голосовое в чат",
+    "night_owl":    "Напиши сообщение после 20:00",
 }
 
 app = FastAPI()
@@ -596,11 +607,13 @@ def get_tasks(init_data: str = Query(..., alias="initData")):
     tasks = [
         {
             "name": DAILY_TASK_NAMES.get(r["task_type"], r["task_type"]),
+            "desc": DAILY_TASK_DESCS.get(r["task_type"], ""),
             "progress": r["progress"], "target": r["target"],
             "reward": r["reward"], "is_done": bool(r["is_done"]),
         }
         for r in cur.fetchall()
     ]
+
     conn.close()
     return {"tasks": tasks}
 
