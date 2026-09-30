@@ -1527,6 +1527,20 @@ def bs_fire(payload: dict = Body(...)):
 FRIEND_BONUS_PER = 2
 FRIEND_BONUS_MAX = 20
 
+import httpx
+
+def send_friend_notification_sync(chat_id: int, text: str):
+    """Отправляет ЛС от имени бота."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    try:
+        with httpx.Client(timeout=5) as client:
+            client.post(url, json={
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": True
+            })
+    except Exception:
+        pass
 
 @app.get("/api/friends")
 def get_friends(init_data: str = Query(..., alias="initData")):
@@ -1577,8 +1591,6 @@ def get_friends(init_data: str = Query(..., alias="initData")):
         "pending": pending,
         "bonus": bonus,
     }
-
-
 @app.post("/api/friends/add")
 def add_friend(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
@@ -1589,16 +1601,81 @@ def add_friend(payload: dict = Body(...)):
 
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users WHERE LOWER(username) = %s", (username,))
+    cur.execute("SELECT user_id, username FROM users WHERE LOWER(username) = %s", (username,))
     row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
     target_id = row["user_id"]
+    target_username = row["username"]
     if target_id == user_id:
         conn.close()
         raise HTTPException(status_code=400, detail="Нельзя добавить себя")
+
+    # Отправитель
+    cur.execute("SELECT username FROM users WHERE user_id = %s", (user_id,))
+    sender_row = cur.fetchone()
+    sender_username = sender_row["username"] if sender_row else str(user_id)
+
+    # Уже друзья?
+    cur.execute("""
+        SELECT id FROM friends WHERE
+        (user_id = %s AND friend_id = %s) OR (user_id = %s AND friend_id = %s)
+    """, (user_id, target_id, target_id, user_id))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Вы уже друзья")
+
+    # Уже есть заявка?
+    cur.execute("""
+        SELECT id FROM friend_requests
+        WHERE from_user = %s AND to_user = %s AND status = 'pending'
+    """, (user_id, target_id))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Заявка уже отправлена")
+
+    # Встречная заявка?
+    cur.execute("""
+        SELECT id FROM friend_requests
+        WHERE from_user = %s AND to_user = %s AND status = 'pending'
+    """, (target_id, user_id))
+    reverse = cur.fetchone()
+    if reverse:
+        cur.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = %s", (reverse["id"],))
+        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)", (user_id, target_id))
+        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)", (target_id, user_id))
+        conn.commit()
+        conn.close()
+        # Уведомление в бот
+        try:
+            await_bot_send_friend_notification(
+                target_id,
+                f"✅ @{sender_username} принял твою заявку — вы теперь друзья!"
+            )
+        except Exception:
+            pass
+        return {"ok": True, "mutual": True, "message": f"Вы и @{username} теперь друзья!"}
+
+    # Обычная заявка
+    cur.execute("""
+        INSERT INTO friend_requests (from_user, to_user) VALUES (%s, %s)
+    """, (user_id, target_id))
+    conn.commit()
+    conn.close()
+
+    # Уведомление получателю в бот (ЛС)
+    try:
+        await_bot_send_friend_notification(
+            target_id,
+            f"📩 Заявка в друзья от @{sender_username}\n\n"
+            f"Открой бота → раздел «👥 Друзья», чтобы принять или отклонить."
+        )
+    except Exception:
+        pass
+
+    return {"ok": True, "mutual": False, "message": f"Заявка отправлена @{username}"}
 
     # Уже друзья?
     cur.execute("""
