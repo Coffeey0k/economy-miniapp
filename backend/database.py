@@ -2288,9 +2288,10 @@ def friend_send_request(from_user: int, to_user: int) -> bool:
 
     # Уже друзья?
     cur.execute("""
-        SELECT id FROM friends WHERE
-        (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)
-    """, (from_user, to_user, to_user, from_user))
+    INSERT INTO friend_requests (from_user, to_user, status)
+    VALUES (?, ?, 'pending')
+    ON CONFLICT (from_user, to_user) DO UPDATE SET status = 'pending'
+""", (from_user, to_user))
     if cur.fetchone():
         conn.close()
         return False
@@ -2313,8 +2314,14 @@ def friend_send_request(from_user: int, to_user: int) -> bool:
     if reverse:
         # Принимаем
         cur.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = ?", (reverse[0],))
-        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (from_user, to_user))
-        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (to_user, from_user))
+        cur.execute("""
+    INSERT INTO friends (user_id, friend_id) VALUES (?, ?)
+    ON CONFLICT (user_id, friend_id) DO NOTHING
+""", (from_user, to_user))
+cur.execute("""
+    INSERT INTO friends (user_id, friend_id) VALUES (?, ?)
+    ON CONFLICT (user_id, friend_id) DO NOTHING
+""", (to_user, from_user))
         conn.commit()
         conn.close()
         return "mutual"
