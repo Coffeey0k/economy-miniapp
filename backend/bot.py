@@ -602,7 +602,7 @@ async def open_egg_handler(callback: CallbackQuery):
     egg_type = callback.data.replace("egg_", "")
     # Проклятое яйцо — отдельно
     if egg_type == "cursed":
-        await open_cursed_egg_handler(callback)
+        await cursed_egg_open_confirm(callback)
         return
     if egg_type not in db.PET_EGGS:
         await callback.answer("❌ Неизвестное яйцо", show_alert=True)
@@ -647,52 +647,6 @@ async def cursed_egg_open_confirm(callback: CallbackQuery):
             InlineKeyboardButton(text="✅ Открыть", callback_data="cursed_open_yes"),
             InlineKeyboardButton(text="❌ Отмена", callback_data="catalog")
         ).as_markup()
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "cursed_open_yes")
-async def cursed_open_yes(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    result = db.open_cursed_egg(user_id)
-    if not result:
-        await callback.answer("❌ Ошибка или яйца кончились", show_alert=True)
-        return
-    await callback.message.edit_text(
-        f"🕯️ Проклятое яйцо открыто...\n\n"
-        f"Из него выполз: {result['name']}\n"
-        f"Редкость: {result['rarity']}\n"
-        f"Доход: {result['income']} 🪙 раз в 4 часа\n\n"
-        f"Осталось яиц: {result['stock_left']}",
-        reply_markup=back_to_catalog_keyboard()
-    )
-    # Оповещение о распродаже
-    if result["stock_left"] <= 0:
-        await announce_cursed_egg_sold_out()
-    await callback.answer("👁️ Оно выбрало тебя")
-
-@dp.callback_query(F.data.startswith("open_cursed"))
-async def cursed_egg_open_confirm(callback: CallbackQuery):
-    """Открытие проклятого яйца — сначала подтверждение"""
-    stock = db.get_egg_stock()
-    if not stock["active"] or stock["stock"] <= 0:
-        await callback.answer("❌ Проклятое яйцо недоступно", show_alert=True)
-        return
-    user_id = callback.from_user.id
-    if db.get_balance(user_id) < 10000:
-        await callback.answer("❌ Нужно 10,000 🪙", show_alert=True)
-        return
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Открыть", callback_data="cursed_open_yes"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="catalog")
-    )
-    await callback.message.edit_text(
-        "🕯️ Проклятое яйцо\n\n"
-        "Никто не знает, что находится внутри.\n"
-        "Цена: 10,000 🪙\n\n"
-        "Ты уверен?",
-        reply_markup=builder.as_markup()
     )
     await callback.answer()
 

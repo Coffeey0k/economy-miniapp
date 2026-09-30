@@ -455,6 +455,7 @@ def toggle_pet(payload: dict = Body(...)):
 @app.get("/api/professions")
 def get_professions(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
+    is_admin = user_id in ADMIN_IDS
 
     conn = db()
     cur = conn.cursor()
