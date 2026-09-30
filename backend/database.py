@@ -2494,7 +2494,7 @@ FRAMES = {
     "spiral":   {"name": "🌀", "price": 30000, "rarity": "base", "display": "🌀 {name} 🌀"},
     "diamond":  {"name": "💎", "price": 100000, "rarity": "rare", "display": "💎 {name} 💎"},
     "crown":    {"name": "👑", "price": 250000, "rarity": "rare", "display": "👑 {name} 👑"},
-    "rainbow":  {"name": "🌈", "price": 500000, "rarity": "rare", "display": "🌈 {name} 🌈"},
+    "rainbow":  {"name": "🌈", "price": 500000, "rarity": "rare", "display": "🌈 {name} 🌈"}, 
 }
 
 # Статусы
@@ -2526,6 +2526,8 @@ THEMES = {
     "terminal": {"name": "💻 Терминал",      "price": 60000},
     "ice":      {"name": "❄️ Ледяная",       "price": 40000},
     "graphite": {"name": "🩶 Графитовая",    "price": 20000},
+    "rgb":      {"name": "🌈 RGB-переливающаяся", "price": 200000},
+    "ocean":    {"name": "🌊 Океаническая глубина", "price": 75000},
 }
 
 # Значки
