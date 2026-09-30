@@ -291,6 +291,46 @@ async def back_to_main(callback: CallbackQuery):
     )
     await callback.answer()
 
+# ==================== ПОДСКАЗКИ ====================
+
+@dp.callback_query(F.data == "hints_menu")
+async def hints_menu_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    settings = db.get_user_settings(user_id)
+    enabled = settings["hints_enabled"]
+
+    builder = InlineKeyboardBuilder()
+    if enabled:
+        builder.row(InlineKeyboardButton(
+            text="❌ Отключить подсказки",
+            callback_data="hints_toggle"
+        ))
+    else:
+        builder.row(InlineKeyboardButton(
+            text="✅ Включить подсказки",
+            callback_data="hints_toggle"
+        ))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
+
+    status = "🟢 включены" if enabled else "🔴 отключены"
+    await callback.message.edit_text(
+        f"💡 Подсказки для новичков\n\n"
+        f"Статус: {status}\n\n"
+        f"Когда подсказки включены, бот при входе присылает советы — "
+        f"где взять бонус и как заработать ParadiseCoin.",
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "hints_toggle")
+async def hints_toggle(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    settings = db.get_user_settings(user_id)
+    new_value = not settings["hints_enabled"]
+    db.set_hints_enabled(user_id, new_value)
+    await callback.answer("✅ Подсказки включены" if new_value else "❌ Подсказки отключены")
+    await hints_menu_handler(callback)
 
 # ==================== ТОП ====================
 
