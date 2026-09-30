@@ -400,6 +400,120 @@
     --progress-bg: rgba(255,255,255,0.1);
   }
 
+  /* ===== ТЕМА: RGB (переливающаяся) ===== */
+  body[data-theme="rgb"] {
+    --bg: #0a0015;
+    --text: #ffffff;
+    --hint: #cccccc;
+    --link: #00ff88;
+    --accent: #ff00ff;
+    --accent2: #00ffff;
+    --button: #ff00ff;
+    --button-text: #000000;
+    --secondary-bg: #1a0030;
+    --card-border: rgba(255,255,255,0.3);
+    --nav-bg: #0a0015;
+    --input-bg: #0a0015;
+    --hover-bg: rgba(255,255,255,0.1);
+    --progress-bg: rgba(255,255,255,0.15);
+    animation: rgbShift 6s linear infinite;
+  }
+
+  body[data-theme="rgb"] .card {
+    border-width: 2px;
+    animation: rgbBorder 4s linear infinite;
+  }
+
+  body[data-theme="rgb"] .btn {
+    animation: rgbGlow 3s linear infinite;
+  }
+
+  body[data-theme="rgb"] .nav {
+    border-top: 2px solid;
+    animation: rgbBorder 4s linear infinite;
+  }
+
+  @keyframes rgbShift {
+    0%   { background: #1a0030; }
+    16%  { background: #001a30; }
+    33%  { background: #00301a; }
+    50%  { background: #301a00; }
+    66%  { background: #30001a; }
+    83%  { background: #001a30; }
+    100% { background: #1a0030; }
+  }
+
+  @keyframes rgbBorder {
+    0%   { border-color: #ff0088; box-shadow: 0 0 15px #ff0088; }
+    25%  { border-color: #00ff88; box-shadow: 0 0 15px #00ff88; }
+    50%  { border-color: #0088ff; box-shadow: 0 0 15px #0088ff; }
+    75%  { border-color: #ffaa00; box-shadow: 0 0 15px #ffaa00; }
+    100% { border-color: #ff0088; box-shadow: 0 0 15px #ff0088; }
+  }
+
+  @keyframes rgbGlow {
+    0%   { box-shadow: 0 0 12px #ff0088, 0 0 24px #ff0088; }
+    25%  { box-shadow: 0 0 12px #00ff88, 0 0 24px #00ff88; }
+    50%  { box-shadow: 0 0 12px #0088ff, 0 0 24px #0088ff; }
+    75%  { box-shadow: 0 0 12px #ffaa00, 0 0 24px #ffaa00; }
+    100% { box-shadow: 0 0 12px #ff0088, 0 0 24px #ff0088; }
+  }
+
+  /* ===== ТЕМА: Океаническая глубина ===== */
+  body[data-theme="ocean"] {
+    --bg: #0a1e3c;
+    --text: #cceeff;
+    --hint: #5599cc;
+    --link: #00ffea;
+    --accent: #0088cc;
+    --accent2: #004488;
+    --button: #0088cc;
+    --button-text: #ffffff;
+    --secondary-bg: rgba(10, 60, 100, 0.6);
+    --card-border: rgba(0, 170, 220, 0.35);
+    --nav-bg: #051429;
+    --input-bg: #0a1e3c;
+    --hover-bg: rgba(0, 136, 204, 0.2);
+    --progress-bg: rgba(0, 136, 204, 0.25);
+    background: linear-gradient(180deg, #1a5a8c 0%, #0a2e4e 40%, #051a30 70%, #020814 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+
+  body[data-theme="ocean"] .card {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+
+  body[data-theme="ocean"] .btn {
+    box-shadow: 0 0 14px rgba(0, 200, 255, 0.4);
+  }
+
+  /* Пузырьки */
+  body[data-theme="ocean"]::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      radial-gradient(circle 4px at 10% 90%, rgba(255,255,255,0.6), transparent 50%),
+      radial-gradient(circle 6px at 25% 85%, rgba(200,240,255,0.5), transparent 50%),
+      radial-gradient(circle 3px at 45% 95%, rgba(255,255,255,0.5), transparent 50%),
+      radial-gradient(circle 5px at 65% 88%, rgba(200,240,255,0.55), transparent 50%),
+      radial-gradient(circle 4px at 80% 92%, rgba(255,255,255,0.5), transparent 50%),
+      radial-gradient(circle 6px at 92% 87%, rgba(200,240,255,0.45), transparent 50%);
+    animation: bubblesRise 12s linear infinite;
+  }
+
+  @keyframes bubblesRise {
+    0%   { transform: translateY(0); opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { transform: translateY(-100vh); opacity: 0; }
+  }
+  
   /* ===== БАЗОВЫЕ ===== */
   html, body {
     margin: 0;
