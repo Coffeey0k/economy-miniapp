@@ -1185,14 +1185,18 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
 # === ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ===
 
 DAILY_TASKS = {
-    "activist": {"name": "💬 Активист", "target": 30, "reward": 100, "type": "messages"},
-    "resident": {"name": "🌴 Житель Paradise Reef", "target": 50, "reward": 150, "type": "messages"},
-    "friendly": {"name": "🤍 Дружелюбный", "target": 5, "reward": 200, "type": "replies"},
-    "joker": {"name": "😂 Весельчак", "target": 5, "reward": 150, "type": "reactions_received"},
-    "favorite": {"name": "❤️ Любимчик", "target": 10, "reward": 200, "type": "reactions_received"},
-    "photographer": {"name": "📸 Фотограф", "target": 1, "reward": 50, "type": "photo"},
-    "musician": {"name": "🎵 Музыкант", "target": 1, "reward": 50, "type": "audio"},
-    "night_owl": {"name": "🌙 Ночной житель", "target": 1, "reward": 250, "type": "night_message"},
+    "activist":    {"name": "💬 Активист",            "target": 30, "reward": 100, "type": "messages",
+                    "desc": "Отправь 30 сообщений в чат"},
+    "resident":    {"name": "🌴 Житель Paradise Reef", "target": 50, "reward": 150, "type": "messages",
+                    "desc": "Отправь 50 сообщений в чат"},
+    "friendly":    {"name": "🤍 Дружелюбный",          "target": 5,  "reward": 200, "type": "replies",
+                    "desc": "Ответь (реплаем) на 5 разных сообщений"},
+    "photographer":{"name": "📸 Фотограф",            "target": 1,  "reward": 50,  "type": "photo",
+                    "desc": "Отправь фото в чат"},
+    "musician":    {"name": "🎵 Музыкант",            "target": 1,  "reward": 50,  "type": "audio",
+                    "desc": "Отправь музыку или голосовое в чат"},
+    "night_owl":   {"name": "🌙 Ночной житель",       "target": 1,  "reward": 250, "type": "night_message",
+                    "desc": "Напиши сообщение после 20:00"},
 }
 
 
@@ -1234,7 +1238,7 @@ def assign_daily_tasks(user_id: int):
 
 
 def update_task_progress(user_id: int, task_type: str, amount: int = 1):
-    """task_type здесь — ключ задания (activist, resident и т.д.)"""
+    """Обновляет прогресс задания. task_type — ключ задания (activist, resident и т.д.)"""
     date = datetime.now().date().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -1250,19 +1254,24 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
     if is_done:
         conn.close()
         return
+
     new_progress = min(progress + amount, target)
     done = new_progress >= target
+
     cur.execute("""
         UPDATE daily_tasks SET progress = ?, is_done = ? WHERE id = ?
     """, (new_progress, 1 if done else 0, task_id))
     conn.commit()
     conn.close()
+
     if done:
         reward = DAILY_TASKS[task_type]["reward"]
         update_balance(user_id, reward)
-        cur = conn.cursor()
-        cur.execute("UPDATE daily_tasks SET is_claimed = 1 WHERE id = ?", (task_id,))
-        conn.commit()
+        conn2 = sqlite3.connect(DB_NAME)
+        cur2 = conn2.cursor()
+        cur2.execute("UPDATE daily_tasks SET is_claimed = 1 WHERE id = ?", (task_id,))
+        conn2.commit()
+        conn2.close()
 
 
 def get_tasks_by_type(user_id: int, task_type: str) -> List[dict]:
@@ -3210,6 +3219,24 @@ def clan_income_bonus(user_id: int) -> int:
     members = clan_member_count(clan["id"])
     bonus = members * CLAN_BONUS_PER_MEMBER
     return min(bonus, CLAN_BONUS_MAX)
+
+def track_message_tasks(user_id: int, is_reply: bool = False,
+                        is_photo: bool = False, is_audio: bool = False,
+                        is_night: bool = False):
+    """Вызывается при каждом сообщении в чате.
+    Обновляет прогресс всех подходящих активных заданий игрока."""
+    # Активист / Житель — каждое сообщение
+    update_task_progress(user_id, "activist", 1)
+    update_task_progress(user_id, "resident", 1)
+
+    if is_reply:
+        update_task_progress(user_id, "friendly", 1)
+    if is_photo:
+        update_task_progress(user_id, "photographer", 1)
+    if is_audio:
+        update_task_progress(user_id, "musician", 1)
+    if is_night:
+        update_task_progress(user_id, "night_owl", 1)
 
 # Инициализация при импорте
 init_db()
