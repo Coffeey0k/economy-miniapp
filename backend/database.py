@@ -2278,8 +2278,8 @@ FRIEND_BONUS_PER = 2       # +2% за каждого друга
 FRIEND_BONUS_MAX = 20      # максимум +20%
 
 
-def friend_send_request(from_user: int, to_user: int) -> bool:
-    """Отправляет заявку в друзья. Возвращает True, если создана."""
+def friend_send_request(from_user: int, to_user: int):
+    """Отправляет заявку в друзья. Возвращает True / 'mutual' / False."""
     if from_user == to_user:
         return False
 
@@ -2288,15 +2288,14 @@ def friend_send_request(from_user: int, to_user: int) -> bool:
 
     # Уже друзья?
     cur.execute("""
-    INSERT INTO friend_requests (from_user, to_user, status)
-    VALUES (?, ?, 'pending')
-    ON CONFLICT (from_user, to_user) DO UPDATE SET status = 'pending'
-""", (from_user, to_user))
+        SELECT id FROM friends WHERE
+        (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)
+    """, (from_user, to_user, to_user, from_user))
     if cur.fetchone():
         conn.close()
         return False
 
-    # Уже есть заявка?
+    # Уже есть заявка (pending)?
     cur.execute("""
         SELECT id FROM friend_requests
         WHERE from_user = ? AND to_user = ? AND status = 'pending'
@@ -2314,22 +2313,27 @@ def friend_send_request(from_user: int, to_user: int) -> bool:
     if reverse:
         # Принимаем
         cur.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = ?", (reverse[0],))
+
+        # Добавляем в друзья обоих (с ON CONFLICT, чтобы не падало на дубликатах)
         cur.execute("""
-    INSERT INTO friends (user_id, friend_id) VALUES (?, ?)
-    ON CONFLICT (user_id, friend_id) DO NOTHING
-""", (from_user, to_user))
-cur.execute("""
-    INSERT INTO friends (user_id, friend_id) VALUES (?, ?)
-    ON CONFLICT (user_id, friend_id) DO NOTHING
-""", (to_user, from_user))
+            INSERT INTO friends (user_id, friend_id) VALUES (?, ?)
+            ON CONFLICT (user_id, friend_id) DO NOTHING
+        """, (from_user, to_user))
+        cur.execute("""
+            INSERT INTO friends (user_id, friend_id) VALUES (?, ?)
+            ON CONFLICT (user_id, friend_id) DO NOTHING
+        """, (to_user, from_user))
+
         conn.commit()
         conn.close()
         return "mutual"
 
-    # Обычная заявка
+    # Обычная заявка (upsert — если запись уже есть, обновляем статус)
     try:
         cur.execute("""
-            INSERT INTO friend_requests (from_user, to_user) VALUES (?, ?)
+            INSERT INTO friend_requests (from_user, to_user, status)
+            VALUES (?, ?, 'pending')
+            ON CONFLICT (from_user, to_user) DO UPDATE SET status = 'pending'
         """, (from_user, to_user))
         conn.commit()
         conn.close()
@@ -2337,8 +2341,7 @@ cur.execute("""
     except Exception:
         conn.close()
         return False
-
-
+        
 def friend_accept(request_id: int, to_user: int) -> bool:
     """Принимает заявку. Возвращает True, если принята."""
     conn = sqlite3.connect(DB_NAME)
