@@ -2127,10 +2127,25 @@
       document.getElementById("app").style.display = "block";
       document.getElementById("nav").style.display = "flex";
       setInterval(() => { loadProfile().catch(() => {}); }, 20000);
+      setInterval(() => { checkFriendRequests().catch(() => {}); }, 30000);
     } catch (err) {
       document.getElementById("status").textContent = "Не удалось загрузить профиль. " + err.message;
     }
   }
+
+    async function checkFriendRequests() {
+    try {
+      const data = await apiGet("/api/friends");
+      if (data.pending && data.pending.length > 0) {
+        const navBtn = document.querySelector('.nav-item[data-tab="more"]');
+        if (navBtn && !navBtn.dataset.hasBadge) {
+          navBtn.dataset.hasBadge = "1";
+          navBtn.querySelector(".ic").textContent = "🔴";
+        }
+      }
+    } catch (e) {}
+  }
+  
   init();
 </script>
 
