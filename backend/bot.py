@@ -1000,8 +1000,12 @@ async def my_tasks(callback: CallbackQuery):
     for t in tasks:
         info = DAILY_TASKS[t["task_type"]]
         status = "✅" if t["is_done"] else f"{t['progress']}/{t['target']}"
+        desc = info.get("desc", "")
         text += f"{info['name']} — {status} (+{t['reward']} 🪙)\n"
-    await callback.message.edit_text(text, reply_markup=tasks_menu())
+        if desc:
+            text += f"   _{desc}_\n"
+        text += "\n"
+    await callback.message.edit_text(text, reply_markup=tasks_menu(), parse_mode="Markdown")
     await callback.answer()
 
 
@@ -1623,6 +1627,52 @@ async def test_chest(message: Message):
         return
     await spawn_chest()
     await message.answer("✅ Сундук заспавнен в чате флуда")
+
+# ==================== ТРЕКИНГ ЗАДАНИЙ ====================
+
+@dp.message(F.chat.type.in_({"group", "supergroup"}))
+async def track_daily_tasks(message: Message, state: FSMContext):
+    """Отслеживает активность игроков в группах для ежедневных заданий."""
+    # Пропускаем ботов
+    if message.from_user is None or message.from_user.is_bot:
+        return
+
+    # Пропускаем FSM-состояния (пользователь что-то вводит в боте)
+    current_state = await state.get_state()
+    if current_state is not None:
+        return
+
+    user_id = message.from_user.id
+
+    # Проверяем, есть ли пользователь в БД
+    if not db.get_user(user_id):
+        return
+
+    # Проверяем, не забанен ли
+    user = db.get_user(user_id)
+    if user and user["is_banned"]:
+        return
+
+    # Определяем тип контента
+    is_reply = message.reply_to_message is not None
+    is_photo = message.photo is not None
+    is_audio = message.voice is not None or message.audio is not None
+
+    # Ночной житель — после 20:00
+    now = datetime.now()
+    is_night = now.hour >= 20
+
+    # Обновляем прогресс
+    try:
+        db.track_message_tasks(
+            user_id,
+            is_reply=is_reply,
+            is_photo=is_photo,
+            is_audio=is_audio,
+            is_night=is_night
+        )
+    except Exception as e:
+        logger.error(f"Ошибка трекинга заданий: {e}")
 
 # ==================== ФОНОВЫЕ ЗАДАЧИ ====================
 
