@@ -21,6 +21,9 @@ def main_menu(user_id: int = None) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🎁 Бонус", callback_data="claim_bonus")
     )
     builder.row(
+        InlineKeyboardButton(text="💡 Подсказки", callback_data="hints_menu")
+    )
+    builder.row(
         InlineKeyboardButton(text="🐾 Питомцы", callback_data="pets_menu"),
         InlineKeyboardButton(text="💼 Профессии", callback_data="professions_menu")
     )
@@ -35,6 +38,7 @@ def main_menu(user_id: int = None) -> InlineKeyboardMarkup:
         builder.row(
             InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")
         )
+
     return builder.as_markup()
 
 
