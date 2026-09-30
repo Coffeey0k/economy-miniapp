@@ -187,7 +187,21 @@ async def cmd_start(message: Message):
         reply_markup=tutorial_nav_menu(1, len(TUTORIAL_STEPS) - 1)
     )
     message_owners[sent.message_id] = user_id
-    return
+
+    # Подсказки для новичков
+    if settings["hints_enabled"] and is_new:
+        try:
+            await message.answer(
+                "💡 **Подсказки для новичка:**\n\n"
+                "🎁 Зайди в раздел «Бонус» — получишь от 15 до 100 🪙\n"
+                "💬 Напиши слово `банк` в чате — тоже получишь бонус\n"
+                "🎮 Попробуй игры — можно заработать монеты\n"
+                "📋 Выполняй ежедневные задания — они дают до 250 🪙\n\n"
+                "Удачи! 🤍",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
     welcome_text = (
         f"🏝️ ParadiseCoin\n\n"
