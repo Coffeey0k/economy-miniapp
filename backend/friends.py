@@ -77,10 +77,10 @@ async def friend_request(message: Message):
         conn = connect(db.DB_NAME)
         cur = conn.cursor()
         cur.execute("""
-            SELECT id FROM friend_requests
-            WHERE from_user = ? AND to_user = ? AND status = 'pending'
-            ORDER BY id DESC LIMIT 1
-        """, (from_user, target_id))
+    INSERT INTO friend_requests (from_user, to_user, status)
+    VALUES (?, ?, 'pending')
+    ON CONFLICT (from_user, to_user) DO UPDATE SET status = 'pending'
+""", (from_user, to_user))
         row = cur.fetchone()
         conn.close()
         if row:
