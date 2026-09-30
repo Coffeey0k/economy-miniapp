@@ -1644,11 +1644,16 @@ def add_friend(payload: dict = Body(...)):
     reverse = cur.fetchone()
     if reverse:
         cur.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = %s", (reverse["id"],))
-        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)", (user_id, target_id))
-        cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)", (target_id, user_id))
+        cur.execute("""
+            INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)
+            ON CONFLICT (user_id, friend_id) DO NOTHING
+        """, (user_id, target_id))
+        cur.execute("""
+            INSERT INTO friends (user_id, friend_id) VALUES (%s, %s)
+            ON CONFLICT (user_id, friend_id) DO NOTHING
+        """, (target_id, user_id))
         conn.commit()
         conn.close()
-        # Уведомление в бот
         try:
             await_bot_send_friend_notification(
                 target_id,
@@ -1657,10 +1662,12 @@ def add_friend(payload: dict = Body(...)):
         except Exception:
             pass
         return {"ok": True, "mutual": True, "message": f"Вы и @{username} теперь друзья!"}
-
-    # Обычная заявка
+       
+    # Обычная заявка (upsert — обновляем статус, если запись уже есть)
     cur.execute("""
-        INSERT INTO friend_requests (from_user, to_user) VALUES (%s, %s)
+        INSERT INTO friend_requests (from_user, to_user, status)
+        VALUES (%s, %s, 'pending')
+        ON CONFLICT (from_user, to_user) DO UPDATE SET status = 'pending'
     """, (user_id, target_id))
     conn.commit()
     conn.close()
