@@ -392,6 +392,41 @@ def init_db():
             purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # === МУЗЫКА ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS music_personal (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            url TEXT,
+            title TEXT,
+            author TEXT,
+            platform TEXT,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS music_shared (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            url TEXT,
+            title TEXT,
+            author TEXT,
+            platform TEXT,
+            status TEXT DEFAULT 'pending',
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            reviewed_by BIGINT,
+            reviewed_at TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS music_slots (
+            user_id BIGINT PRIMARY KEY,
+            extra_slots INTEGER DEFAULT 0
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -3249,6 +3284,214 @@ def track_message_tasks(user_id: int, is_reply: bool = False,
         update_task_progress(user_id, "musician", 1)
     if is_night:
         update_task_progress(user_id, "night_owl", 1)
+
+# ==================== МУЗЫКА ====================
+
+MUSIC_PERSONAL_BASE = 15       # базовые слоты личного плейлиста
+MUSIC_SHARED_MAX = 100         # максимум треков в общем
+MUSIC_SLOT_PRICE = 2000        # цена одного слота
+
+
+def music_personal_limit(user_id: int) -> int:
+    """Лимит личного плейлиста с учётом купленных слотов."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT extra_slots FROM music_slots WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    extra = row[0] if row else 0
+    return MUSIC_PERSONAL_BASE + extra
+
+
+def music_buy_slot(user_id: int) -> tuple:
+    """Покупает +1 слот для личного плейлиста."""
+    if get_balance(user_id) < MUSIC_SLOT_PRICE:
+        return False, f"Недостаточно монет. Нужно: {MUSIC_SLOT_PRICE:,} 🪙"
+
+    if not update_balance(user_id, -MUSIC_SLOT_PRICE):
+        return False, "Ошибка списания"
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO music_slots (user_id, extra_slots) VALUES (?, 1)
+        ON CONFLICT(user_id) DO UPDATE SET extra_slots = music_slots.extra_slots + 1
+    """, (user_id,))
+    conn.commit()
+    conn.close()
+    return True, f"Куплен 1 слот за {MUSIC_SLOT_PRICE:,} 🪙"
+
+
+def music_personal_add(user_id: int, url: str, title: str, author: str, platform: str) -> tuple:
+    """Добавляет трек в личный плейлист."""
+    limit = music_personal_limit(user_id)
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM music_personal WHERE user_id = ?", (user_id,))
+    count = cur.fetchone()[0]
+    if count >= limit:
+        conn.close()
+        return False, f"Плейлист полон ({count}/{limit}). Купи слот."
+
+    cur.execute("""
+        INSERT INTO music_personal (user_id, url, title, author, platform)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, url, title, author, platform))
+    conn.commit()
+    conn.close()
+    return True, "Трек добавлен в личный плейлист"
+
+
+def music_personal_list(user_id: int) -> list:
+    """Возвращает личный плейлист."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, url, title, author, platform, added_at
+        FROM music_personal WHERE user_id = ?
+        ORDER BY added_at DESC
+    """, (user_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "url": r[1], "title": r[2], "author": r[3],
+         "platform": r[4], "added_at": r[5]}
+        for r in rows
+    ]
+
+
+def music_personal_delete(user_id: int, track_id: int) -> bool:
+    """Удаляет трек из личного плейлиста (только свой)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM music_personal WHERE id = ? AND user_id = ?", (track_id, user_id))
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+
+def music_shared_add(user_id: int, url: str, title: str, author: str, platform: str) -> tuple:
+    """Добавляет трек в общий плейлист (на модерацию)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM music_shared WHERE status = 'approved'")
+    count = cur.fetchone()[0]
+    if count >= MUSIC_SHARED_MAX:
+        conn.close()
+        return False, f"Общий плейлист полон ({count}/{MUSIC_SHARED_MAX})"
+
+    cur.execute("""
+        INSERT INTO music_shared (user_id, url, title, author, platform, status)
+        VALUES (?, ?, ?, ?, ?, 'pending')
+    """, (user_id, url, title, author, platform))
+    conn.commit()
+    conn.close()
+    return True, "Трек отправлен на модерацию"
+
+
+def music_shared_list() -> list:
+    """Возвращает только одобренные треки."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at, u.username
+        FROM music_shared ms
+        LEFT JOIN users u ON u.user_id = ms.user_id
+        WHERE ms.status = 'approved'
+        ORDER BY ms.reviewed_at DESC
+    """, ())
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "url": r[1], "title": r[2], "author": r[3],
+         "platform": r[4], "added_at": r[5], "added_by": r[6]}
+        for r in rows
+    ]
+
+
+def music_shared_pending() -> list:
+    """Возвращает треки на модерации (для админов)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at, u.username, ms.user_id
+        FROM music_shared ms
+        LEFT JOIN users u ON u.user_id = ms.user_id
+        WHERE ms.status = 'pending'
+        ORDER BY ms.added_at ASC
+    """, ())
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "url": r[1], "title": r[2], "author": r[3],
+         "platform": r[4], "added_at": r[5], "added_by": r[6], "user_id": r[7]}
+        for r in rows
+    ]
+
+
+def music_shared_review(track_id: int, reviewer_id: int, approve: bool) -> tuple:
+    """Одобряет или отклоняет трек. Проверяет, что reviewer не автор."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM music_shared WHERE id = ? AND status = 'pending'", (track_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return False, "Трек не найден или уже рассмотрен"
+
+    if row[0] == reviewer_id:
+        conn.close()
+        return False, "Нельзя одобрить свой же трек"
+
+    new_status = "approved" if approve else "rejected"
+    cur.execute("""
+        UPDATE music_shared SET status = ?, reviewed_by = ?, reviewed_at = ?
+        WHERE id = ?
+    """, (new_status, reviewer_id, datetime.now().isoformat(), track_id))
+    conn.commit()
+    conn.close()
+    return True, "Трек одобрен" if approve else "Трек отклонён"
+
+
+def music_shared_delete(track_id: int) -> bool:
+    """Удаляет трек из общего плейлиста (для админов)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM music_shared WHERE id = ?", (track_id,))
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+
+def music_get_info(url: str) -> Optional[dict]:
+    """Получает информацию о треке через oEmbed. Возвращает dict или None."""
+    import httpx
+    url_lower = url.lower()
+
+    try:
+        if "youtube.com" in url_lower or "youtu.be" in url_lower:
+            oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
+            platform = "youtube"
+        elif "soundcloud.com" in url_lower:
+            oembed_url = f"https://soundcloud.com/oembed?url={url}&format=json"
+            platform = "soundcloud"
+        else:
+            return None
+
+        with httpx.Client(timeout=5) as client:
+            r = client.get(oembed_url)
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            return {
+                "title": data.get("title", "Без названия"),
+                "author": data.get("author_name", "Неизвестен"),
+                "platform": platform,
+            }
+    except Exception:
+        return None
 
 # Инициализация при импорте
 init_db()
