@@ -447,6 +447,20 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # === ПОДАРКИ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS gifts (
+            id SERIAL PRIMARY KEY,
+            from_user BIGINT,
+            to_user BIGINT,
+            gift_type TEXT,
+            gift_data TEXT,
+            is_opened BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -3513,6 +3527,7 @@ def music_get_info(url: str) -> Optional[dict]:
     except Exception:
         return None
 
+
 # ==================== RCC (ReefCriptoCoin) ====================
 
 RCC_CLICK_AMOUNT = 0.01          # за клик
@@ -3720,6 +3735,88 @@ def mark_user_blocked_bot(user_id: int):
     cur.execute("UPDATE users SET is_banned = 2 WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
+
+# ==================== ПОДАРКИ ====================
+
+GIFT_EXPIRES_DAYS = 5
+
+
+def gift_create(from_user: int, to_user: int, gift_type: str, gift_data: str) -> int:
+    """Создаёт подарок. gift_data — JSON-строка с данными."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO gifts (from_user, to_user, gift_type, gift_data, expires_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (from_user, to_user, gift_type, gift_data,
+          (datetime.now() + timedelta(days=GIFT_EXPIRES_DAYS)).isoformat()))
+    conn.commit()
+    gift_id = cur.lastrowid
+    conn.close()
+    return gift_id
+
+
+def gift_get(gift_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, from_user, to_user, gift_type, gift_data, is_opened, created_at, expires_at
+        FROM gifts WHERE id = ?
+    """, (gift_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "from_user": row[1], "to_user": row[2],
+        "gift_type": row[3], "gift_data": row[4],
+        "is_opened": bool(row[5]),
+        "created_at": row[6], "expires_at": row[7],
+    }
+
+
+def gift_list_incoming(user_id: int) -> list:
+    """Входящие подарки (не открытые, не истёкшие)."""
+    now = datetime.now().isoformat()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT g.id, g.from_user, u.username, g.gift_type, g.gift_data, g.created_at, g.expires_at
+        FROM gifts g
+        LEFT JOIN users u ON u.user_id = g.from_user
+        WHERE g.to_user = ? AND g.is_opened = 0 AND g.expires_at > ?
+        ORDER BY g.created_at DESC
+    """, (user_id, now))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "from_user": r[1], "from_username": r[2],
+         "gift_type": r[3], "gift_data": r[4],
+         "created_at": r[5], "expires_at": r[6]}
+        for r in rows
+    ]
+
+
+def gift_mark_opened(gift_id: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE gifts SET is_opened = 1 WHERE id = ?", (gift_id,))
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+
+def gift_cleanup_expired() -> int:
+    """Удаляет просроченные подарки (не открытые)."""
+    now = datetime.now().isoformat()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM gifts WHERE is_opened = 0 AND expires_at <= ?", (now,))
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    return affected
 
 # Инициализация при импорте
 init_db()
