@@ -427,6 +427,26 @@ def init_db():
             extra_slots INTEGER DEFAULT 0
         )
     """)
+
+    # === RCC (ReefCriptoCoin) ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS rcc_balance (
+            user_id BIGINT PRIMARY KEY,
+            balance REAL DEFAULT 0,
+            total_clicks INTEGER DEFAULT 0,
+            last_game TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS rcc_transactions (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            amount REAL,
+            type TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -3492,6 +3512,97 @@ def music_get_info(url: str) -> Optional[dict]:
             }
     except Exception:
         return None
+
+# ==================== RCC (ReefCriptoCoin) ====================
+
+RCC_CLICK_AMOUNT = 0.01          # за клик
+RCC_EXCHANGE_RATE = 5            # 1 RCC = 5 PC
+RCC_GAME_COOLDOWN = 7200         # 2 часа
+RCC_GAME_DURATION = 25           # 25 секунд
+
+
+def rcc_get_balance(user_id: int) -> float:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT balance FROM rcc_balance WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else 0.0
+
+
+def rcc_get_stats(user_id: int) -> dict:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT balance, total_clicks, last_game FROM rcc_balance WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return {"balance": 0.0, "total_clicks": 0, "last_game": None}
+    return {"balance": row[0], "total_clicks": row[1], "last_game": row[2]}
+
+
+def rcc_add(user_id: int, amount: float, type_: str = "click"):
+    """Начисляет RCC (или списывает, если amount < 0)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (?)", (user_id,))
+    cur.execute("UPDATE rcc_balance SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    if type_ == "click":
+        cur.execute("UPDATE rcc_balance SET total_clicks = total_clicks + 1 WHERE user_id = ?", (user_id,))
+    cur.execute(
+        "INSERT INTO rcc_transactions (user_id, amount, type) VALUES (?, ?, ?)",
+        (user_id, amount, type_)
+    )
+    conn.commit()
+    conn.close()
+
+
+def rcc_exchange(user_id: int, amount: float) -> tuple:
+    """Обмен RCC на ParadiseCoin."""
+    if amount <= 0:
+        return False, "Сумма должна быть больше 0"
+    balance = rcc_get_balance(user_id)
+    if balance < amount:
+        return False, f"Недостаточно RCC. У тебя: {balance:.2f}"
+
+    pc_amount = int(amount * RCC_EXCHANGE_RATE)
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE rcc_balance SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
+    cur.execute(
+        "INSERT INTO rcc_transactions (user_id, amount, type) VALUES (?, ?, 'exchange')",
+        (user_id, -amount)
+    )
+    conn.commit()
+    conn.close()
+
+    update_balance(user_id, pc_amount)
+    return True, f"Обменяно {amount:.2f} RCC → {pc_amount:,} 🪙"
+
+
+def rcc_can_play(user_id: int) -> tuple:
+    """Можно ли играть в мини-игру. (можно, секунд_осталось)"""
+    stats = rcc_get_stats(user_id)
+    last = stats["last_game"]
+    if not last:
+        return True, 0
+    delta = (datetime.now() - datetime.fromisoformat(last)).total_seconds()
+    if delta >= RCC_GAME_COOLDOWN:
+        return True, 0
+    return False, int(RCC_GAME_COOLDOWN - delta)
+
+
+def rcc_set_last_game(user_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (?)", (user_id,))
+    cur.execute(
+        "UPDATE rcc_balance SET last_game = ? WHERE user_id = ?",
+        (datetime.now().isoformat(), user_id)
+    )
+    conn.commit()
+    conn.close()
 
 # Инициализация при импорте
 init_db()
