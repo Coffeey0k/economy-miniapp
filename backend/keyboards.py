@@ -34,9 +34,13 @@ def main_menu(user_id: int = None) -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="🎨 Косметика", callback_data="cosmetics_menu")
     )
-    if user_id and user_id in config.ADMIN_IDS:
+    if user_id and config.is_admin(user_id):
         builder.row(
             InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")
+        )
+    if user_id and config.is_tech_admin(user_id):
+        builder.row(
+            InlineKeyboardButton(text="🧪 ТЕХ.АДМИН", callback_data="tech_panel")
         )
 
     return builder.as_markup()
