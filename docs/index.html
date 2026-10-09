@@ -1062,6 +1062,62 @@
     </div>
   </div>
 
+  <!-- RCC -->
+  <div class="tab" id="tab-rcc">
+    <div id="rcc-msg"></div>
+
+    <div class="tabs-sub">
+      <button class="rcc-tab active" onclick="rccShowTab('main', event)">💰 RCC</button>
+      <button class="rcc-tab" onclick="rccShowTab('game', event)">🎮 Мини-игра</button>
+    </div>
+
+    <!-- ГЛАВНАЯ RCC -->
+    <div id="rcc-main-block">
+      <div class="card">
+        <h2>💰 ReefCriptoCoin</h2>
+        <div class="label">Баланс RCC: <b id="rcc-balance">0.00</b> RCC</div>
+        <div class="label">Всего кликов: <span id="rcc-total-clicks">0</span></div>
+        <div class="label">Курс: 1 RCC = <span id="rcc-rate">5</span> 🪙</div>
+      </div>
+
+      <div class="card">
+        <h2>🖱️ Кликер</h2>
+        <p class="label">Жми по кнопке — получай RCC. Без ограничений!</p>
+        <div id="rcc-click-area" onclick="rccClick()" style="cursor:pointer;user-select:none;text-align:center;padding:30px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:20px;margin:12px 0;transition:transform 0.1s;">
+          <div style="font-size:60px;line-height:1;">💎</div>
+          <div style="font-size:20px;font-weight:700;color:#fff;margin-top:8px;">+0.01 RCC</div>
+        </div>
+        <div class="label" style="text-align:center;">Тапни по монете</div>
+      </div>
+
+      <div class="card">
+        <h2>💱 Обмен RCC → ParadiseCoin</h2>
+        <input type="number" id="rcc-exchange-amount" placeholder="Количество RCC" min="0.01" step="0.01">
+        <button class="btn" style="width:100%;" onclick="rccExchange()">Обменять</button>
+        <p class="label" style="margin-top:8px;">Твой PC-баланс: <span id="rcc-pc-balance">0</span> 🪙</p>
+      </div>
+    </div>
+
+    <!-- МИНИ-ИГРА -->
+    <div id="rcc-game-block" style="display:none;">
+      <div class="card">
+        <h2>🎮 Ловля монет</h2>
+        <p class="label">Падают монеты — кликай по ним! Размер монеты = разный приз (0.05–0.15 RCC).</p>
+        <p class="label">❄️ Лёд — замораживает на 5–7 сек. 💣 Бомба — минус 0.5 RCC.</p>
+        <p class="label">Раунд 25 секунд, кулдаун 2 часа.</p>
+        <div id="rcc-game-status" class="label" style="text-align:center;margin:10px 0;">Загрузка…</div>
+        <button class="btn" id="rcc-game-btn" style="width:100%;" onclick="rccStartGame()">▶️ Начать</button>
+      </div>
+      <div class="card" id="rcc-game-canvas-card" style="display:none;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span>⏱️ <b id="rcc-game-timer">25</b> сек</span>
+          <span>💰 <b id="rcc-game-score">0.00</b> RCC</span>
+        </div>
+        <div id="rcc-game-canvas" style="position:relative;width:100%;height:400px;background:var(--bg);border:2px solid var(--accent);border-radius:12px;overflow:hidden;"></div>
+      </div>
+    </div>
+  </div>
+  
   <!-- МУЗЫКА -->
   <div class="tab" id="tab-music">
     <div id="music-msg"></div>
@@ -1166,6 +1222,7 @@
   <button class="nav-item" data-tab="island" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
   <button class="nav-item" data-tab="clans" onclick="switchTab('clans')"><span class="ic">🏛️</span>Кланы</button>
   <button class="nav-item" data-tab="music" onclick="switchTab('music')"><span class="ic">🎵</span>Музыка</button>
+  <button class="nav-item" data-tab="rcc" onclick="switchTab('rcc')"><span class="ic">💰</span>RCC</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
 </div>
 
@@ -1244,6 +1301,7 @@
     if (name === "island") loadIsland();
     if (name === "clans") loadClans();
     if (name === "music") loadMusic();
+    if (name === "rcc") loadRcc();
   }
 
   async function loadProfile() {
@@ -1808,6 +1866,258 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  // ===== RCC =====
+  let rccData = null;
+  let rccTab = "main";
+  let rccGame = {
+    active: false,
+    frozen: false,
+    score: 0,
+    timeLeft: 25,
+    spawned: [],
+    intervalSpawn: null,
+    intervalTimer: null,
+  };
+
+  async function loadRcc() {
+    try {
+      rccData = await apiGet("/api/rcc");
+      renderRcc();
+    } catch (e) { showMsg("rcc-msg", e.message, false); }
+  }
+
+  function rccShowTab(tab, ev) {
+    rccTab = tab;
+    document.querySelectorAll(".rcc-tab").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+    document.getElementById("rcc-main-block").style.display = tab === "main" ? "block" : "none";
+    document.getElementById("rcc-game-block").style.display = tab === "game" ? "block" : "none";
+    renderRcc();
+  }
+
+  function renderRcc() {
+    if (!rccData) return;
+    document.getElementById("rcc-balance").textContent = rccData.balance.toFixed(4);
+    document.getElementById("rcc-total-clicks").textContent = rccData.total_clicks;
+    document.getElementById("rcc-rate").textContent = rccData.exchange_rate;
+    document.getElementById("rcc-pc-balance").textContent = rccData.pc_balance.toLocaleString();
+
+    const status = document.getElementById("rcc-game-status");
+    const btn = document.getElementById("rcc-game-btn");
+    if (rccData.can_play) {
+      status.textContent = "✅ Игра доступна!";
+      btn.disabled = false;
+    } else {
+      const h = Math.floor(rccData.remaining_seconds / 3600);
+      const m = Math.floor((rccData.remaining_seconds % 3600) / 60);
+      status.textContent = `⏳ Кулдаун: ${h} ч ${m} мин`;
+      btn.disabled = true;
+    }
+  }
+
+  async function rccClick() {
+    const area = document.getElementById("rcc-click-area");
+    area.style.transform = "scale(0.95)";
+    setTimeout(() => area.style.transform = "scale(1)", 100);
+
+    playSound("click");
+    haptic("light");
+
+    // Мгновенно обновляем локально
+    if (rccData) {
+      rccData.balance += 0.01;
+      rccData.total_clicks += 1;
+      document.getElementById("rcc-balance").textContent = rccData.balance.toFixed(4);
+      document.getElementById("rcc-total-clicks").textContent = rccData.total_clicks;
+    }
+
+    // Отправляем на сервер
+    try {
+      const res = await apiPost("/api/rcc/click", { amount: 0.01 });
+      if (rccData) rccData.balance = res.balance;
+      document.getElementById("rcc-balance").textContent = res.balance.toFixed(4);
+    } catch (e) {}
+  }
+
+  async function rccExchange() {
+    const amount = parseFloat(document.getElementById("rcc-exchange-amount").value);
+    if (!amount || amount <= 0) { toast("Введи количество RCC", true); return; }
+    try {
+      const res = await apiPost("/api/rcc/exchange", { amount });
+      toast(res.message, false);
+      document.getElementById("rcc-exchange-amount").value = "";
+      await loadRcc();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  // ===== МИНИ-ИГРА =====
+  async function rccStartGame() {
+    if (!rccData.can_play) { toast("Кулдаун ещё не прошёл", true); return; }
+
+    rccGame = {
+      active: true,
+      frozen: false,
+      score: 0,
+      timeLeft: 25,
+      spawned: [],
+      intervalSpawn: null,
+      intervalTimer: null,
+    };
+
+    document.getElementById("rcc-game-canvas-card").style.display = "block";
+    document.getElementById("rcc-game-btn").style.display = "none";
+    document.getElementById("rcc-game-timer").textContent = "25";
+    document.getElementById("rcc-game-score").textContent = "0.00";
+
+    const canvas = document.getElementById("rcc-game-canvas");
+    canvas.innerHTML = "";
+
+    // Спавн объектов
+    rccGame.intervalSpawn = setInterval(() => {
+      if (!rccGame.active || rccGame.frozen) return;
+      spawnRccObject();
+    }, 500);
+
+    // Таймер
+    rccGame.intervalTimer = setInterval(() => {
+      if (!rccGame.active || rccGame.frozen) return;
+      rccGame.timeLeft -= 1;
+      document.getElementById("rcc-game-timer").textContent = rccGame.timeLeft;
+      if (rccGame.timeLeft <= 0) finishRccGame();
+    }, 1000);
+
+    // Игровой цикл (движение)
+    rccLoop();
+  }
+
+  function spawnRccObject() {
+    const canvas = document.getElementById("rcc-game-canvas");
+    const rand = Math.random();
+    let type, size, emoji;
+    if (rand < 0.05) { type = "bomb"; size = 40; emoji = "💣"; }
+    else if (rand < 0.10) { type = "ice"; size = 45; emoji = "❄️"; }
+    else { type = "coin"; size = 30 + Math.floor(Math.random() * 25); emoji = "🪙"; }
+
+    const el = document.createElement("div");
+    el.style.position = "absolute";
+    el.style.left = Math.random() * (canvas.clientWidth - size) + "px";
+    el.style.top = "-50px";
+    el.style.fontSize = size + "px";
+    el.style.cursor = "pointer";
+    el.style.userSelect = "none";
+    el.style.transition = "top 0.05s linear";
+    el.textContent = emoji;
+    el.dataset.type = type;
+    el.dataset.size = size;
+    el.dataset.speed = 2 + Math.random() * 3;
+
+    el.onclick = (e) => {
+      e.stopPropagation();
+      handleRccClick(el);
+    };
+
+    canvas.appendChild(el);
+    rccGame.spawned.push(el);
+  }
+
+  function rccLoop() {
+    if (!rccGame.active) return;
+    const canvas = document.getElementById("rcc-game-canvas");
+
+    rccGame.spawned = rccGame.spawned.filter(el => {
+      if (!el.parentNode) return false;
+      let top = parseFloat(el.style.top) || -50;
+      if (!rccGame.frozen) {
+        top += parseFloat(el.dataset.speed);
+        el.style.top = top + "px";
+      }
+      if (top > canvas.clientHeight + 20) {
+        el.remove();
+        return false;
+      }
+      return true;
+    });
+
+    requestAnimationFrame(rccLoop);
+  }
+
+  function handleRccClick(el) {
+    if (!rccGame.active) return;
+    const type = el.dataset.type;
+    const size = parseInt(el.dataset.size);
+
+    if (type === "coin") {
+      // Размер 30-55, награда 0.05-0.15
+      const reward = 0.05 + ((size - 30) / 25) * 0.10;
+      rccGame.score += reward;
+      playSound("click");
+      haptic("light");
+      showFloatingText(el, `+${reward.toFixed(2)}`, "#00ff88");
+    } else if (type === "ice") {
+      rccGame.frozen = true;
+      playSound("error");
+      haptic("warning");
+      showFloatingText(el, "❄️ Заморозка!", "#00ccff");
+      const freezeTime = 5 + Math.floor(Math.random() * 3); // 5-7 сек
+      setTimeout(() => { rccGame.frozen = false; }, freezeTime * 1000);
+    } else if (type === "bomb") {
+      rccGame.score -= 0.5;
+      playSound("error");
+      haptic("error");
+      showFloatingText(el, "-0.50", "#ff4444");
+    }
+
+    document.getElementById("rcc-game-score").textContent = rccGame.score.toFixed(2);
+    el.remove();
+  }
+
+  function showFloatingText(el, text, color) {
+    const canvas = document.getElementById("rcc-game-canvas");
+    const float = document.createElement("div");
+    float.style.position = "absolute";
+    float.style.left = el.style.left;
+    float.style.top = el.style.top;
+    float.style.color = color;
+    float.style.fontWeight = "700";
+    float.style.fontSize = "18px";
+    float.style.pointerEvents = "none";
+    float.style.transition = "all 0.8s ease-out";
+    float.textContent = text;
+    canvas.appendChild(float);
+    setTimeout(() => {
+      float.style.top = (parseFloat(float.style.top) - 60) + "px";
+      float.style.opacity = "0";
+    }, 50);
+    setTimeout(() => float.remove(), 900);
+  }
+
+  async function finishRccGame() {
+    rccGame.active = false;
+    clearInterval(rccGame.intervalSpawn);
+    clearInterval(rccGame.intervalTimer);
+
+    const canvas = document.getElementById("rcc-game-canvas");
+    canvas.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;">
+      <div style="font-size:48px;">🏁</div>
+      <div style="font-size:20px;font-weight:700;margin-top:12px;">Раунд завершён!</div>
+      <div style="font-size:24px;color:var(--link);margin-top:8px;">+${rccGame.score.toFixed(2)} RCC</div>
+    </div>`;
+
+    try {
+      const res = await apiPost("/api/rcc/game_finish", { amount: rccGame.score });
+      toast(`🎉 Заработано ${res.earned.toFixed(2)} RCC`, false);
+    } catch (e) {
+      toast(e.message, true);
+    }
+
+    document.getElementById("rcc-game-btn").style.display = "block";
+    document.getElementById("rcc-game-btn").disabled = true;
+    document.getElementById("rcc-game-status").textContent = "⏳ Кулдаун 2 часа";
+
+    setTimeout(() => loadRcc(), 2000);
+  }
+  
   // ===== МУЗЫКА =====
   let musicTab = "personal";
   let musicPersonal = null;
