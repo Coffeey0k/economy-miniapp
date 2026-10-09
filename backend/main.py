@@ -3041,16 +3041,24 @@ def admin_clear_banned(payload: dict = Body(...)):
     ids = [r["user_id"] for r in cur.fetchall()]
 
     deleted = 0
+    errors = []
     for uid in ids:
         try:
             _delete_user_full_main(cur, uid)
             deleted += 1
         except Exception as e:
-            print(f"Ошибка удаления {uid}: {e}")
+            errors.append(f"{uid}: {e}")
+            print(f"[clear_banned] Ошибка удаления {uid}: {e}")
 
     conn.commit()
     conn.close()
-    return {"ok": True, "message": f"Удалено {deleted} забаненных", "deleted": deleted}
+
+    msg = f"Удалено {deleted} из {len(ids)}"
+    if errors:
+        msg += f". Ошибки: {len(errors)}"
+        print(f"[clear_banned] Ошибки: {errors}")
+
+    return {"ok": True, "message": msg, "deleted": deleted, "errors": errors}
 
 
 @app.post("/api/admin/users/delete")
@@ -3066,43 +3074,68 @@ def admin_delete_user(payload: dict = Body(...)):
     conn.close()
     return {"ok": True, "message": "Пользователь удалён"}
 
-
 def _delete_user_full_main(cur, user_id: int):
-    """Удаляет пользователя из всех таблиц."""
-    tables = [
+    """Удаляет пользователя из всех таблиц. Каждая таблица — в своём try."""
+    tables_with_user_id = [
         "purchases", "warns", "game_stats", "new_members",
         "pets", "professions", "profession_progress",
         "daily_tasks", "promo_activations",
         "user_cosmetics", "user_badges", "user_cosmetics_owned",
         "user_settings", "islands",
-        "friends", "friend_requests",
-        "clan_members", "clan_requests",
+        "clan_members",
         "music_personal", "music_shared", "music_slots",
         "rcc_balance", "rcc_transactions",
     ]
-    for t in tables:
+    for t in tables_with_user_id:
         try:
             cur.execute(f"DELETE FROM {t} WHERE user_id = %s", (user_id,))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[delete_user] {t} (user_id): {e}")
+            try:
+                cur.connection.rollback()
+            except Exception:
+                pass
 
-    try:
-        cur.execute("DELETE FROM friends WHERE friend_id = %s", (user_id,))
-        cur.execute("DELETE FROM friend_requests WHERE to_user = %s", (user_id,))
-    except Exception:
-        pass
+    # Друзья (где он фигурирует как friend_id или to_user)
+    for q in [
+        ("DELETE FROM friends WHERE friend_id = %s", (user_id,)),
+        ("DELETE FROM friends WHERE user_id = %s", (user_id,)),
+        ("DELETE FROM friend_requests WHERE to_user = %s", (user_id,)),
+        ("DELETE FROM friend_requests WHERE from_user = %s", (user_id,)),
+    ]:
+        try:
+            cur.execute(q[0], q[1])
+        except Exception as e:
+            print(f"[delete_user] friends: {e}")
 
+    # Кланы, где он лидер — роспуск
     try:
         cur.execute("SELECT id FROM clans WHERE leader_id = %s", (user_id,))
         clan_ids = [r["id"] for r in cur.fetchall()]
         for cid in clan_ids:
-            cur.execute("DELETE FROM clan_members WHERE clan_id = %s", (cid,))
-            cur.execute("DELETE FROM clan_requests WHERE clan_id = %s", (cid,))
-            cur.execute("DELETE FROM clans WHERE id = %s", (cid,))
-    except Exception:
-        pass
+            for q in [
+                ("DELETE FROM clan_members WHERE clan_id = %s", (cid,)),
+                ("DELETE FROM clan_requests WHERE clan_id = %s", (cid,)),
+                ("DELETE FROM clans WHERE id = %s", (cid,)),
+            ]:
+                try:
+                    cur.execute(q[0], q[1])
+                except Exception as e:
+                    print(f"[delete_user] clan {cid}: {e}")
+    except Exception as e:
+        print(f"[delete_user] clans lookup: {e}")
 
-    cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+    # Заявки в кланы, где он заявитель
+    try:
+        cur.execute("DELETE FROM clan_requests WHERE user_id = %s", (user_id,))
+    except Exception as e:
+        print(f"[delete_user] clan_requests: {e}")
+
+    # Наконец, сам пользователь
+    try:
+        cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+    except Exception as e:
+        print(f"[delete_user] users: {e}")
 
 
 # Автоудаление при блокировке бота
