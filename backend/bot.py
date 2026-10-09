@@ -1476,6 +1476,24 @@ async def island_buy_cb(callback: CallbackQuery):
     else:
         await callback.answer(f"❌ {msg}", show_alert=True)
 
+@dp.message(F.text.lower() == "подарки")
+async def gifts_word(message: Message):
+    user_id = message.from_user.id
+    incoming = db.gift_list_incoming(user_id)
+
+    if not incoming:
+        await message.answer(
+            "🎁 У тебя нет входящих подарков.\n\n"
+            "Открыть/отправить подарки можно в веб-версии бота."
+        )
+        return
+
+    text = f"🎁 **Входящие подарки: {len(incoming)}**\n\n"
+    for g in incoming[:5]:
+        text += f"• от @{g['from_username'] or g['from_user']} ({g['gift_type']})\n"
+    text += "\nОткрой веб-версию → 🎁 Подарки, чтобы открыть."
+    await message.answer(text, parse_mode="Markdown")
+
 # ==================== ВХОД НОВЫХ УЧАСТНИКОВ ====================
 
 @dp.message(F.new_chat_members)
@@ -1901,6 +1919,16 @@ def build_island_image(user_id: int, state: dict) -> str:
 
 # ==================== MAIN ====================
 
+async def gifts_cleanup_loop():
+    while True:
+        await asyncio.sleep(86400)  # раз в день
+        try:
+            count = db.gift_cleanup_expired()
+            if count > 0:
+                logger.info(f"🎁 Очищено просроченных подарков: {count}")
+        except Exception as e:
+            logger.error(f"Ошибка очистки подарков: {e}")
+
 async def islands_income_loop():
     while True:
         await asyncio.sleep(600)  # каждые 10 минут
@@ -1941,6 +1969,7 @@ async def main():
     asyncio.create_task(cursed_egg_scheduler())
     asyncio.create_task(chest_scheduler())
     asyncio.create_task(islands_income_loop())
+    asyncio.create_task(gifts_cleanup_loop())
     await dp.start_polling(bot)
 
 
