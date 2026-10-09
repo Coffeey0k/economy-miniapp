@@ -3167,6 +3167,263 @@ def _safe_bot_send(chat_id: int, text: str, **kwargs) -> bool:
     except Exception:
         return False
 
+# ========== API: ПОДАРКИ ==========
+
+import json as _json
+
+
+@app.get("/api/gifts")
+def get_gifts(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+
+    now = datetime.now().isoformat()
+
+    # Входящие
+    cur.execute("""
+        SELECT g.id, g.from_user, u.username, g.gift_type, g.gift_data, g.created_at, g.expires_at
+        FROM gifts g
+        LEFT JOIN users u ON u.user_id = g.from_user
+        WHERE g.to_user = %s AND g.is_opened = 0 AND g.expires_at > %s
+        ORDER BY g.created_at DESC
+    """, (user_id, now))
+    incoming = [
+        {"id": r["id"], "from_user": r["from_user"], "from_username": r["username"],
+         "gift_type": r["gift_type"], "gift_data": r["gift_data"],
+         "created_at": r["created_at"], "expires_at": r["expires_at"]}
+        for r in cur.fetchall()
+    ]
+
+    # Исходящие (открытые и нет)
+    cur.execute("""
+        SELECT g.id, g.to_user, u.username, g.gift_type, g.gift_data,
+               g.is_opened, g.created_at
+        FROM gifts g
+        LEFT JOIN users u ON u.user_id = g.to_user
+        WHERE g.from_user = %s
+        ORDER BY g.created_at DESC LIMIT 50
+    """, (user_id,))
+    outgoing = [
+        {"id": r["id"], "to_user": r["to_user"], "to_username": r["username"],
+         "gift_type": r["gift_type"], "gift_data": r["gift_data"],
+         "is_opened": bool(r["is_opened"]), "created_at": r["created_at"]}
+        for r in cur.fetchall()
+    ]
+
+    balance = require_balance(cur, user_id)
+    rcc_balance = 0.0
+    try:
+        cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
+        r = cur.fetchone()
+        rcc_balance = r["balance"] if r else 0.0
+    except Exception:
+        pass
+
+    # Питомцы
+    cur.execute("SELECT id, pet_name, rarity FROM pets WHERE user_id = %s", (user_id,))
+    pets = [
+        {"id": r["id"], "name": r["pet_name"], "rarity": r["rarity"]}
+        for r in cur.fetchall()
+    ]
+
+    # Косметика (то, чем владеет)
+    cur.execute("""
+        SELECT item_type, item_key FROM user_cosmetics_owned WHERE user_id = %s
+    """, (user_id,))
+    cosmetics = [
+        {"item_type": r["item_type"], "item_key": r["item_key"]}
+        for r in cur.fetchall()
+    ]
+
+    conn.close()
+    return {
+        "incoming": incoming,
+        "outgoing": outgoing,
+        "balance": balance,
+        "rcc_balance": round(rcc_balance, 4),
+        "pets": pets,
+        "cosmetics": cosmetics,
+    }
+
+
+@app.post("/api/gifts/send")
+def send_gift(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    target_username = (payload.get("username") or "").lstrip("@").lower()
+    gift_type = payload.get("gift_type")
+    gift_data_raw = payload.get("gift_data")
+
+    if not target_username:
+        raise HTTPException(status_code=400, detail="Укажи username")
+
+    if gift_type not in ("money", "pet", "cosmetic", "rcc"):
+        raise HTTPException(status_code=400, detail="Неверный тип подарка")
+
+    conn = db()
+    cur = conn.cursor()
+
+    # Ищем получателя
+    cur.execute("SELECT user_id, username FROM users WHERE LOWER(username) = %s", (target_username,))
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    target_id = target["user_id"]
+    if target_id == user_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Нельзя подарить себе")
+
+    # Проверка и списание
+    if gift_type == "money":
+        amount = int(gift_data_raw)
+        if amount <= 0:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+        if not change_balance(cur, user_id, -amount):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Недостаточно монет")
+        gift_data = _json.dumps({"amount": amount})
+
+    elif gift_type == "rcc":
+        amount = float(gift_data_raw)
+        if amount <= 0:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+        cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
+        r = cur.fetchone()
+        if not r or r["balance"] < amount:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Недостаточно RCC")
+        cur.execute("UPDATE rcc_balance SET balance = balance - %s WHERE user_id = %s", (amount, user_id))
+        gift_data = _json.dumps({"amount": amount})
+
+    elif gift_type == "pet":
+        pet_id = int(gift_data_raw)
+        cur.execute("SELECT pet_name, rarity, income FROM pets WHERE id = %s AND user_id = %s", (pet_id, user_id))
+        r = cur.fetchone()
+        if not r:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Питомец не найден")
+        cur.execute("DELETE FROM pets WHERE id = %s AND user_id = %s", (pet_id, user_id))
+        gift_data = _json.dumps({"pet_name": r["pet_name"], "rarity": r["rarity"], "income": r["income"]})
+
+    elif gift_type == "cosmetic":
+        # gift_data_raw = "item_type:item_key"
+        try:
+            item_type, item_key = gift_data_raw.split(":", 1)
+        except Exception:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Неверный формат косметики")
+
+        cur.execute("""
+            SELECT 1 FROM user_cosmetics_owned
+            WHERE user_id = %s AND item_type = %s AND item_key = %s
+        """, (user_id, item_type, item_key))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="У тебя нет этой косметики")
+        cur.execute("""
+            DELETE FROM user_cosmetics_owned
+            WHERE user_id = %s AND item_type = %s AND item_key = %s
+        """, (user_id, item_type, item_key))
+        gift_data = _json.dumps({"item_type": item_type, "item_key": item_key})
+
+    # Создаём подарок
+    cur.execute("""
+        INSERT INTO gifts (from_user, to_user, gift_type, gift_data, expires_at)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (user_id, target_id, gift_type, gift_data,
+          (datetime.now() + timedelta(days=5)).isoformat()))
+    conn.commit()
+    conn.close()
+
+    # Уведомление получателю в бот
+    sender_name = _get_username(user_id)
+    gift_label = {
+        "money": "монеты",
+        "rcc": "RCC",
+        "pet": "питомца",
+        "cosmetic": "косметику",
+    }.get(gift_type, "подарок")
+
+    _safe_bot_send(
+        target_id,
+        f"🎁 Вам пришёл подарок ({gift_label}) от @{sender_name}!\n\n"
+        f"Открой Mini App → 🎁 Подарки, чтобы открыть его.\n"
+        f"⏳ Сгорает через 5 дней."
+    )
+
+    return {"ok": True, "message": f"Подарок отправлен @{target_username}"}
+
+
+@app.post("/api/gifts/open")
+def open_gift(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    gift_id = int(payload.get("gift_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT from_user, to_user, gift_type, gift_data, is_opened, expires_at
+        FROM gifts WHERE id = %s
+    """, (gift_id,))
+    row = cur.fetchone()
+
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Подарок не найден")
+    if row["to_user"] != user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Не твой подарок")
+    if row["is_opened"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Уже открыт")
+    if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) < datetime.now():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Подарок сгорел")
+
+    gift_type = row["gift_type"]
+    gift_data = _json.loads(row["gift_data"])
+
+    # Выдаём награду
+    result_text = ""
+
+    if gift_type == "money":
+        amount = gift_data["amount"]
+        change_balance(cur, user_id, amount)
+        result_text = f"+{amount:,} 🪙"
+
+    elif gift_type == "rcc":
+        amount = gift_data["amount"]
+        cur.execute("INSERT INTO rcc_balance (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+        cur.execute("UPDATE rcc_balance SET balance = balance + %s WHERE user_id = %s", (amount, user_id))
+        result_text = f"+{amount:.2f} RCC"
+
+    elif gift_type == "pet":
+        cur.execute("""
+            INSERT INTO pets (user_id, pet_name, pet_emoji, rarity, income)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (user_id, gift_data["pet_name"], gift_data["pet_name"].split()[0],
+              gift_data["rarity"], gift_data["income"]))
+        result_text = f"Питомец {gift_data['pet_name']} ({gift_data['rarity']})"
+
+    elif gift_type == "cosmetic":
+        item_type = gift_data["item_type"]
+        item_key = gift_data["item_key"]
+        cur.execute("""
+            INSERT INTO user_cosmetics_owned (user_id, item_type, item_key)
+            VALUES (%s, %s, %s) ON CONFLICT DO NOTHING
+        """, (user_id, item_type, item_key))
+        result_text = f"Косметика: {item_type} — {item_key}"
+
+    cur.execute("UPDATE gifts SET is_opened = 1 WHERE id = %s", (gift_id,))
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "message": f"Открыто: {result_text}", "gift_type": gift_type}
+
 @app.get("/")
 def health():
     return {"status": "ok"}
