@@ -3040,12 +3040,17 @@ def admin_clear_banned(payload: dict = Body(...)):
     cur.execute("SELECT user_id FROM users WHERE is_banned = 1")
     ids = [r["user_id"] for r in cur.fetchall()]
 
+    deleted = 0
     for uid in ids:
-        _delete_user_full_main(cur, uid)
+        try:
+            _delete_user_full_main(cur, uid)
+            deleted += 1
+        except Exception as e:
+            print(f"Ошибка удаления {uid}: {e}")
 
     conn.commit()
     conn.close()
-    return {"ok": True, "message": f"Удалено {len(ids)} забаненных", "deleted": len(ids)}
+    return {"ok": True, "message": f"Удалено {deleted} забаненных", "deleted": deleted}
 
 
 @app.post("/api/admin/users/delete")
