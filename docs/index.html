@@ -1112,6 +1112,56 @@
     </div>
   </div>
 
+  <!-- ТЕХ.АДМИН -->
+  <div class="tab" id="tab-tech-admin">
+    <div id="tech-msg"></div>
+
+    <div class="tabs-sub">
+      <button class="tech-tab active" onclick="techShowTab('main', event)">🧪 Главная</button>
+      <button class="tech-tab" onclick="techShowTab('logs', event)">📜 Логи</button>
+      <button class="tech-tab" onclick="techShowTab('user', event)">🔍 Игрок</button>
+    </div>
+
+    <!-- ГЛАВНАЯ -->
+    <div id="tech-main-block">
+      <div class="card">
+        <h2>🧪 Тест-режим</h2>
+        <p class="label">Монеты не списываются при покупках, игр и т.д.</p>
+        <button class="btn" id="tech-test-mode-btn" style="width:100%;" onclick="techToggleTest()">Загрузка…</button>
+      </div>
+    </div>
+
+    <!-- ЛОГИ -->
+    <div id="tech-logs-block" style="display:none;">
+      <div class="card">
+        <h2>📜 Логи действий</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-small" onclick="techLoadLogs('all')">Все</button>
+          <button class="btn btn-small" onclick="techLoadLogs('purchase')">🛍️</button>
+          <button class="btn btn-small" onclick="techLoadLogs('transfer')">💸</button>
+          <button class="btn btn-small" onclick="techLoadLogs('work')">💼</button>
+          <button class="btn btn-small" onclick="techLoadLogs('bonus')">🎁</button>
+          <button class="btn btn-small" onclick="techLoadLogs('wheel')">🎡</button>
+          <button class="btn btn-small" onclick="techLoadLogs('egg')">🥚</button>
+          <button class="btn btn-small" onclick="techLoadLogs('promo')">🎟️</button>
+        </div>
+      </div>
+      <div class="card">
+        <div id="tech-logs-list">Загрузка…</div>
+      </div>
+    </div>
+
+    <!-- ПОИСК ИГРОКА -->
+    <div id="tech-user-block" style="display:none;">
+      <div class="card">
+        <h2>🔍 Найти игрока</h2>
+        <input type="text" id="tech-find-input" placeholder="username или ID">
+        <button class="btn" style="width:100%;" onclick="techFindUser()">Найти</button>
+      </div>
+      <div id="tech-user-result"></div>
+    </div>
+  </div>
+  
   <!-- ПОДАРКИ -->
   <div class="tab" id="tab-gifts">
     <div id="gifts-msg"></div>
@@ -1291,6 +1341,10 @@
         <span>⚙️ Настройки</span>
         <button class="btn btn-small" onclick="switchTab('settings')">Открыть</button>
       </div>
+      <div class="item-row" id="tech-admin-btn-row" style="display:none;">
+        <span>🧪 Тех.админ</span>
+        <button class="btn btn-small" onclick="switchTab('tech-admin')">Открыть</button>
+      </div>
     </div>
     <div class="card">
       <h2>🎁 Бонус</h2>
@@ -1408,6 +1462,7 @@
     if (name === "rcc") loadRcc();
     if (name === "users") loadUsers();
     if (name === "gifts") loadGifts();
+    if (name === "tech-admin") techInit();
   }
 
   async function loadProfile() {
@@ -2039,6 +2094,151 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  // ===== ТЕХ.АДМИН =====
+  let techState = { isTech: false, testMode: false };
+
+  async function techInit() {
+    try {
+      const data = await apiGet("/api/tech/me");
+      techState.isTech = data.is_tech_admin;
+      techState.testMode = data.test_mode;
+      const btn = document.getElementById("tech-admin-btn-row");
+      if (btn && techState.isTech) btn.style.display = "flex";
+      const tBtn = document.getElementById("tech-test-mode-btn");
+      if (tBtn) {
+        tBtn.textContent = techState.testMode ? "🔴 Выключить тест-режим" : "🟢 Включить тест-режим";
+      }
+    } catch (e) {
+      // не тех.админ или ошибка — тихо игнорим
+    }
+  }
+
+  function techShowTab(name, ev) {
+    document.querySelectorAll(".tech-tab").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+    document.getElementById("tech-main-block").style.display = name === "main" ? "block" : "none";
+    document.getElementById("tech-logs-block").style.display = name === "logs" ? "block" : "none";
+    document.getElementById("tech-user-block").style.display = name === "user" ? "block" : "none";
+    if (name === "logs") techLoadLogs("all");
+  }
+
+  async function techToggleTest() {
+    try {
+      const res = await apiPost("/api/tech/test_mode", { enabled: !techState.testMode });
+      techState.testMode = res.test_mode;
+      document.getElementById("tech-test-mode-btn").textContent =
+        techState.testMode ? "🔴 Выключить тест-режим" : "🟢 Включить тест-режим";
+      toast(techState.testMode ? "Тест-режим включён" : "Тест-режим выключен", false);
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function techLoadLogs(filter) {
+    const el = document.getElementById("tech-logs-list");
+    el.innerHTML = "Загрузка…";
+    try {
+      const url = filter === "all" ? "/api/tech/logs?limit=50" : `/api/tech/logs?filter_type=${filter}&limit=50`;
+      const data = await apiGet(url);
+      if (!data.logs || data.logs.length === 0) {
+        el.innerHTML = `<div class="label">Логов нет</div>`;
+        return;
+      }
+      el.innerHTML = data.logs.map(l => `
+        <div class="item-row" style="flex-direction:column;align-items:flex-start;">
+          <div style="display:flex;justify-content:space-between;width:100%;">
+            <span>${(data.types && data.types[l.action_type]) || l.action_type}</span>
+            <span class="label">${(l.created_at || "").slice(0,16)}</span>
+          </div>
+          <div class="label">ID: ${l.user_id}${l.target_user_id ? " → " + l.target_user_id : ""}
+            ${l.amount ? " • " + (l.amount > 0 ? "+" : "") + l.amount + " 🪙" : ""}
+          </div>
+          ${l.details ? `<div style="font-size:12px;">${l.details}</div>` : ""}
+        </div>
+      `).join("");
+    } catch (e) { el.innerHTML = `<div class="msg err">${e.message}</div>`; }
+  }
+
+  async function techFindUser() {
+    const q = document.getElementById("tech-find-input").value.trim();
+    if (!q) { toast("Введи username или ID", true); return; }
+    const el = document.getElementById("tech-user-result");
+    el.innerHTML = "Поиск…";
+    try {
+      const u = await apiGet(`/api/tech/find_user?query=${encodeURIComponent(q)}`);
+      let html = `<div class="card">
+        <h2>👤 ${u.username ? "@"+u.username : "ID "+u.user_id}</h2>
+        <div class="label">💰 Баланс: ${u.balance.toLocaleString()} 🪙</div>
+        <div class="label">🐾 Питомцев: ${u.pets_count}</div>
+        ${u.clan ? `<div class="label">🏛️ Клан: ${u.clan.name}</div>` : ""}
+        ${u.island && u.island.has_island ? `<div class="label">🏝️ Остров есть</div>` : ""}
+      </div>`;
+
+      if (u.purchases.length > 0) {
+        html += `<div class="card"><h2>🛍️ Покупки</h2>`;
+        u.purchases.forEach(p => {
+          html += `<div class="item-row">
+            <span>${p.item_type} ${p.is_used ? "(исп.)" : ""}</span>
+            <button class="btn btn-small" style="background:#ef4444;"
+              onclick="techWipePurchase(${p.id}, ${u.user_id})">🗑️ Без возврата</button>
+          </div>`;
+        });
+        html += `<button class="btn" style="width:100%;margin-top:8px;background:#ef4444;"
+          onclick="techWipeAllPurchases(${u.user_id})">🗑️ Все покупки</button></div>`;
+      }
+
+      html += `<div class="card">
+        <h2>🏝️ Остров</h2>
+        <button class="btn btn-small" style="width:100%;margin-bottom:6px;"
+          onclick="techWipeIslandIncome(${u.user_id})">💰 Снять последний доход</button>
+        <button class="btn btn-small" style="width:100%;margin-bottom:6px;background:#ef4444;"
+          onclick="techWipeIsland(${u.user_id})">💥 Удалить остров полностью</button>
+      </div>`;
+
+      el.innerHTML = html;
+    } catch (e) { el.innerHTML = `<div class="msg err">${e.message}</div>`; }
+  }
+
+  async function techWipePurchase(pid, uid) {
+    if (!confirm("Аннулировать покупку БЕЗ возврата монет?")) return;
+    try {
+      await apiPost("/api/tech/wipe_purchase", { purchase_id: pid, refund: false });
+      toast("Аннулировано", false);
+      techFindUser();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function techWipeAllPurchases(uid) {
+    if (!confirm("Аннулировать ВСЕ покупки игрока без возврата?")) return;
+    try {
+      const res = await apiPost("/api/tech/wipe_user_purchases", { target_id: uid, refund: false });
+      toast(`Удалено: ${res.count}`, false);
+      techFindUser();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function techWipeIslandIncome(uid) {
+    if (!confirm("Снять последний доход с острова?")) return;
+    try {
+      await apiPost("/api/tech/wipe_island_income", { target_id: uid });
+      toast("Доход снят", false);
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function techWipeIsland(uid) {
+    if (!confirm("Удалить остров ПОЛНОСТЬЮ?")) return;
+    try {
+      await apiPost("/api/tech/wipe_island", { target_id: uid, item: "island" });
+      toast("Остров удалён", false);
+      techFindUser();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  // Вызов techInit после основной инициализации
+  const _oldInit = init;
+  init = async function() {
+    await _oldInit();
+    await techInit();
+  };
+  
   // ===== ПОДАРКИ =====
   let giftsData = null;
   let giftsTab = "incoming";
