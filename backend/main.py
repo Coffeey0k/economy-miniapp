@@ -35,6 +35,7 @@ import db_compat as sqlite3
 from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 from db_compat import init_db
+import database as bot_db   # <— для log_action / get_price / is_test_mode
 init_db()
 
 from fastapi import Body, FastAPI, HTTPException, Query
@@ -188,9 +189,17 @@ def require_balance(cur, user_id: int) -> int:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     return row["balance"]
 
-
 def change_balance(cur, user_id: int, delta: int) -> bool:
-    """Списывает/начисляет монеты. Возвращает False, если не хватает денег."""
+    """Списывает/начисляет монеты. Возвращает False, если не хватает денег.
+    Учитывает тест-режим тех.админов: списание игнорируется."""
+    # Тест-режим: списание не выполняется
+    if delta < 0:
+        try:
+            if bot_db.is_test_mode(user_id):
+                return True
+        except Exception:
+            pass
+
     balance = require_balance(cur, user_id)
     new_balance = balance + delta
     if new_balance < 0:
@@ -374,7 +383,9 @@ def buy_catalog_item(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=404, detail="Товар не найден")
 
-    if not change_balance(cur, user_id, -item["price"]):
+    price = item["price"]
+
+    if not change_balance(cur, user_id, -price):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
 
@@ -383,6 +394,18 @@ def buy_catalog_item(payload: dict = Body(...)):
     )
     conn.commit()
     conn.close()
+
+    # Логируем покупку
+    try:
+        bot_db.log_action(user_id, "purchase", f"Куплено (Mini App): {item['name']}", amount=price)
+    except Exception:
+        pass
+
+    # Уведомляем всех админов
+    try:
+        _notify_admins_purchase(user_id, item_type, price)
+    except Exception:
+        pass
 
     if item_type in CONFIRMATION_REQUIRED:
         return {"ok": True, "message": f"Покупка «{item['name']}» оформлена, ждите подтверждения владельца в боте."}
@@ -3167,6 +3190,32 @@ def _safe_bot_send(chat_id: int, text: str, **kwargs) -> bool:
     except Exception:
         return False
 
+def _notify_admins_purchase(buyer_id: int, item_type: str, price: int):
+    """Шлёт ЛС всем админам/владельцу/тех.админам о покупке из Mini App."""
+    try:
+        item_name = bot_db.get_item_name(item_type)
+    except Exception:
+        item_name = item_type
+
+    try:
+        buyer = bot_db.get_user(buyer_id)
+        buyer_name = f"@{buyer['username']}" if buyer and buyer.get("username") else f"ID{buyer_id}"
+    except Exception:
+        buyer_name = f"ID{buyer_id}"
+
+    text = (
+        f"🛍️ Покупка в Mini App\n\n"
+        f"👤 Покупатель: {buyer_name} (ID {buyer_id})\n"
+        f"📦 Товар: {item_name}\n"
+        f"💰 Цена: {price:,} 🪙"
+    )
+
+    targets = set(ADMIN_IDS) | set(config.TECH_ADMIN_IDS) | {config.OWNER_ID}
+    for admin_id in targets:
+        if admin_id == buyer_id:
+            continue
+        _safe_bot_send(admin_id, text)
+
 # ========== API: ПОДАРКИ ==========
 
 import json as _json
@@ -3423,6 +3472,177 @@ def open_gift(payload: dict = Body(...)):
     conn.close()
 
     return {"ok": True, "message": f"Открыто: {result_text}", "gift_type": gift_type}
+
+# ========== API: ТЕХ.АДМИН ==========
+
+def _require_tech_admin(user_id: int):
+    if user_id not in config.TECH_ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Нет доступа")
+
+
+@app.get("/api/tech/me")
+def tech_me(init_data: str = Query(..., alias="initData")):
+    """Возвращает статус: тех.админ ли текущий юзер, включён ли тест-режим."""
+    user_id = get_telegram_user_id(init_data)
+    is_tech = user_id in config.TECH_ADMIN_IDS
+    test_mode = False
+    if is_tech:
+        try:
+            test_mode = bot_db.is_test_mode(user_id)
+        except Exception:
+            pass
+    return {"is_tech_admin": is_tech, "test_mode": test_mode}
+
+
+@app.post("/api/tech/test_mode")
+def tech_toggle_test_mode(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_tech_admin(user_id)
+    enabled = bool(payload.get("enabled"))
+    bot_db.set_test_mode(user_id, enabled, added_by=user_id)
+    return {"ok": True, "test_mode": enabled}
+
+
+@app.get("/api/tech/logs")
+def tech_logs(init_data: str = Query(..., alias="initData"),
+              filter_user: int = Query(None),
+              filter_type: str = Query(None),
+              limit: int = Query(50)):
+    """Логи действий. Только для тех.админов."""
+    user_id = get_telegram_user_id(init_data)
+    _require_tech_admin(user_id)
+
+    try:
+        entries = bot_db.get_action_log(
+            filter_user=filter_user,
+            filter_type=filter_type,
+            limit=min(limit, 200),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка чтения логов: {e}")
+
+    return {"logs": entries, "types": bot_db.LOG_TYPES}
+
+
+@app.get("/api/tech/user_actions")
+def tech_user_actions(init_data: str = Query(..., alias="initData"),
+                      user_id: int = Query(...)):
+    user_id_requester = get_telegram_user_id(init_data)
+    _require_tech_admin(user_id_requester)
+    try:
+        entries = bot_db.get_user_actions(user_id, limit=100)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка: {e}")
+    return {"logs": entries}
+
+
+@app.post("/api/tech/wipe_purchase")
+def tech_wipe_purchase(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_tech_admin(user_id)
+    purchase_id = int(payload.get("purchase_id"))
+    refund = bool(payload.get("refund"))
+    ok = bot_db.admin_wipe_purchase(purchase_id, refund=refund)
+    return {"ok": ok}
+
+
+@app.post("/api/tech/wipe_user_purchases")
+def tech_wipe_user_purchases(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_tech_admin(user_id)
+    target = int(payload.get("target_id"))
+    refund = bool(payload.get("refund"))
+    count = bot_db.admin_wipe_user_purchases(target, refund=refund)
+    return {"ok": True, "count": count}
+
+
+@app.post("/api/tech/wipe_island")
+def tech_wipe_island(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_tech_admin(user_id)
+    target = int(payload.get("target_id"))
+    item = payload.get("item")  # 'island' | 'house' | 'pier' | 'ship' | None
+    ok = bot_db.admin_wipe_island(target, item=item)
+    return {"ok": ok}
+
+
+@app.post("/api/tech/wipe_island_income")
+def tech_wipe_island_income(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_tech_admin(user_id)
+    target = int(payload.get("target_id"))
+    ok = bot_db.admin_wipe_last_island_income(target)
+    return {"ok": ok}
+
+
+@app.post("/api/tech/wipe_clan")
+def tech_wipe_clan(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_tech_admin(user_id)
+    clan_id = int(payload.get("clan_id"))
+    to_leader = bool(payload.get("to_leader", True))
+    ok = bot_db.admin_wipe_clan(clan_id, give_bank_to_leader=to_leader)
+    return {"ok": ok}
+
+
+@app.post("/api/tech/take_clan_bank")
+def tech_take_clan_bank(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_tech_admin(user_id)
+    clan_id = int(payload.get("clan_id"))
+    ok = bot_db.admin_take_clan_bank(clan_id)
+    return {"ok": ok}
+
+
+@app.get("/api/tech/find_user")
+def tech_find_user(init_data: str = Query(..., alias="initData"),
+                   query: str = Query(...)):
+    """Поиск игрока по username или ID. Возвращает подробную инфу."""
+    user_id = get_telegram_user_id(init_data)
+    _require_tech_admin(user_id)
+
+    q = query.strip().lstrip("@")
+    conn = db()
+    cur = conn.cursor()
+    if q.isdigit():
+        cur.execute("SELECT user_id, username, balance FROM users WHERE user_id = %s", (int(q),))
+    else:
+        cur.execute("SELECT user_id, username, balance FROM users WHERE LOWER(username) = LOWER(%s)", (q,))
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Игрок не найден")
+
+    target_id = row["user_id"]
+
+    # Соберём инфу
+    try:
+        purchases = bot_db.get_purchases_full(target_id)
+    except Exception:
+        purchases = []
+    try:
+        pets = bot_db.get_user_pets(target_id)
+    except Exception:
+        pets = []
+    try:
+        clan = bot_db.clan_get_user_clan(target_id)
+    except Exception:
+        clan = None
+    try:
+        island = bot_db.island_get(target_id)
+    except Exception:
+        island = {"has_island": False}
+
+    return {
+        "user_id": target_id,
+        "username": row["username"],
+        "balance": row["balance"],
+        "purchases": [{"id": p[0], "item_type": p[1], "is_used": bool(p[2])} for p in purchases],
+        "pets_count": len(pets),
+        "clan": {"id": clan["id"], "name": clan["name"]} if clan else None,
+        "island": island,
+    }
 
 @app.get("/")
 def health():
