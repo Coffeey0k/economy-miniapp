@@ -301,6 +301,7 @@ async def clan_deposit_amount(message: Message, state: FSMContext):
     ok, msg = db.clan_deposit(message.from_user.id, amount)
     if ok:
         clan = db.clan_get_user_clan(message.from_user.id)
+        db.log_action(message.from_user.id, "clan_create", f"Клан «{data['name']}»", amount=-db.CLAN_CREATE_COST)
         await message.answer(f"✅ {msg}", reply_markup=clan_main_menu(clan).as_markup())
     else:
         await message.answer(f"❌ {msg}")
