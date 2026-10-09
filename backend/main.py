@@ -2814,7 +2814,7 @@ def _bot_send_music_moderation(admin_id: int, title: str, author: str, sender: s
             f"Открой веб-версию → 🎵 Музыка → Общий плейлист, чтобы одобрить."
         )
         with httpx.Client(timeout=5) as client:
-            client.post(url_api, json={"chat_id": admin_id, "text": text})
+            _safe_bot_send(url_api, json={"chat_id": admin_id, "text": text})
     except Exception:
         pass
 
@@ -2974,6 +2974,165 @@ def rcc_exchange_endpoint(payload: dict = Body(...)):
         "rcc_balance": round(new_rcc, 4),
         "pc_balance": pc_balance,
     }
+
+# ========== API: СПИСКИ ИГРОКОВ ==========
+
+@app.get("/api/admin/users")
+def admin_users(init_data: str = Query(..., alias="initData"), filter: str = Query("all")):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+
+    conn = db()
+    cur = conn.cursor()
+
+    if filter == "banned":
+        cur.execute("""
+            SELECT user_id, username, balance, is_banned
+            FROM users WHERE is_banned = 1 ORDER BY balance DESC LIMIT 200
+        """)
+    elif filter == "active":
+        cur.execute("""
+            SELECT user_id, username, balance, is_banned
+            FROM users WHERE is_banned = 0 ORDER BY balance DESC LIMIT 200
+        """)
+    elif filter == "blocked_bot":
+        cur.execute("""
+            SELECT user_id, username, balance, is_banned
+            FROM users WHERE is_banned = 2 ORDER BY balance DESC LIMIT 200
+        """)
+    else:
+        cur.execute("""
+            SELECT user_id, username, balance, is_banned
+            FROM users ORDER BY balance DESC LIMIT 200
+        """)
+
+    users = [
+        {"user_id": r["user_id"], "username": r["username"],
+         "balance": r["balance"], "status": r["is_banned"]}
+        for r in cur.fetchall()
+    ]
+
+    # Счётчики для каждой категории
+    cur.execute("SELECT COUNT(*) c FROM users WHERE is_banned = 0")
+    active_count = cur.fetchone()["c"]
+    cur.execute("SELECT COUNT(*) c FROM users WHERE is_banned = 1")
+    banned_count = cur.fetchone()["c"]
+    cur.execute("SELECT COUNT(*) c FROM users WHERE is_banned = 2")
+    blocked_count = cur.fetchone()["c"]
+    cur.execute("SELECT COUNT(*) c FROM users")
+    total_count = cur.fetchone()["c"]
+
+    conn.close()
+    return {
+        "users": users,
+        "filter": filter,
+        "counts": {
+            "all": total_count,
+            "active": active_count,
+            "banned": banned_count,
+            "blocked_bot": blocked_count,
+        }
+    }
+
+
+@app.post("/api/admin/users/clear_banned")
+def admin_clear_banned(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE is_banned = 1")
+    ids = [r["user_id"] for r in cur.fetchall()]
+
+    for uid in ids:
+        _delete_user_full_main(cur, uid)
+
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"Удалено {len(ids)} забаненных", "deleted": len(ids)}
+
+
+@app.post("/api/admin/users/delete")
+def admin_delete_user(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    target_id = int(payload.get("user_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    _delete_user_full_main(cur, target_id)
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Пользователь удалён"}
+
+
+def _delete_user_full_main(cur, user_id: int):
+    """Удаляет пользователя из всех таблиц."""
+    tables = [
+        "purchases", "warns", "game_stats", "new_members",
+        "pets", "professions", "profession_progress",
+        "daily_tasks", "promo_activations",
+        "user_cosmetics", "user_badges", "user_cosmetics_owned",
+        "user_settings", "islands",
+        "friends", "friend_requests",
+        "clan_members", "clan_requests",
+        "music_personal", "music_shared", "music_slots",
+        "rcc_balance", "rcc_transactions",
+    ]
+    for t in tables:
+        try:
+            cur.execute(f"DELETE FROM {t} WHERE user_id = %s", (user_id,))
+        except Exception:
+            pass
+
+    try:
+        cur.execute("DELETE FROM friends WHERE friend_id = %s", (user_id,))
+        cur.execute("DELETE FROM friend_requests WHERE to_user = %s", (user_id,))
+    except Exception:
+        pass
+
+    try:
+        cur.execute("SELECT id FROM clans WHERE leader_id = %s", (user_id,))
+        clan_ids = [r["id"] for r in cur.fetchall()]
+        for cid in clan_ids:
+            cur.execute("DELETE FROM clan_members WHERE clan_id = %s", (cid,))
+            cur.execute("DELETE FROM clan_requests WHERE clan_id = %s", (cid,))
+            cur.execute("DELETE FROM clans WHERE id = %s", (cid,))
+    except Exception:
+        pass
+
+    cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+
+
+# Автоудаление при блокировке бота
+
+def _mark_user_blocked(user_id: int):
+    """Помечает пользователя как заблокировавшего бота (status = 2)."""
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET is_banned = 2 WHERE user_id = %s", (user_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _safe_bot_send(chat_id: int, text: str, **kwargs) -> bool:
+    """Безопасная отправка ЛС. Если юзер заблокировал — помечает его."""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text}
+        payload.update(kwargs)
+        with httpx.Client(timeout=5) as client:
+            r = client.post(url, json=payload)
+            if r.status_code == 403:  # Forbidden — бот заблокирован
+                _mark_user_blocked(chat_id)
+                return False
+            return r.status_code == 200
+    except Exception:
+        return False
 
 @app.get("/")
 def health():
