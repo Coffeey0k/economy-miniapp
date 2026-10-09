@@ -2818,6 +2818,163 @@ def _bot_send_music_moderation(admin_id: int, title: str, author: str, sender: s
     except Exception:
         pass
 
+# ========== API: RCC ==========
+
+RCC_CLICK_AMOUNT = 0.01
+RCC_EXCHANGE_RATE = 5
+RCC_GAME_COOLDOWN = 7200
+
+
+@app.get("/api/rcc")
+def rcc_get(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT balance, total_clicks, last_game FROM rcc_balance WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+
+    if not row:
+        cur.execute("INSERT INTO rcc_balance (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+        conn.commit()
+        balance = 0.0
+        clicks = 0
+        last_game = None
+    else:
+        balance = row["balance"] or 0.0
+        clicks = row["total_clicks"] or 0
+        last_game = row["last_game"]
+
+    # Кулдаун мини-игры
+    can_play = True
+    remaining = 0
+    if last_game:
+        delta = (datetime.now() - datetime.fromisoformat(last_game)).total_seconds()
+        if delta < RCC_GAME_COOLDOWN:
+            can_play = False
+            remaining = int(RCC_GAME_COOLDOWN - delta)
+
+    pc_balance = require_balance(cur, user_id)
+    conn.close()
+
+    return {
+        "balance": round(balance, 4),
+        "total_clicks": clicks,
+        "click_amount": RCC_CLICK_AMOUNT,
+        "exchange_rate": RCC_EXCHANGE_RATE,
+        "can_play": can_play,
+        "remaining_seconds": remaining,
+        "pc_balance": pc_balance,
+    }
+
+
+@app.post("/api/rcc/click")
+def rcc_click(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    amount = float(payload.get("amount") or 0)
+
+    if amount <= 0 or amount > 1:
+        raise HTTPException(status_code=400, detail="Слишком много кликов за раз")
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
+    cur.execute(
+        "UPDATE rcc_balance SET balance = balance + ?, total_clicks = total_clicks + 1 WHERE user_id = %s",
+        (amount, user_id)
+    )
+    conn.commit()
+    cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
+    new_balance = cur.fetchone()["balance"]
+    conn.close()
+    return {"ok": True, "balance": round(new_balance, 4)}
+
+
+@app.post("/api/rcc/game_finish")
+def rcc_game_finish(payload: dict = Body(...)):
+    """Завершение мини-игры. Принимает набранное количество RCC."""
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    amount = float(payload.get("amount") or 0)
+
+    conn = db()
+    cur = conn.cursor()
+
+    # Проверка кулдауна
+    cur.execute("SELECT last_game FROM rcc_balance WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    if row and row["last_game"]:
+        delta = (datetime.now() - datetime.fromisoformat(row["last_game"])).total_seconds()
+        if delta < RCC_GAME_COOLDOWN:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Мини-игра ещё недоступна")
+
+    if amount < 0:
+        amount = 0
+    if amount > 5:  # защита от накрутки
+        amount = 5
+
+    cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
+    cur.execute(
+        "UPDATE rcc_balance SET balance = balance + ?, last_game = %s WHERE user_id = %s",
+        (amount, datetime.now().isoformat(), user_id)
+    )
+    cur.execute(
+        "INSERT INTO rcc_transactions (user_id, amount, type) VALUES (%s, %s, 'game')",
+        (user_id, amount)
+    )
+    conn.commit()
+    cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
+    new_balance = cur.fetchone()["balance"]
+    conn.close()
+    return {"ok": True, "balance": round(new_balance, 4), "earned": round(amount, 4)}
+
+
+@app.post("/api/rcc/exchange")
+def rcc_exchange_endpoint(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    amount = float(payload.get("amount") or 0)
+
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    if not row or (row["balance"] or 0) < amount:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно RCC")
+
+    pc_amount = int(amount * RCC_EXCHANGE_RATE)
+
+    cur.execute(
+        "UPDATE rcc_balance SET balance = balance - ? WHERE user_id = %s",
+        (amount, user_id)
+    )
+    cur.execute(
+        "INSERT INTO rcc_transactions (user_id, amount, type) VALUES (%s, %s, 'exchange')",
+        (user_id, -amount)
+    )
+
+    if not change_balance(cur, user_id, pc_amount):
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=500, detail="Ошибка начисления PC")
+
+    conn.commit()
+    cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
+    new_rcc = cur.fetchone()["balance"]
+    pc_balance = require_balance(cur, user_id)
+    conn.close()
+
+    return {
+        "ok": True,
+        "message": f"Обменяно {amount:.2f} RCC → {pc_amount:,} 🪙",
+        "rcc_balance": round(new_rcc, 4),
+        "pc_balance": pc_balance,
+    }
+
 @app.get("/")
 def health():
     return {"status": "ok"}
