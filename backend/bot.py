@@ -167,9 +167,14 @@ async def cmd_start(message: Message):
         db.create_user(user_id, username)
 
     user = db.get_user(user_id)
-    if user and user["is_banned"]:
-        await message.answer("🚫 Вы заблокированы. Обратитесь к администратору.")
-        return
+    if user:
+        # Если is_banned == 2 (заблокировал бота, но вернулся) — снимаем флаг
+        if user["is_banned"] == 2:
+            db.set_user_ban(user_id, False)
+        # Если is_banned == 1 (реальный бан) — не пускаем
+        elif user["is_banned"] == 1:
+            await message.answer("🚫 Вы заблокированы. Обратитесь к администратору.")
+            return
 
     settings = db.get_user_settings(user_id)
 
