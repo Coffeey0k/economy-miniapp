@@ -971,8 +971,8 @@
         <button class="btn btn-small" onclick="adminBalance()">Открыть</button>
       </div>
       <div class="item-row">
-        <span>📊 Статистика</span>
-        <button class="btn btn-small" onclick="adminStats()">Показать</button>
+        <span>👥 Пользователи</span>
+        <button class="btn btn-small" onclick="adminOpenUsers()">Открыть</button>
       </div>
       <div class="item-row">
         <span>🚫 Бан/разбан</span>
@@ -1062,6 +1062,35 @@
     </div>
   </div>
 
+  <!-- АДМИН: ПОЛЬЗОВАТЕЛИ -->
+  <div class="tab" id="tab-users">
+    <div id="users-msg"></div>
+
+    <div class="tabs-sub">
+      <button class="users-tab active" onclick="usersFilter('all', event)">Все</button>
+      <button class="users-tab" onclick="usersFilter('active', event)">✅ Активные</button>
+      <button class="users-tab" onclick="usersFilter('banned', event)">🚫 Забаненные</button>
+      <button class="users-tab" onclick="usersFilter('blocked_bot', event)">📵 Заблокировали бота</button>
+    </div>
+
+    <div class="card">
+      <h2>👥 Список игроков</h2>
+      <div class="label" id="users-count">Загрузка…</div>
+      <div class="item-row" id="users-clear-btn" style="display:none;">
+        <span>🧹 Очистить забаненных</span>
+        <button class="btn btn-small" style="background:#ef4444;" onclick="usersClearBanned()">Удалить</button>
+      </div>
+    </div>
+
+    <div class="card" id="users-list-card">
+      <div id="users-list"></div>
+    </div>
+
+    <div style="text-align:center;margin-top:12px;">
+      <button class="btn" onclick="switchTab('settings')">🔙 В настройки</button>
+    </div>
+  </div>
+  
   <!-- RCC -->
   <div class="tab" id="tab-rcc">
     <div id="rcc-msg"></div>
@@ -1302,6 +1331,7 @@
     if (name === "clans") loadClans();
     if (name === "music") loadMusic();
     if (name === "rcc") loadRcc();
+    if (name === "users") loadUsers();
   }
 
   async function loadProfile() {
@@ -1866,6 +1896,73 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  // ===== АДМИН: ПОЛЬЗОВАТЕЛИ =====
+  let usersFilterValue = "all";
+
+  function adminOpenUsers() {
+    switchTab("users");
+    loadUsers();
+  }
+
+  function usersFilter(filter, ev) {
+    usersFilterValue = filter;
+    document.querySelectorAll(".users-tab").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+    loadUsers();
+  }
+
+  async function loadUsers() {
+    try {
+      const data = await apiGet(`/api/admin/users?filter=${usersFilterValue}`);
+      const counts = data.counts;
+
+      document.getElementById("users-count").textContent = 
+        `Всего: ${counts.all} • Активных: ${counts.active} • Забаненных: ${counts.banned} • Заблокировали бота: ${counts.blocked_bot}`;
+
+      // Кнопка «Очистить забаненных» — только на вкладке «Забаненные»
+      document.getElementById("users-clear-btn").style.display = 
+        usersFilterValue === "banned" && counts.banned > 0 ? "flex" : "none";
+
+      if (data.users.length === 0) {
+        document.getElementById("users-list").innerHTML = `<div class="label">Список пуст</div>`;
+        return;
+      }
+
+      document.getElementById("users-list").innerHTML = data.users.map(u => {
+        let statusBadge = "";
+        if (u.status === 1) statusBadge = `<span class="active-tag" style="background:#ef4444;">🚫 Бан</span>`;
+        else if (u.status === 2) statusBadge = `<span class="active-tag" style="background:#f59e0b;">📵 Заблокировал</span>`;
+
+        return `
+          <div class="item-row">
+            <span>@${u.username || u.user_id} ${statusBadge}<br>
+              <span class="label">💰 ${u.balance.toLocaleString()} 🪙 • ID: ${u.user_id}</span>
+            </span>
+            <button class="btn btn-small" style="background:#ef4444;" onclick="usersDelete(${u.user_id})">🗑️</button>
+          </div>
+        `;
+      }).join("");
+    } catch (e) { showMsg("users-msg", e.message, false); }
+  }
+
+  async function usersDelete(userId) {
+    if (!confirm(`Удалить пользователя ID ${userId} ПОЛНОСТЬЮ из БД?\n\nБудут удалены: баланс, питомцы, клан, остров, косметика, RCC, музыка и всё остальное.`)) return;
+    try {
+      const res = await apiPost("/api/admin/users/delete", { user_id: userId });
+      toast(res.message, false);
+      loadUsers();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function usersClearBanned() {
+    if (!confirm("Удалить ВСЕХ забаненных ПОЛНОСТЬЮ из БД?\n\nДействие необратимо.")) return;
+    try {
+      const res = await apiPost("/api/admin/users/clear_banned", {});
+      toast(res.message, false);
+      loadUsers();
+    } catch (e) { toast(e.message, true); }
+  }
+  
   // ===== RCC =====
   let rccData = null;
   let rccTab = "main";
