@@ -3031,8 +3031,8 @@ def admin_users(init_data: str = Query(..., alias="initData"), filter: str = Que
 
 
 @app.post("/api/admin/users/clear_banned")
-def admin_clear_banned(init_data: str = Query(..., alias="initData")):
-    user_id = get_telegram_user_id(init_data)
+def admin_clear_banned(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
     _require_admin(user_id)
 
     conn = db()
