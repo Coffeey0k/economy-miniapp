@@ -1277,10 +1277,19 @@
   const initData = tg.initData;
 
   async function apiGet(path) {
-    const res = await fetch(`${API_BASE}${path}?initData=${encodeURIComponent(initData)}`);
-    if (!res.ok) throw new Error((await res.json()).detail || "Ошибка запроса");
+    const sep = path.includes("?") ? "&" : "?";
+    const res = await fetch(`${API_BASE}${path}${sep}initData=${encodeURIComponent(initData)}`);
+    if (!res.ok) {
+      let errMsg = "Ошибка запроса";
+      try {
+        const errData = await res.json();
+        errMsg = errData.detail || errMsg;
+      } catch (e) {}
+      throw new Error(errMsg);
+    }
     return res.json();
   }
+  
   async function apiPost(path, body) {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
