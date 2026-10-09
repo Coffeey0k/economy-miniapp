@@ -44,7 +44,7 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             username TEXT,
             balance INTEGER DEFAULT 0,
-            is_banned BOOLEAN DEFAULT 0,
+            is_banned INTEGER DEFAULT 0,
             registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -3601,6 +3601,123 @@ def rcc_set_last_game(user_id: int):
         "UPDATE rcc_balance SET last_game = ? WHERE user_id = ?",
         (datetime.now().isoformat(), user_id)
     )
+    conn.commit()
+    conn.close()
+
+# ==================== СПИСКИ ИГРОКОВ И АВТОУДАЛЕНИЕ ====================
+
+def get_users_list(filter_: str = "all") -> list:
+    """Возвращает список игроков по фильтру.
+    filter_: all / active / banned / blocked_bot
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+
+    if filter_ == "banned":
+        cur.execute("""
+            SELECT user_id, username, balance, is_banned
+            FROM users WHERE is_banned = 1 ORDER BY balance DESC
+        """)
+    elif filter_ == "active":
+        cur.execute("""
+            SELECT user_id, username, balance, is_banned
+            FROM users WHERE is_banned = 0 ORDER BY balance DESC
+        """)
+    elif filter_ == "blocked_bot":
+        cur.execute("""
+            SELECT user_id, username, balance, is_banned
+            FROM users WHERE is_banned = 2 ORDER BY balance DESC
+        """)
+    else:  # all
+        cur.execute("""
+            SELECT user_id, username, balance, is_banned
+            FROM users ORDER BY balance DESC LIMIT 200
+        """)
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [
+        {"user_id": r[0], "username": r[1], "balance": r[2], "status": r[3]}
+        for r in rows
+    ]
+
+
+def clear_banned_users() -> int:
+    """Удаляет всех забаненных (полностью из БД)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE is_banned = 1")
+    ids = [r[0] for r in cur.fetchall()]
+
+    for uid in ids:
+        _delete_user_full(cur, uid)
+
+    conn.commit()
+    conn.close()
+    return len(ids)
+
+
+def delete_user_full(user_id: int) -> bool:
+    """Удаляет пользователя полностью из всех таблиц."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+    if not cur.fetchone():
+        conn.close()
+        return False
+
+    _delete_user_full(cur, user_id)
+    conn.commit()
+    conn.close()
+    return True
+
+
+def _delete_user_full(cur, user_id: int):
+    """Внутренняя — удаляет пользователя из всех таблиц."""
+    tables_with_user_id = [
+        "purchases", "warns", "game_stats", "new_members",
+        "pets", "professions", "profession_progress",
+        "daily_tasks", "promo_activations",
+        "user_cosmetics", "user_badges", "user_cosmetics_owned",
+        "user_settings", "islands",
+        "friends", "friend_requests",
+        "clan_members", "clan_requests",
+        "music_personal", "music_shared", "music_slots",
+        "rcc_balance", "rcc_transactions",
+    ]
+    for t in tables_with_user_id:
+        try:
+            cur.execute(f"DELETE FROM {t} WHERE user_id = ?", (user_id,))
+        except Exception:
+            pass
+
+    # Друзья, где он друг
+    try:
+        cur.execute("DELETE FROM friends WHERE friend_id = ?", (user_id,))
+        cur.execute("DELETE FROM friend_requests WHERE to_user = ?", (user_id,))
+    except Exception:
+        pass
+
+    # Кланы, где он лидер
+    try:
+        cur.execute("SELECT id FROM clans WHERE leader_id = ?", (user_id,))
+        clan_ids = [r[0] for r in cur.fetchall()]
+        for cid in clan_ids:
+            cur.execute("DELETE FROM clan_members WHERE clan_id = ?", (cid,))
+            cur.execute("DELETE FROM clan_requests WHERE clan_id = ?", (cid,))
+            cur.execute("DELETE FROM clans WHERE id = ?", (cid,))
+    except Exception:
+        pass
+
+    cur.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+
+
+def mark_user_blocked_bot(user_id: int):
+    """Помечает пользователя как заблокировавшего бота (is_banned = 2)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET is_banned = 2 WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
 
