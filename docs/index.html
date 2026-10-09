@@ -784,6 +784,27 @@
     transition: all 0.5s ease-out;
   }
   .dart-arrow.thrown { opacity: 1; }
+
+  /* ===== АНИМАЦИИ ПОДАРКА ===== */
+  @keyframes giftFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes giftFadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  @keyframes giftShake {
+    0%, 100% { transform: rotate(0deg) scale(1); }
+    25% { transform: rotate(-10deg) scale(1.05); }
+    75% { transform: rotate(10deg) scale(1.05); }
+  }
+  @keyframes giftBurst {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.5); opacity: 0.8; }
+    100% { transform: scale(2); opacity: 0; }
+  }
+  
 </style>
 </head>
 <body>
@@ -1090,6 +1111,50 @@
       <button class="btn" onclick="switchTab('settings')">🔙 В настройки</button>
     </div>
   </div>
+
+  <!-- ПОДАРКИ -->
+  <div class="tab" id="tab-gifts">
+    <div id="gifts-msg"></div>
+
+    <div class="tabs-sub">
+      <button class="gifts-tab active" onclick="giftsShowTab('incoming', event)">📥 Входящие</button>
+      <button class="gifts-tab" onclick="giftsShowTab('send', event)">🎁 Отправить</button>
+      <button class="gifts-tab" onclick="giftsShowTab('outgoing', event)">📤 Исходящие</button>
+    </div>
+
+    <!-- ВХОДЯЩИЕ -->
+    <div id="gifts-incoming-block">
+      <div class="card">
+        <h2>📥 Входящие подарки</h2>
+        <div class="label">Неоткрытые подарки. Сгорают через 5 дней.</div>
+      </div>
+      <div id="gifts-incoming-list"></div>
+    </div>
+
+    <!-- ОТПРАВИТЬ -->
+    <div id="gifts-send-block" style="display:none;">
+      <div class="card">
+        <h2>🎁 Отправить подарок</h2>
+        <input type="text" id="gift-username" placeholder="Username получателя (без @)">
+        <select id="gift-type" onchange="renderGiftFields()" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
+          <option value="money">💰 Монеты (ParadiseCoin)</option>
+          <option value="rcc">💎 RCC</option>
+          <option value="pet">🐾 Питомец</option>
+          <option value="cosmetic">🎨 Косметика</option>
+        </select>
+        <div id="gift-fields"></div>
+        <button class="btn" style="width:100%;" onclick="sendGift()">🎁 Отправить</button>
+      </div>
+    </div>
+
+    <!-- ИСХОДЯЩИЕ -->
+    <div id="gifts-outgoing-block" style="display:none;">
+      <div class="card">
+        <h2>📤 Исходящие подарки</h2>
+      </div>
+      <div id="gifts-outgoing-list"></div>
+    </div>
+  </div>
   
   <!-- RCC -->
   <div class="tab" id="tab-rcc">
@@ -1252,6 +1317,7 @@
   <button class="nav-item" data-tab="clans" onclick="switchTab('clans')"><span class="ic">🏛️</span>Кланы</button>
   <button class="nav-item" data-tab="music" onclick="switchTab('music')"><span class="ic">🎵</span>Музыка</button>
   <button class="nav-item" data-tab="rcc" onclick="switchTab('rcc')"><span class="ic">💰</span>RCC</button>
+  <button class="nav-item" data-tab="gifts" onclick="switchTab('gifts')"><span class="ic">🎁</span>Подарки</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
 </div>
 
@@ -1341,6 +1407,7 @@
     if (name === "music") loadMusic();
     if (name === "rcc") loadRcc();
     if (name === "users") loadUsers();
+    if (name === "gifts") loadGifts();
   }
 
   async function loadProfile() {
@@ -1970,6 +2037,197 @@
       toast(res.message, false);
       loadUsers();
     } catch (e) { toast(e.message, true); }
+  }
+
+  // ===== ПОДАРКИ =====
+  let giftsData = null;
+  let giftsTab = "incoming";
+
+  async function loadGifts() {
+    try {
+      giftsData = await apiGet("/api/gifts");
+      renderGifts();
+    } catch (e) { showMsg("gifts-msg", e.message, false); }
+  }
+
+  function giftsShowTab(tab, ev) {
+    giftsTab = tab;
+    document.querySelectorAll(".gifts-tab").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+    document.getElementById("gifts-incoming-block").style.display = tab === "incoming" ? "block" : "none";
+    document.getElementById("gifts-send-block").style.display = tab === "send" ? "block" : "none";
+    document.getElementById("gifts-outgoing-block").style.display = tab === "outgoing" ? "block" : "none";
+    renderGifts();
+  }
+
+  function renderGifts() {
+    if (!giftsData) return;
+
+    // Входящие
+    const incList = document.getElementById("gifts-incoming-list");
+    if (giftsData.incoming.length === 0) {
+      incList.innerHTML = `<div class="card"><div class="label">Пока нет входящих подарков</div></div>`;
+    } else {
+      incList.innerHTML = giftsData.incoming.map(g => `
+        <div class="card">
+          <div class="item-row" style="border-bottom:none;">
+            <span>🎁 Подарок от @${g.from_username || g.from_user}<br>
+              <span class="label">Тип: ${giftTypeLabel(g.gift_type)}</span>
+            </span>
+            <button class="btn" onclick="openGift(${g.id})">Открыть</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    // Исходящие
+    const outList = document.getElementById("gifts-outgoing-list");
+    if (giftsData.outgoing.length === 0) {
+      outList.innerHTML = `<div class="card"><div class="label">Пока нет отправленных подарков</div></div>`;
+    } else {
+      outList.innerHTML = `<div class="card">` + giftsData.outgoing.map(g => `
+        <div class="item-row">
+          <span>🎁 @${g.to_username || g.to_user}<br>
+            <span class="label">Тип: ${giftTypeLabel(g.gift_type)} • ${g.is_opened ? "✅ Открыт" : "⏳ Не открыт"}</span>
+          </span>
+        </div>
+      `).join("") + `</div>`;
+    }
+
+    // Поля для отправки
+    renderGiftFields();
+  }
+
+  function giftTypeLabel(t) {
+    return {
+      money: "💰 Монеты",
+      rcc: "💎 RCC",
+      pet: "🐾 Питомец",
+      cosmetic: "🎨 Косметика"
+    }[t] || t;
+  }
+
+  function renderGiftFields() {
+    if (!giftsData) return;
+    const type = document.getElementById("gift-type").value;
+    const box = document.getElementById("gift-fields");
+
+    if (type === "money") {
+      box.innerHTML = `<input type="number" id="gift-money-amount" placeholder="Сумма 🪙" min="1" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
+        <div class="label">Твой баланс: ${giftsData.balance.toLocaleString()} 🪙</div>`;
+    } else if (type === "rcc") {
+      box.innerHTML = `<input type="number" id="gift-rcc-amount" placeholder="Сумма RCC" min="0.01" step="0.01" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
+        <div class="label">Твой баланс RCC: ${giftsData.rcc_balance.toFixed(4)}</div>`;
+    } else if (type === "pet") {
+      if (giftsData.pets.length === 0) {
+        box.innerHTML = `<div class="label">У тебя нет питомцев</div>`;
+      } else {
+        box.innerHTML = `<select id="gift-pet-id" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
+          ${giftsData.pets.map(p => `<option value="${p.id}">${p.name} (${p.rarity})</option>`).join("")}
+        </select>`;
+      }
+    } else if (type === "cosmetic") {
+      if (giftsData.cosmetics.length === 0) {
+        box.innerHTML = `<div class="label">У тебя нет косметики</div>`;
+      } else {
+        box.innerHTML = `<select id="gift-cosmetic" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
+          ${giftsData.cosmetics.map(c => `<option value="${c.item_type}:${c.item_key}">${c.item_type}: ${c.item_key}</option>`).join("")}
+        </select>`;
+      }
+    }
+  }
+
+  async function sendGift() {
+    const username = document.getElementById("gift-username").value.trim();
+    const gift_type = document.getElementById("gift-type").value;
+    let gift_data = null;
+
+    if (!username) { toast("Введи username", true); return; }
+
+    if (gift_type === "money") {
+      const el = document.getElementById("gift-money-amount");
+      gift_data = el ? el.value : null;
+      if (!gift_data || parseInt(gift_data) <= 0) { toast("Введи сумму", true); return; }
+    } else if (gift_type === "rcc") {
+      const el = document.getElementById("gift-rcc-amount");
+      gift_data = el ? el.value : null;
+      if (!gift_data || parseFloat(gift_data) <= 0) { toast("Введи сумму", true); return; }
+    } else if (gift_type === "pet") {
+      const el = document.getElementById("gift-pet-id");
+      gift_data = el ? el.value : null;
+      if (!gift_data) { toast("Выбери питомца", true); return; }
+    } else if (gift_type === "cosmetic") {
+      const el = document.getElementById("gift-cosmetic");
+      gift_data = el ? el.value : null;
+      if (!gift_data) { toast("Выбери косметику", true); return; }
+    }
+
+    if (!confirm("Отправить подарок?")) return;
+
+    try {
+      const res = await apiPost("/api/gifts/send", {
+        username,
+        gift_type,
+        gift_data: String(gift_data),
+      });
+      toast(res.message, false);
+      document.getElementById("gift-username").value = "";
+      await loadGifts();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function openGift(giftId) {
+    try {
+      const res = await apiPost("/api/gifts/open", { gift_id: giftId });
+      showGiftAnimation(res.message);
+      await loadGifts();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  function showGiftAnimation(text) {
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.background = "rgba(0,0,0,0.8)";
+    overlay.style.zIndex = "9999";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.flexDirection = "column";
+    overlay.style.animation = "giftFadeIn 0.3s ease";
+
+    const box = document.createElement("div");
+    box.style.fontSize = "120px";
+    box.style.animation = "giftShake 1s ease-in-out infinite";
+    box.textContent = "🎁";
+
+    const result = document.createElement("div");
+    result.style.marginTop = "20px";
+    result.style.color = "#fff";
+    result.style.fontSize = "22px";
+    result.style.fontWeight = "700";
+    result.style.opacity = "0";
+    result.style.transition = "opacity 0.5s ease";
+    result.textContent = text;
+
+    overlay.appendChild(box);
+    overlay.appendChild(result);
+    document.body.appendChild(overlay);
+
+    setTimeout(() => {
+      box.style.animation = "giftBurst 0.6s ease forwards";
+      setTimeout(() => {
+        box.textContent = "✨";
+        result.style.opacity = "1";
+      }, 300);
+    }, 1000);
+
+    setTimeout(() => {
+      overlay.style.animation = "giftFadeOut 0.5s ease forwards";
+      setTimeout(() => overlay.remove(), 500);
+    }, 3500);
   }
   
   // ===== RCC =====
