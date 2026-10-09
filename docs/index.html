@@ -1061,6 +1061,54 @@
       </div>
     </div>
   </div>
+
+  <!-- МУЗЫКА -->
+  <div class="tab" id="tab-music">
+    <div id="music-msg"></div>
+
+    <div class="tabs-sub">
+      <button class="music-tab active" onclick="musicShowTab('personal', event)">🎧 Мой плейлист</button>
+      <button class="music-tab" onclick="musicShowTab('shared', event)">🎵 Общий плейлист</button>
+      <button class="music-tab" onclick="musicShowTab('pending', event)" id="music-pending-tab" style="display:none;">📥 На модерации</button>
+    </div>
+
+    <!-- МОЙ ПЛЕЙЛИСТ -->
+    <div id="music-personal-block">
+      <div class="card">
+        <h2>🎧 Мой плейлист</h2>
+        <p class="label">Лимит: <span id="music-personal-limit">15</span>, занято: <span id="music-personal-used">0</span></p>
+        <div class="label">💰 Баланс: <span id="music-personal-balance">0</span> 🪙</div>
+        <input type="text" id="music-personal-url" placeholder="Ссылка на YouTube или SoundCloud">
+        <button class="btn" style="width:100%;margin-bottom:8px;" onclick="musicAddPersonal()">➕ Добавить в мой плейлист</button>
+        <button class="btn btn-small" style="width:100%;" onclick="musicBuySlot()">🛒 Купить слот — <span id="music-slot-price">2000</span> 🪙</button>
+      </div>
+      <div class="card" id="music-personal-list-card">
+        <div id="music-personal-list"></div>
+      </div>
+    </div>
+
+    <!-- ОБЩИЙ ПЛЕЙЛИСТ -->
+    <div id="music-shared-block" style="display:none;">
+      <div class="card">
+        <h2>🎵 Общий плейлист</h2>
+        <p class="label">Максимум: <span id="music-shared-max">100</span> треков</p>
+        <input type="text" id="music-shared-url" placeholder="Ссылка на YouTube или SoundCloud">
+        <button class="btn" style="width:100%;" onclick="musicAddShared()">➕ Предложить трек на модерацию</button>
+        <p class="label" style="margin-top:8px;">⚠️ Трек появится в общем плейлисте после одобрения администрацией.</p>
+      </div>
+      <div class="card">
+        <div id="music-shared-list"></div>
+      </div>
+    </div>
+
+    <!-- НА МОДЕРАЦИИ (только админы) -->
+    <div id="music-pending-block" style="display:none;">
+      <div class="card">
+        <h2>📥 Треки на модерации</h2>
+        <div id="music-pending-list"></div>
+      </div>
+    </div>
+  </div>
   
   <!-- ОСТРОВ -->
   <div class="tab" id="tab-island">
@@ -1117,6 +1165,7 @@
   <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
   <button class="nav-item" data-tab="island" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
   <button class="nav-item" data-tab="clans" onclick="switchTab('clans')"><span class="ic">🏛️</span>Кланы</button>
+  <button class="nav-item" data-tab="music" onclick="switchTab('music')"><span class="ic">🎵</span>Музыка</button>
   <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
 </div>
 
@@ -1194,6 +1243,7 @@
     if (name === "friends") loadFriends();
     if (name === "island") loadIsland();
     if (name === "clans") loadClans();
+    if (name === "music") loadMusic();
   }
 
   async function loadProfile() {
@@ -1758,6 +1808,191 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  // ===== МУЗЫКА =====
+  let musicTab = "personal";
+  let musicPersonal = null;
+  let musicShared = null;
+
+  async function loadMusic() {
+    try {
+      // Личный плейлист
+      musicPersonal = await apiGet("/api/music/personal");
+      // Общий + pending (если админ)
+      musicShared = await apiGet("/api/music/shared");
+      renderMusic();
+    } catch (e) { showMsg("music-msg", e.message, false); }
+  }
+
+  function musicShowTab(tab, ev) {
+    musicTab = tab;
+    document.querySelectorAll(".music-tab").forEach(b => b.classList.remove("active"));
+    if (ev) ev.target.classList.add("active");
+
+    document.getElementById("music-personal-block").style.display = tab === "personal" ? "block" : "none";
+    document.getElementById("music-shared-block").style.display = tab === "shared" ? "block" : "none";
+    document.getElementById("music-pending-block").style.display = tab === "pending" ? "block" : "none";
+
+    renderMusic();
+  }
+
+  function renderMusic() {
+    // === Personal ===
+    if (musicPersonal) {
+      document.getElementById("music-personal-limit").textContent = musicPersonal.limit;
+      document.getElementById("music-personal-used").textContent = musicPersonal.slots_used;
+      document.getElementById("music-personal-balance").textContent = musicPersonal.balance.toLocaleString();
+      document.getElementById("music-slot-price").textContent = musicPersonal.slot_price.toLocaleString();
+
+      if (musicPersonal.tracks.length === 0) {
+        document.getElementById("music-personal-list").innerHTML = `<div class="label">У тебя пока нет треков. Добавь первый!</div>`;
+      } else {
+        document.getElementById("music-personal-list").innerHTML = musicPersonal.tracks.map(t => `
+          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
+            <div class="item-row" style="border-bottom:none;padding:0 0 8px 0;">
+              <span>🎵 <b>${t.title}</b><br><span class="label">${t.author}</span></span>
+              <button class="btn btn-small" onclick="musicDeletePersonal(${t.id})">❌</button>
+            </div>
+            ${musicEmbed(t)}
+          </div>
+        `).join("");
+      }
+    }
+
+    // === Shared ===
+    if (musicShared) {
+      document.getElementById("music-shared-max").textContent = musicShared.max_tracks;
+
+      if (musicShared.tracks.length === 0) {
+        document.getElementById("music-shared-list").innerHTML = `<div class="label">Пока треков нет. Предложи первый!</div>`;
+      } else {
+        document.getElementById("music-shared-list").innerHTML = musicShared.tracks.map(t => `
+          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
+            <div class="item-row" style="border-bottom:none;padding:0 0 8px 0;">
+              <span>🎵 <b>${t.title}</b><br><span class="label">${t.author} • от @${t.added_by || "—"}</span></span>
+              ${musicShared.is_admin ? `<button class="btn btn-small" onclick="musicDeleteShared(${t.id})">❌</button>` : ""}
+            </div>
+            ${musicEmbed(t)}
+          </div>
+        `).join("");
+      }
+
+      // === Pending (админы) ===
+      const pendingTab = document.getElementById("music-pending-tab");
+      if (musicShared.is_admin && musicShared.pending && musicShared.pending.length > 0) {
+        pendingTab.style.display = "inline-block";
+        pendingTab.textContent = `📥 На модерации (${musicShared.pending.length})`;
+      } else {
+        pendingTab.style.display = "none";
+      }
+
+      if (musicShared.pending && musicShared.pending.length > 0) {
+        document.getElementById("music-pending-list").innerHTML = musicShared.pending.map(t => `
+          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
+            <span>🎵 <b>${t.title}</b><br><span class="label">${t.author} • от @${t.added_by || "—"}</span></span>
+            ${musicEmbed(t)}
+            <div style="margin-top:8px;display:flex;gap:8px;">
+              <button class="btn btn-small" style="flex:1;" onclick="musicReview(${t.id}, true)">✅ Одобрить</button>
+              <button class="btn btn-small" style="flex:1;background:#ef4444;" onclick="musicReview(${t.id}, false)">❌ Отклонить</button>
+            </div>
+          </div>
+        `).join("");
+      } else if (musicShared.is_admin) {
+        document.getElementById("music-pending-list").innerHTML = `<div class="label">Нет треков на модерации</div>`;
+      }
+    }
+  }
+
+  function musicEmbed(t) {
+    // Простая вставка iframe
+    if (t.platform === "youtube") {
+      const vid = extractYoutubeId(t.url);
+      if (vid) {
+        return `<iframe width="100%" height="200" style="border-radius:8px;border:none;"
+                  src="https://www.youtube.com/embed/${vid}"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowfullscreen></iframe>`;
+      }
+    }
+    if (t.platform === "soundcloud") {
+      const scUrl = encodeURIComponent(t.url);
+      return `<iframe width="100%" height="120" style="border-radius:8px;border:none;"
+                src="https://w.soundcloud.com/player/?url=${scUrl}&color=%230088cc&auto_play=false&hide_related=true"
+                allow="autoplay"></iframe>`;
+    }
+    return `<a href="${t.url}" target="_blank" style="color:var(--link);">${t.url}</a>`;
+  }
+
+  function extractYoutubeId(url) {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?]+)/,
+    ];
+    for (const p of patterns) {
+      const m = url.match(p);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  async function musicAddPersonal() {
+    const url = document.getElementById("music-personal-url").value.trim();
+    if (!url) { toast("Вставь ссылку", true); return; }
+    try {
+      const res = await apiPost("/api/music/add_personal", { url });
+      toast(res.message, false);
+      document.getElementById("music-personal-url").value = "";
+      musicPersonal = await apiGet("/api/music/personal");
+      renderMusic();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function musicAddShared() {
+    const url = document.getElementById("music-shared-url").value.trim();
+    if (!url) { toast("Вставь ссылку", true); return; }
+    try {
+      const res = await apiPost("/api/music/add_shared", { url });
+      toast(res.message, false);
+      document.getElementById("music-shared-url").value = "";
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function musicDeletePersonal(trackId) {
+    if (!confirm("Удалить трек из плейлиста?")) return;
+    try {
+      await apiPost("/api/music/delete_personal", { track_id: trackId });
+      musicPersonal = await apiGet("/api/music/personal");
+      renderMusic();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function musicDeleteShared(trackId) {
+    if (!confirm("Удалить трек из общего плейлиста?")) return;
+    try {
+      await apiPost("/api/music/delete_shared", { track_id: trackId });
+      musicShared = await apiGet("/api/music/shared");
+      renderMusic();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function musicReview(trackId, approve) {
+    try {
+      const res = await apiPost("/api/music/review", { track_id: trackId, approve });
+      toast(res.message, false);
+      musicShared = await apiGet("/api/music/shared");
+      renderMusic();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function musicBuySlot() {
+    if (!confirm(`Купить 1 слот за ${musicPersonal.slot_price.toLocaleString()} 🪙?`)) return;
+    try {
+      const res = await apiPost("/api/music/buy_slot", {});
+      toast(res.message, false);
+      musicPersonal = await apiGet("/api/music/personal");
+      renderMusic();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+  
   // ===== КЛАНЫ =====
   let clanData = null;
 
