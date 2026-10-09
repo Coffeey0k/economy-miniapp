@@ -2517,6 +2517,305 @@ def kick_from_clan(payload: dict = Body(...)):
     conn.close()
     return {"ok": True, "message": "Игрок кикнут"}
 
+# ========== API: МУЗЫКА ==========
+
+MUSIC_PERSONAL_BASE = 15
+MUSIC_SHARED_MAX = 100
+MUSIC_SLOT_PRICE = 2000
+
+
+@app.get("/api/music/personal")
+def music_personal_get(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, url, title, author, platform, added_at
+        FROM music_personal WHERE user_id = %s
+        ORDER BY added_at DESC
+    """, (user_id,))
+    tracks = [
+        {"id": r["id"], "url": r["url"], "title": r["title"],
+         "author": r["author"], "platform": r["platform"], "added_at": r["added_at"]}
+        for r in cur.fetchall()
+    ]
+
+    cur.execute("SELECT extra_slots FROM music_slots WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    extra = row["extra_slots"] if row else 0
+    limit = MUSIC_PERSONAL_BASE + extra
+
+    balance = require_balance(cur, user_id)
+    conn.close()
+
+    return {
+        "tracks": tracks,
+        "limit": limit,
+        "slots_used": len(tracks),
+        "slot_price": MUSIC_SLOT_PRICE,
+        "balance": balance,
+    }
+
+
+@app.get("/api/music/shared")
+def music_shared_get(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at, u.username
+        FROM music_shared ms
+        LEFT JOIN users u ON u.user_id = ms.user_id
+        WHERE ms.status = 'approved'
+        ORDER BY ms.reviewed_at DESC NULLS LAST
+    """)
+    tracks = [
+        {"id": r["id"], "url": r["url"], "title": r["title"],
+         "author": r["author"], "platform": r["platform"],
+         "added_at": r["added_at"], "added_by": r["username"]}
+        for r in cur.fetchall()
+    ]
+
+    # Список на модерации (только для админов)
+    pending = []
+    is_admin = user_id in ADMIN_IDS
+    if is_admin:
+        cur.execute("""
+            SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at,
+                   u.username, ms.user_id
+            FROM music_shared ms
+            LEFT JOIN users u ON u.user_id = ms.user_id
+            WHERE ms.status = 'pending'
+            ORDER BY ms.added_at ASC
+        """)
+        pending = [
+            {"id": r["id"], "url": r["url"], "title": r["title"],
+             "author": r["author"], "platform": r["platform"],
+             "added_at": r["added_at"], "added_by": r["username"], "user_id": r["user_id"]}
+            for r in cur.fetchall()
+        ]
+
+    conn.close()
+    return {"tracks": tracks, "pending": pending, "is_admin": is_admin, "max_tracks": MUSIC_SHARED_MAX}
+
+
+@app.post("/api/music/add_personal")
+def music_add_personal(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    url = (payload.get("url") or "").strip()
+
+    if not url:
+        raise HTTPException(status_code=400, detail="Укажи ссылку")
+
+    info = _music_get_info(url)
+    if not info:
+        raise HTTPException(status_code=400, detail="Не удалось получить информацию о треке. Поддерживаются только YouTube и SoundCloud.")
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT extra_slots FROM music_slots WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    extra = row["extra_slots"] if row else 0
+    limit = MUSIC_PERSONAL_BASE + extra
+
+    cur.execute("SELECT COUNT(*) c FROM music_personal WHERE user_id = %s", (user_id,))
+    count = cur.fetchone()["c"]
+    if count >= limit:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Плейлист полон ({count}/{limit}). Купи слот за {MUSIC_SLOT_PRICE:,} 🪙")
+
+    cur.execute("""
+        INSERT INTO music_personal (user_id, url, title, author, platform)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (user_id, url, info["title"], info["author"], info["platform"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"Добавлено: {info['title']} — {info['author']}"}
+
+
+@app.post("/api/music/add_shared")
+def music_add_shared(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    url = (payload.get("url") or "").strip()
+
+    if not url:
+        raise HTTPException(status_code=400, detail="Укажи ссылку")
+
+    info = _music_get_info(url)
+    if not info:
+        raise HTTPException(status_code=400, detail="Не удалось получить информацию. Только YouTube и SoundCloud.")
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) c FROM music_shared WHERE status = 'approved'")
+    count = cur.fetchone()["c"]
+    if count >= MUSIC_SHARED_MAX:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Общий плейлист полон ({MUSIC_SHARED_MAX})")
+
+    cur.execute("""
+        INSERT INTO music_shared (user_id, url, title, author, platform, status)
+        VALUES (%s, %s, %s, %s, %s, 'pending')
+    """, (user_id, url, info["title"], info["author"], info["platform"]))
+    conn.commit()
+
+    # Отправим уведомления админам
+    sender = _get_username(user_id)
+    for aid in ADMIN_IDS:
+        if aid == user_id:
+            continue
+        _bot_send_music_moderation(aid, info["title"], info["author"], sender, url)
+    # Владельцу тоже
+    if config.OWNER_ID not in ADMIN_IDS:
+        _bot_send_music_moderation(config.OWNER_ID, info["title"], info["author"], sender, url)
+
+    conn.close()
+    return {"ok": True, "message": "Трек отправлен на модерацию"}
+
+
+@app.post("/api/music/review")
+def music_review(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+
+    track_id = int(payload.get("track_id"))
+    approve = bool(payload.get("approve"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM music_shared WHERE id = %s AND status = 'pending'", (track_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Трек не найден или уже рассмотрен")
+
+    if row["user_id"] == user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Нельзя одобрить свой же трек")
+
+    new_status = "approved" if approve else "rejected"
+    cur.execute("""
+        UPDATE music_shared SET status = %s, reviewed_by = %s, reviewed_at = %s WHERE id = %s
+    """, (new_status, user_id, datetime.now().isoformat(), track_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Трек одобрен" if approve else "Трек отклонён"}
+
+
+@app.post("/api/music/delete_personal")
+def music_delete_personal(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    track_id = int(payload.get("track_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM music_personal WHERE id = %s AND user_id = %s", (track_id, user_id))
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    if affected == 0:
+        raise HTTPException(status_code=404, detail="Трек не найден")
+    return {"ok": True, "message": "Удалено"}
+
+
+@app.post("/api/music/delete_shared")
+def music_delete_shared(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    track_id = int(payload.get("track_id"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM music_shared WHERE id = %s", (track_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Удалено из общего плейлиста"}
+
+
+@app.post("/api/music/buy_slot")
+def music_buy_slot(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+
+    conn = db()
+    cur = conn.cursor()
+    if not change_balance(cur, user_id, -MUSIC_SLOT_PRICE):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {MUSIC_SLOT_PRICE:,}")
+
+    cur.execute("""
+        INSERT INTO music_slots (user_id, extra_slots) VALUES (%s, 1)
+        ON CONFLICT (user_id) DO UPDATE SET extra_slots = music_slots.extra_slots + 1
+    """, (user_id,))
+    conn.commit()
+
+    cur.execute("SELECT extra_slots FROM music_slots WHERE user_id = %s", (user_id,))
+    extra = cur.fetchone()["extra_slots"]
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Куплен слот. Теперь лимит: {MUSIC_PERSONAL_BASE + extra}",
+            "balance": balance, "limit": MUSIC_PERSONAL_BASE + extra}
+
+
+# Вспомогательные функции
+
+import httpx
+
+
+def _music_get_info(url: str):
+    """oEmbed для YouTube и SoundCloud."""
+    url_lower = url.lower()
+    try:
+        if "youtube.com" in url_lower or "youtu.be" in url_lower:
+            oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
+            platform = "youtube"
+        elif "soundcloud.com" in url_lower:
+            oembed_url = f"https://soundcloud.com/oembed?url={url}&format=json"
+            platform = "soundcloud"
+        else:
+            return None
+
+        with httpx.Client(timeout=5) as client:
+            r = client.get(oembed_url)
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            return {
+                "title": data.get("title", "Без названия"),
+                "author": data.get("author_name", "Неизвестен"),
+                "platform": platform,
+            }
+    except Exception:
+        return None
+
+
+def _get_username(user_id: int) -> str:
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT username FROM users WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row["username"] if row and row["username"] else str(user_id)
+
+
+def _bot_send_music_moderation(admin_id: int, title: str, author: str, sender: str, url: str):
+    """Отправляет ЛС админу с треком на модерацию."""
+    try:
+        url_api = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        text = (
+            f"🎵 Новый трек на модерацию\n\n"
+            f"📌 {title}\n"
+            f"👤 Автор: {author}\n"
+            f"👥 Добавил: @{sender}\n"
+            f"🔗 {url}\n\n"
+            f"Открой веб-версию → 🎵 Музыка → Общий плейлист, чтобы одобрить."
+        )
+        with httpx.Client(timeout=5) as client:
+            client.post(url_api, json={"chat_id": admin_id, "text": text})
+    except Exception:
+        pass
+
 @app.get("/")
 def health():
     return {"status": "ok"}
