@@ -29,6 +29,8 @@ import hmac
 import json
 import os
 import random
+import httpx
+import config
 import db_compat as sqlite3
 from datetime import datetime
 from urllib.parse import parse_qsl
