@@ -14,6 +14,7 @@ from minesweeper import router as ms_router
 from friends import router as friends_router
 from cosmetics import router as cos_router
 from clans import router as clans_router
+from tech_admin import router as tech_admin_router
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -70,6 +71,7 @@ dp.include_router(ms_router)
 dp.include_router(friends_router)
 dp.include_router(cos_router)
 dp.include_router(clans_router)
+dp.include_router(tech_admin_router)
 
 class TransferStates(StatesGroup):
     waiting_recipient = State()
@@ -616,10 +618,15 @@ async def buy_item(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     if db.add_purchase(user_id, item_type):
+        db.log_action(user_id, "purchase", f"Куплено: {item_type}", amount=price)
+
         await callback.message.edit_text(
             f"✅ Покупка успешна!\nСписано: {price:,} 🪙\nБаланс: {db.get_balance(user_id)} 🪙",
             reply_markup=back_to_catalog_keyboard()
         )
+
+        # Уведомление всем админам/владельцу/тех.админам
+        await notify_admins_purchase(user_id, item_type, price)
     else:
         await callback.answer("❌ Ошибка", show_alert=True)
     await callback.answer()
@@ -685,6 +692,7 @@ async def open_egg_handler(callback: CallbackQuery):
         f"💰 Баланс: {db.get_balance(user_id)} 🪙",
         reply_markup=back_to_catalog_keyboard()
     )
+    db.log_action(user_id, "egg", f"Открыто яйцо {egg_type}: {result['name']}", amount=-egg['price'])
     await callback.answer("🎉 Питомец получен!")
 
 
@@ -1018,7 +1026,7 @@ async def work_now(callback: CallbackQuery):
     await callback.answer(msg, show_alert=not ok)
     if ok:
         await my_profession(callback)
-
+        db.log_action(user_id, "work", f"Зарплата ({msg})", amount=db.get_profession_salary(...))
 
 @dp.callback_query(F.data == "fire_profession")
 async def fire_profession(callback: CallbackQuery):
@@ -1175,6 +1183,7 @@ async def wheel_spin(callback: CallbackQuery):
         f"💰 Баланс: {db.get_balance(user_id)} 🪙",
         reply_markup=wheel_menu()
     )
+    db.log_action(user_id, "wheel", f"Колесо: {reward_text}", amount=0)
     await callback.answer("🎉")
     
 # ==================== ПРОМОКОД ====================
@@ -1193,6 +1202,7 @@ async def promo_activate(message: Message, state: FSMContext):
     code = message.text.strip().upper()
     ok, result = db.activate_promo(code, message.from_user.id)
     if ok:
+        db.log_action(message.from_user.id, "promo", f"Промокод {code}", amount=0)
         await message.answer(f"✅ Промокод активирован!\nНаграда: {result}")
     else:
         await message.answer(f"❌ {result}")
@@ -1303,6 +1313,7 @@ async def work_word_handler(message: Message):
         else:
             filled = int((days / 7) * 7)
             bar = "▰" * filled + "▱" * (7 - filled) + f" {days}/7 дней"
+            db.log_action(user_id, "work", f"Зарплата ({msg})", amount=db.get_profession_salary(...))
         await message.answer(
             f"💼 {msg}\n"
             f"📊 Прогресс: {bar}\n"
@@ -1582,6 +1593,7 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
         return
     db.update_balance(sid, -amount)
     db.update_balance(rid, amount)
+    db.log_action(sid, "transfer", f"Перевод @{rname}", amount=amount, target_user_id=rid)
     await callback.message.edit_text(
         f"✅ Переведено {amount} 🪙 @{rname}\nБаланс: {db.get_balance(sid)} 🪙",
         reply_markup=back_to_main_menu()
@@ -1916,6 +1928,29 @@ def build_island_image(user_id: int, state: dict) -> str:
     out_path = os.path.join(ISLAND_TEMP_DIR, f"island_{user_id}.png")
     base.convert("RGB").save(out_path, "PNG")
     return out_path
+
+async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
+    """Шлёт ЛС всем админам/владельцу/тех.админам о покупке в каталоге."""
+    item_name = db.get_item_name(item_type)
+    buyer = db.get_user(buyer_id)
+    buyer_name = f"@{buyer['username']}" if buyer and buyer.get("username") else f"ID{buyer_id}"
+
+    text = (
+        f"🛍️ Покупка в каталоге\n\n"
+        f"👤 Покупатель: {buyer_name} (ID {buyer_id})\n"
+        f"📦 Товар: {item_name}\n"
+        f"💰 Цена: {price:,} 🪙\n"
+        f"💼 Баланс после: {db.get_balance(buyer_id):,} 🪙"
+    )
+
+    targets = set(config.ADMIN_IDS) | set(config.TECH_ADMIN_IDS) | {config.OWNER_ID}
+    for admin_id in targets:
+        if admin_id == buyer_id:
+            continue  # не слать самому себе
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception:
+            pass
 
 # ==================== MAIN ====================
 
