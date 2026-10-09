@@ -2803,20 +2803,15 @@ def _get_username(user_id: int) -> str:
 
 def _bot_send_music_moderation(admin_id: int, title: str, author: str, sender: str, url: str):
     """Отправляет ЛС админу с треком на модерацию."""
-    try:
-        url_api = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        text = (
-            f"🎵 Новый трек на модерацию\n\n"
-            f"📌 {title}\n"
-            f"👤 Автор: {author}\n"
-            f"👥 Добавил: @{sender}\n"
-            f"🔗 {url}\n\n"
-            f"Открой веб-версию → 🎵 Музыка → Общий плейлист, чтобы одобрить."
-        )
-        with httpx.Client(timeout=5) as client:
-            _safe_bot_send(url_api, json={"chat_id": admin_id, "text": text})
-    except Exception:
-        pass
+    text = (
+        f"🎵 Новый трек на модерацию\n\n"
+        f"📌 {title}\n"
+        f"👤 Автор: {author}\n"
+        f"👥 Добавил: @{sender}\n"
+        f"🔗 {url}\n\n"
+        f"Открой веб-версию → 🎵 Музыка → Общий плейлист, чтобы одобрить."
+    )
+    _safe_bot_send(admin_id, text)
 
 # ========== API: RCC ==========
 
