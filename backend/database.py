@@ -461,6 +461,32 @@ def init_db():
             expires_at TIMESTAMP
         )
     """)
+
+    # === ЛОГ ДЕЙСТВИЙ (только для тех.админов) ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS action_log (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            action_type TEXT,
+            details TEXT,
+            amount BIGINT DEFAULT 0,
+            target_user_id BIGINT,
+            is_reverted BOOLEAN DEFAULT FALSE,
+            reverted_by BIGINT,
+            reverted_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # === ТЕХ.АДМИНЫ (флаг тест-режима) ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tech_admins (
+            user_id BIGINT PRIMARY KEY,
+            test_mode BOOLEAN DEFAULT FALSE,
+            added_by BIGINT,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -496,9 +522,12 @@ def create_user(user_id: int, username: str = None):
     cur.execute("INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,))
     conn.commit()
     conn.close()
-
-
+    
 def update_balance(user_id: int, amount: int) -> bool:
+    # Тест-режим: списание игнорируется, начисление идёт как обычно
+    if amount < 0 and is_test_mode(user_id):
+        return True
+
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
@@ -514,7 +543,6 @@ def update_balance(user_id: int, amount: int) -> bool:
     conn.commit()
     conn.close()
     return True
-
 
 def get_balance(user_id: int) -> int:
     conn = sqlite3.connect(DB_NAME)
@@ -3817,6 +3845,314 @@ def gift_cleanup_expired() -> int:
     conn.commit()
     conn.close()
     return affected
+
+# ==================== ЛОГ ДЕЙСТВИЙ ====================
+
+LOG_TYPES = {
+    "purchase":      "🛍️ Покупка",
+    "transfer":      "💸 Перевод",
+    "game":          "🎮 Игра",
+    "bonus":         "🎁 Бонус",
+    "work":          "💼 Зарплата",
+    "wheel":         "🎡 Колесо",
+    "egg":           "🥚 Яйцо",
+    "promo":         "🎟️ Промокод",
+    "clan_create":   "🏛️ Создание клана",
+    "clan_deposit":  "💰 Взнос в казну",
+    "clan_wipe":     "💥 Роспуск клана",
+    "island_buy":    "🏝️ Покупка острова",
+    "island_income": "💰 Доход острова",
+    "admin_give":    "➕ Выдача монет",
+    "admin_take":    "➖ Снятие монет",
+    "tech_action":   "🧪 Действие тех.админа",
+}
+
+
+def log_action(user_id: int, action_type: str, details: str = "",
+               amount: int = 0, target_user_id: int = None):
+    """Записывает значимое действие игрока. Вызывается из бота и из API."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO action_log (user_id, action_type, details, amount, target_user_id)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, action_type, details, amount, target_user_id))
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_action_log(filter_user: int = None, filter_type: str = None,
+                   only_last_hours: int = None, limit: int = 50) -> list:
+    """Возвращает лог действий с фильтрами. Только для тех.админов."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+
+    query = "SELECT id, user_id, action_type, details, amount, target_user_id, created_at FROM action_log WHERE 1=1"
+    params = []
+
+    if filter_user is not None:
+        query += " AND (user_id = ? OR target_user_id = ?)"
+        params.extend([filter_user, filter_user])
+
+    if filter_type:
+        query += " AND action_type = ?"
+        params.append(filter_type)
+
+    if only_last_hours:
+        query += " AND created_at >= datetime('now', ?)"
+        params.append(f"-{only_last_hours} hours")
+
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    conn.close()
+
+    return [
+        {
+            "id": r[0], "user_id": r[1], "action_type": r[2],
+            "details": r[3], "amount": r[4], "target_user_id": r[5],
+            "created_at": r[6],
+        }
+        for r in rows
+    ]
+
+
+def get_user_actions(user_id: int, limit: int = 30) -> list:
+    """Все действия конкретного игрока (включая переводы ему)."""
+    return get_action_log(filter_user=user_id, limit=limit)
+
+
+# ==================== ТЕХ.АДМИНЫ ====================
+
+def is_test_mode(user_id: int) -> bool:
+    """Включён ли у пользователя тест-режим (баланс не тратится)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT test_mode FROM tech_admins WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        return bool(row[0]) if row else False
+    except Exception:
+        conn.close()
+        return False
+
+
+def set_test_mode(user_id: int, enabled: bool, added_by: int = None):
+    """Включить/выключить тест-режим для тех.админа."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO tech_admins (user_id, test_mode, added_by)
+            VALUES (?, ?, ?)
+            ON CONFLICT (user_id) DO UPDATE SET test_mode = ?
+        """, (user_id, 1 if enabled else 0, added_by, 1 if enabled else 0))
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_all_tech_admins() -> list:
+    """Список тех.админов с их флагами (из БД, не из env)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT user_id, test_mode, added_at FROM tech_admins")
+        rows = cur.fetchall()
+        conn.close()
+        return [{"user_id": r[0], "test_mode": bool(r[1]), "added_at": r[2]} for r in rows]
+    except Exception:
+        conn.close()
+        return []
+
+
+# ==================== АННУЛИРОВАНИЕ (для тех.админа) ====================
+
+def admin_wipe_purchase(purchase_id: int, refund: bool = False) -> bool:
+    """Аннулировать покупку. Если refund=True — вернуть монеты игроку."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT user_id, item_type FROM purchases WHERE id = ?", (purchase_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False
+
+        user_id, item_type = row
+
+        if refund:
+            price = get_price(item_type)
+            update_balance(user_id, price)
+
+        cur.execute("DELETE FROM purchases WHERE id = ?", (purchase_id,))
+        conn.commit()
+        conn.close()
+
+        log_action(user_id, "tech_action", f"Аннулирована покупка #{purchase_id} ({item_type}), refund={refund}")
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def admin_wipe_user_purchases(user_id: int, refund: bool = False) -> int:
+    """Аннулировать ВСЕ покупки игрока. Возвращает количество удалённых."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT id, item_type FROM purchases WHERE user_id = ?", (user_id,))
+        rows = cur.fetchall()
+
+        total_refund = 0
+        for pid, itype in rows:
+            if refund:
+                total_refund += get_price(itype)
+
+        if refund and total_refund > 0:
+            update_balance(user_id, total_refund)
+
+        cur.execute("DELETE FROM purchases WHERE user_id = ?", (user_id,))
+        count = cur.rowcount
+        conn.commit()
+        conn.close()
+
+        log_action(user_id, "tech_action",
+                   f"Аннулированы все покупки ({count} шт), refund={refund}, возвращено {total_refund}")
+        return count
+    except Exception:
+        conn.close()
+        return 0
+
+
+def admin_wipe_last_island_income(user_id: int) -> bool:
+    """Списывает последний доход с острова (домик + корабль) и обнуляет таймеры."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT has_house, has_ship, last_house_income, last_ship_income
+            FROM islands WHERE user_id = ?
+        """, (user_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False
+
+        has_house, has_ship, last_h, last_s = row
+        taken = 0
+        if has_house and last_h:
+            taken += HOUSE_INCOME
+        if has_ship and last_s:
+            taken += SHIP_INCOME
+
+        # Списываем и обнуляем таймеры
+        update_balance(user_id, -taken)
+        cur.execute("""
+            UPDATE islands SET last_house_income = NULL, last_ship_income = NULL
+            WHERE user_id = ?
+        """, (user_id,))
+        conn.commit()
+        conn.close()
+
+        log_action(user_id, "tech_action", f"Снят последний доход с острова: -{taken}")
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def admin_wipe_island(user_id: int, item: str = None) -> bool:
+    """Удалить остров целиком (item=None) или конкретную постройку.
+    item: 'island', 'house', 'pier', 'ship'."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        if item is None or item == "island":
+            cur.execute("DELETE FROM islands WHERE user_id = ?", (user_id,))
+            log_action(user_id, "tech_action", "Полностью удалён остров")
+        elif item in ("house", "pier", "ship"):
+            cur.execute(f"UPDATE islands SET has_{item} = 0 WHERE user_id = ?", (user_id,))
+            log_action(user_id, "tech_action", f"Удалена постройка острова: {item}")
+        else:
+            conn.close()
+            return False
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def admin_wipe_clan(clan_id: int, give_bank_to_leader: bool = True) -> bool:
+    """Распустить клан. Если give_bank_to_leader — вернуть казну лидеру."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT leader_id, bank, name FROM clans WHERE id = ?", (clan_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False
+
+        leader_id, bank, name = row
+
+        if give_bank_to_leader and bank > 0:
+            update_balance(leader_id, bank)
+
+        cur.execute("DELETE FROM clan_members WHERE clan_id = ?", (clan_id,))
+        cur.execute("DELETE FROM clan_requests WHERE clan_id = ?", (clan_id,))
+        cur.execute("DELETE FROM clans WHERE id = ?", (clan_id,))
+        conn.commit()
+        conn.close()
+
+        log_action(leader_id, "tech_action",
+                   f"Клан «{name}» распущен тех.админом, казна {bank} → лидеру: {give_bank_to_leader}")
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def admin_take_clan_bank(clan_id: int) -> bool:
+    """Забрать казну клана (обнулить)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT bank, name FROM clans WHERE id = ?", (clan_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False
+
+        bank, name = row
+        cur.execute("UPDATE clans SET bank = 0 WHERE id = ?", (clan_id,))
+        conn.commit()
+        conn.close()
+
+        log_action(0, "tech_action", f"Забрана казна клана «{name}»: {bank}")
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+# ==================== ПАТЧ update_balance ДЛЯ ТЕСТ-РЕЖИМА ====================
+
+def update_balance_test_aware(user_id: int, amount: int) -> bool:
+    """Обёртка над update_balance с учётом тест-режима.
+    Если у юзера включён тест-режим и amount < 0 — списание игнорируется."""
+    if amount < 0 and is_test_mode(user_id):
+        return True
+    return update_balance(user_id, amount)
 
 # Инициализация при импорте
 init_db()
