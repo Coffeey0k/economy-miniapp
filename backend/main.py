@@ -32,7 +32,7 @@ import random
 import httpx
 import config
 import db_compat as sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 from db_compat import init_db
 init_db()
