@@ -1,4 +1,4 @@
-# Telegram Mini App для Paradise Reef
+# Telegram Mini App для Lavender Dream
 
 Показывает профиль игрока: баланс, место в топе, варны, профессию,
 статистику игр, питомцев и купленные услуги — на основе твоей базы `paradise.db`.
