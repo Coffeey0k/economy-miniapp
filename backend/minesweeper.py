@@ -1,5 +1,5 @@
 """
-Сапёр для ParadiseCoin.
+Сапёр для Lavender Dream Coin.
 
 Поле 8x8, 6 мин. Ставка 200 монет.
 Победа: открыть все безопасные клетки → +400 монет.
@@ -104,6 +104,7 @@ async def ms_open(callback: CallbackQuery):
 
     # === Проигрыш ===
     if game["status"] == "lose":
+        db.update_game_stats(user_id, False, game["bet"])
         kb = ms_keyboard(game_id, game["board"], game["revealed"], game["field_size"]).as_markup()
         await callback.message.edit_text(
             f"💥 Мина! Ты проиграл.\n\n"
@@ -116,6 +117,7 @@ async def ms_open(callback: CallbackQuery):
 
     # === Победа ===
     if game["status"] == "win":
+        db.update_game_stats(user_id, True, db.MS_REWARD)
         kb = ms_keyboard(game_id, game["board"], game["revealed"], game["field_size"]).as_markup()
         await callback.message.edit_text(
             f"🏆 Победа!\n\n"

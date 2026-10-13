@@ -1,10 +1,14 @@
 import db_compat as sqlite3
+import logging
 import random
 from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
 
 DB_NAME = "paradise.db"
 
+
+
+logger = logging.getLogger(__name__)
 
 def init_db():
 
@@ -777,14 +781,19 @@ def clear_all_immunities() -> int:
 # === ИГРЫ ===
 
 def update_game_stats(user_id: int, won: bool, amount: int):
+    """Атомарно обновляет статистику, создавая строку для старых пользователей при необходимости."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+    cur.execute(
+        "INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)",
+        (user_id,)
+    )
     cur.execute("""
         UPDATE game_stats
-        SET games_played = games_played + 1,
-            games_won = games_won + ?,
-            total_earned = total_earned + ?,
-            total_lost = total_lost + ?
+        SET games_played = COALESCE(games_played, 0) + 1,
+            games_won = COALESCE(games_won, 0) + ?,
+            total_earned = COALESCE(total_earned, 0) + ?,
+            total_lost = COALESCE(total_lost, 0) + ?
         WHERE user_id = ?
     """, (1 if won else 0, amount if won else 0, amount if not won else 0, user_id))
     conn.commit()
@@ -863,10 +872,12 @@ def add_new_member(user_id: int, username: str = None):
 
 
 def get_new_members(days: int = 4, exclude_user_id: int = None) -> List[tuple]:
+    """Возвращает новых участников за последние N дней (совместимо с PostgreSQL)."""
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat(sep=" ", timespec="seconds")
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    query = "SELECT user_id, username, joined_at FROM new_members WHERE joined_at >= datetime('now', ?)"
-    params = [f"-{days} days"]
+    query = "SELECT user_id, username, joined_at FROM new_members WHERE joined_at >= ?"
+    params = [cutoff]
     if exclude_user_id is not None:
         query += " AND user_id != ?"
         params.append(exclude_user_id)
@@ -878,10 +889,12 @@ def get_new_members(days: int = 4, exclude_user_id: int = None) -> List[tuple]:
 
 
 def get_today_new_members(exclude_user_id: int = None) -> List[tuple]:
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_start = today_start + timedelta(days=1)
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    query = "SELECT user_id, username, joined_at FROM new_members WHERE date(joined_at) = date('now')"
-    params = []
+    query = "SELECT user_id, username, joined_at FROM new_members WHERE joined_at >= ? AND joined_at < ?"
+    params = [today_start.isoformat(sep=" "), tomorrow_start.isoformat(sep=" ")]
     if exclude_user_id is not None:
         query += " AND user_id != ?"
         params.append(exclude_user_id)
@@ -1157,7 +1170,7 @@ PROFESSIONS = {
     "cook": {"name": "🍳 Повар", "salary": 1000, "cooldown_hours": 3, "admin_only": False},
     "vet": {"name": "🩺 Ветеринар", "salary": 1200, "cooldown_hours": 4, "admin_only": False},
     "programmer": {"name": "💻 Программист", "salary": 1400, "cooldown_hours": 5, "admin_only": False},
-    "ruler": {"name": "👑 Правитель Paradise Reef", "salary": 10000, "cooldown_hours": 12, "admin_only": True},
+    "ruler": {"name": "👑 Правитель Lavender Dream", "salary": 10000, "cooldown_hours": 12, "admin_only": True},
 }
 
 HIRE_COST = 1000
@@ -1284,7 +1297,7 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
 DAILY_TASKS = {
     "activist":    {"name": "💬 Активист",            "target": 30, "reward": 100, "type": "messages",
                     "desc": "Отправь 30 сообщений в чат"},
-    "resident":    {"name": "🌴 Житель Paradise Reef", "target": 50, "reward": 150, "type": "messages",
+    "resident":    {"name": "🌴 Житель Lavender Dream", "target": 50, "reward": 150, "type": "messages",
                     "desc": "Отправь 50 сообщений в чат"},
     "friendly":    {"name": "🤍 Дружелюбный",          "target": 5,  "reward": 200, "type": "replies",
                     "desc": "Ответь (реплаем) на 5 разных сообщений"},
@@ -2606,7 +2619,7 @@ STATUSES = {
 
 # Темы
 THEMES = {
-    "reef":     {"name": "🏝️ Paradise Reef", "price": 0},
+    "reef":     {"name": "🏝️ Lavender Dream", "price": 0},
     "dark":     {"name": "🌙 Тёмная",        "price": 0},
     "light":    {"name": "☀️ Светлая",       "price": 0},
     "neon":     {"name": "🌈 Неоновая",      "price": 50000},
@@ -3559,7 +3572,7 @@ def music_get_info(url: str) -> Optional[dict]:
 # ==================== RCC (ReefCriptoCoin) ====================
 
 RCC_CLICK_AMOUNT = 0.01          # за клик
-RCC_EXCHANGE_RATE = 5            # 1 RCC = 5 PC
+RCC_EXCHANGE_RATE = 5            # 1 RCC = 5 LDC
 RCC_GAME_COOLDOWN = 7200         # 2 часа
 RCC_GAME_DURATION = 25           # 25 секунд
 
@@ -3601,7 +3614,7 @@ def rcc_add(user_id: int, amount: float, type_: str = "click"):
 
 
 def rcc_exchange(user_id: int, amount: float) -> tuple:
-    """Обмен RCC на ParadiseCoin."""
+    """Обмен RCC на Lavender Dream Coin."""
     if amount <= 0:
         return False, "Сумма должна быть больше 0"
     balance = rcc_get_balance(user_id)
@@ -3621,7 +3634,7 @@ def rcc_exchange(user_id: int, amount: float) -> tuple:
     conn.close()
 
     update_balance(user_id, pc_amount)
-    return True, f"Обменяно {amount:.2f} RCC → {pc_amount:,} 🪙"
+    return True, f"Обменяно {amount:.2f} RCC → {pc_amount:,} LDC"
 
 
 def rcc_can_play(user_id: int) -> tuple:
@@ -3865,6 +3878,9 @@ LOG_TYPES = {
     "admin_give":    "➕ Выдача монет",
     "admin_take":    "➖ Снятие монет",
     "tech_action":   "🧪 Действие тех.админа",
+    "cancel":        "↩️ Отмена",
+    "purchase_cancel": "🛑 Отмена покупки",
+    "purchase_reject": "❌ Отклонение покупки",
 }
 
 
@@ -3880,8 +3896,14 @@ def log_action(user_id: int, action_type: str, details: str = "",
         """, (user_id, action_type, details, amount, target_user_id))
         conn.commit()
     except Exception:
-        pass
-    conn.close()
+        # Не ломаем игровое действие из-за проблем логирования, но оставляем
+        # ошибку в системном логе, чтобы её можно было диагностировать.
+        logger.exception(
+            "Не удалось записать action_log: user_id=%s action_type=%s",
+            user_id, action_type
+        )
+    finally:
+        conn.close()
 
 
 def get_action_log(filter_user: int = None, filter_type: str = None,

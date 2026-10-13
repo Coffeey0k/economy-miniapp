@@ -23,7 +23,7 @@ def print_banner():
 ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝╚══════╝╚══════╝{RESET}
 """
     print(banner)
-    print(f"           {GREEN}ParadiseCoin • виртуальная валюта флуда{RESET}")
+    print(f"           {GREEN}Lavender Dream Coin • виртуальная валюта флуда{RESET}")
     print()
     print(f" {GREEN}●{RESET} Окружение: {CYAN}{venv_path}{RESET}")
     print(f" {GREEN}●{RESET} Токен:     {CYAN}{token_short}{RESET}")

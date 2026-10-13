@@ -79,7 +79,7 @@ async def admin_give_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     await callback.message.edit_text(
-        "💰 Выдача ParadiseCoin\n\nВведите username (без @) или ID пользователя:",
+        "💰 Выдача Lavender Dream Coin\n\nВведите username (без @) или ID пользователя:",
         reply_markup=cancel_button(),
         parse_mode=None
     )
@@ -96,7 +96,7 @@ async def admin_give_user(message: Message, state: FSMContext):
         return
     await state.update_data(target_id=user["user_id"], target_name=user["username"] or user["user_id"])
     await message.answer(
-        f"Введите количество ParadiseCoin для выдачи @{user['username'] or user['user_id']}:",
+        f"Введите количество Lavender Dream Coin для выдачи @{user['username'] or user['user_id']}:",
         reply_markup=cancel_button()
     )
     await state.set_state(AdminStates.waiting_give_amount)
@@ -130,7 +130,7 @@ async def admin_take_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     await callback.message.edit_text(
-        "💸 Снятие ParadiseCoin\n\nВведите username (без @) или ID пользователя:",
+        "💸 Снятие Lavender Dream Coin\n\nВведите username (без @) или ID пользователя:",
         reply_markup=cancel_button(),
         parse_mode=None
     )
@@ -147,7 +147,7 @@ async def admin_take_user(message: Message, state: FSMContext):
         return
     await state.update_data(target_id=user["user_id"], target_name=user["username"] or user["user_id"])
     await message.answer(
-        f"Введите количество ParadiseCoin для снятия у @{user['username'] or user['user_id']}:",
+        f"Введите количество Lavender Dream Coin для снятия у @{user['username'] or user['user_id']}:",
         reply_markup=cancel_button()
     )
     await state.set_state(AdminStates.waiting_take_amount)
@@ -199,7 +199,7 @@ async def admin_balance_show(message: Message, state: FSMContext):
         return
     await message.answer(
         f"👤 @{user['username'] or user['user_id']}\n"
-        f"🪙 Баланс: {user['balance']} ParadiseCoin",
+        f"🪙 Баланс: {user['balance']} Lavender Dream Coin",
         reply_markup=admin_menu()
     )
     await state.clear()
@@ -682,7 +682,7 @@ async def admin_promo_create(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     await callback.message.edit_text(
-        "🎟️ Создание промокода\n\nВведите сам код (например, PARADISE2026):",
+        "🎟️ Создание промокода\n\nВведите сам код (например, LAVENDER2026):",
         reply_markup=cancel_button(),
         parse_mode=None
     )
@@ -1046,10 +1046,10 @@ async def _announce_cursed_egg(bot):
     stock = db.get_egg_stock()
     text = (
         "🕯️ ВНИМАНИЕ.\n"
-        "Сегодня в магазине ParadiseCoin появилось то, чего там быть не должно...\n\n"
+        "Сегодня в магазине Lavender Dream Coin появилось то, чего там быть не должно...\n\n"
         "🥚 Проклятое яйцо\n"
         "Никто не знает, что находится внутри.\n"
-        f"🪙 Цена: 10,000 ParadiseCoin\n"
+        f"🪙 Цена: 10,000 Lavender Dream Coin\n"
         f"📦 Осталось: {stock['stock']} яиц..\n\n"
         "⚠️ Когда они исчезнут из магазина, вернуть их будет невозможно.\n"
         "Если ты достаточно смелый — оно уже ждёт тебя."

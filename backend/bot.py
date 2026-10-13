@@ -121,41 +121,41 @@ dp.callback_query.middleware(OwnerCheckMiddleware())
 # ==================== СТАРТ + ТУТОРИАЛ ====================
 
 TUTORIAL_STEPS = [
-    "🌊 Добро пожаловать в Paradise Reef!\n\n"
+    "🌊 Добро пожаловать в Lavender Dream!\n\n"
     "Привет! 🐚\n"
-    "Ты попал(а) в бота Paradise Reef — здесь можно общаться, выполнять задания, играть и зарабатывать ParadiseCoin! 🪙\n\n"
+    "Ты попал(а) в бота Lavender Dream — здесь можно общаться, выполнять задания, играть и зарабатывать Lavender Dream Coin! 🪙\n\n"
     "Давай быстро разберёмся, как всё работает.",
 
     "🏝️ 1. Главное меню\n\n"
     "Здесь находятся основные разделы бота:\n\n"
     "🏠 Главная — основная информация и быстрый доступ к функциям.\n"
-    "🎮 Игры — мини-игры, в которых можно заработать ParadiseCoin.\n"
-    "🛍️ Каталог — товары и услуги, которые можно приобрести за ParadiseCoin.\n"
-    "💸 Переводы — отправляй ParadiseCoin другим участникам.\n"
+    "🎮 Игры — мини-игры, в которых можно заработать Lavender Dream Coin.\n"
+    "🛍️ Каталог — товары и услуги, которые можно приобрести за Lavender Dream Coin.\n"
+    "💸 Переводы — отправляй Lavender Dream Coin другим участникам.\n"
     "👤 Профиль — твой баланс, статистика и другая информация.",
 
-    "🪙 2. ParadiseCoin\n\n"
-    "ParadiseCoin — главная валюта нашего флуда.\n\n"
+    "🪙 2. Lavender Dream Coin\n\n"
+    "Lavender Dream Coin — главная валюта нашего флуда.\n\n"
     "Зарабатывать её можно разными способами:\n"
     "• участвовать в играх;\n"
     "• выполнять ежедневные задания;\n"
     "• проявлять активность во флуде;\n"
     "• пользоваться другими функциями бота.\n"
-    "А тратить ParadiseCoin можно в Каталоге или отправлять другим участникам.",
+    "А тратить Lavender Dream Coin можно в Каталоге или отправлять другим участникам.",
 
     "📋 3. Ежедневные задания\n\n"
     "Каждый день бот выбирает несколько заданий специально для участников флуда.\n\n"
     "Выполняй их, чтобы получать награды и увеличивать свой баланс! 🪙",
 
     "🛍️ 4. Каталог\n\n"
-    "В каталоге можно найти различные товары и услуги за ParadiseCoin.\n\n"
+    "В каталоге можно найти различные товары и услуги за Lavender Dream Coin.\n\n"
     "Но будь внимателен(на)… 👀\n"
     "Иногда в магазине могут появляться секретные товары, которых обычно там нет.",
 
     "🌊 5. Самое главное\n\n"
     "Не бойся экспериментировать!\n\n"
-    "Заходи в разделы бота, выполняй задания, играй, зарабатывай ParadiseCoin и следи за новостями.\n\n"
-    "Добро пожаловать в Paradise Reef 🤍\n"
+    "Заходи в разделы бота, выполняй задания, играй, зарабатывай Lavender Dream Coin и следи за новостями.\n\n"
+    "Добро пожаловать в Lavender Dream 🤍\n"
     "Удачи… она тебе пригодится."
 ]
 
@@ -198,7 +198,7 @@ async def cmd_start(message: Message):
 
     # Иначе — сразу главное меню + подсказки (одним сообщением)
     welcome_text = (
-        f"🏝️ ParadiseCoin\n\n"
+        f"🏝️ Lavender Dream Coin\n\n"
         f"💰 Баланс: {db.get_balance(user_id)} 🪙\n"
         f"🏆 Место в топе: #{db.get_user_rank(user_id)}\n\n"
     )
@@ -240,7 +240,7 @@ async def tutorial_finish(callback: CallbackQuery):
     user_id = callback.from_user.id
     db.set_tutorial_done(user_id)
     await callback.message.edit_text(
-        "✅ Туториал завершён!\n\nУдачи в Paradise Reef! 🤍",
+        "✅ Туториал завершён!\n\nУдачи в Lavender Dream! 🤍",
         reply_markup=main_menu(user_id)
     )
     await callback.answer()
@@ -274,7 +274,7 @@ async def hints_disable(callback: CallbackQuery):
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
     await message.answer(
-        "ℹ️ Помощь ParadiseCoin\n\n"
+        "ℹ️ Помощь Lavender Dream Coin\n\n"
         "🏠 Главная — топ игроков\n"
         "🎮 Игры — зарабатывай монеты\n"
         "📦 Каталог — покупай услуги и яйца\n"
@@ -306,7 +306,7 @@ async def back_to_main(callback: CallbackQuery):
         await callback.answer("🚫 Вы заблокированы", show_alert=True)
         return
     await callback.message.edit_text(
-        f"🏝️ ParadiseCoin\n\n"
+        f"🏝️ Lavender Dream Coin\n\n"
         f"💰 Баланс: {db.get_balance(user_id)} 🪙\n"
         f"🏆 Место в топе: #{db.get_user_rank(user_id)}",
         reply_markup=main_menu(user_id),
@@ -340,7 +340,7 @@ async def hints_menu_handler(callback: CallbackQuery):
         f"💡 Подсказки для новичков\n\n"
         f"Статус: {status}\n\n"
         f"Когда подсказки включены, бот при входе присылает советы — "
-        f"где взять бонус и как заработать ParadiseCoin.",
+        f"где взять бонус и как заработать Lavender Dream Coin.",
         reply_markup=builder.as_markup()
     )
     await callback.answer()
@@ -365,7 +365,7 @@ async def show_home(callback: CallbackQuery):
         await callback.answer()
         return
     medals = ["🥇", "🥈", "🥉"]
-    text = "🏆 Топ игроков ParadiseCoin\n\n"
+    text = "🏆 Топ игроков Lavender Dream Coin\n\n"
     for i, (uid, uname, bal) in enumerate(top_users, 1):
         medal = medals[i - 1] if i <= 3 else f"{i}."
         # Используем display_name с косметикой
@@ -584,7 +584,7 @@ async def show_catalog(callback: CallbackQuery):
     user_id = callback.from_user.id
     balance = db.get_balance(user_id)
     items = db.get_all_catalog_items()
-    text = f"📦 Каталог ParadiseCoin\n\n💰 Баланс: {balance:,} 🪙\n\n"
+    text = f"📦 Каталог Lavender Dream Coin\n\n💰 Баланс: {balance:,} 🪙\n\n"
     for it in items:
         text += f"{it['name']} — {it['price']:,} 🪙\n"
         if it["description"]:
@@ -749,10 +749,10 @@ async def announce_cursed_egg():
         return
     text = (
         "🕯️ ВНИМАНИЕ.\n"
-        "Сегодня в магазине ParadiseCoin появилось то, чего там быть не должно...\n\n"
+        "Сегодня в магазине Lavender Dream Coin появилось то, чего там быть не должно...\n\n"
         "🥚 Проклятое яйцо\n"
         "Никто не знает, что находится внутри.\n"
-        f"🪙 Цена: 10,000 ParadiseCoin\n"
+        f"🪙 Цена: 10,000 Lavender Dream Coin\n"
         f"📦 Осталось: {stock['stock']} яиц..\n\n"
         "⚠️ Когда они исчезнут из магазина, вернуть их будет невозможно.\n"
         "Если ты достаточно смелый — оно уже ждёт тебя."
@@ -1230,7 +1230,7 @@ async def bank_word(message: Message):
 async def balance_word(message: Message):
     uid = message.from_user.id
     await message.answer(
-        f"💰 Ваш баланс: {db.get_balance(uid):,} ParadiseCoin\n"
+        f"💰 Ваш баланс: {db.get_balance(uid):,} Lavender Dream Coin\n"
         f"🏆 Место: #{db.get_user_rank(uid)}"
     )
 
@@ -1256,7 +1256,7 @@ async def top_new(message: Message):
     await message.answer(text)
 
 
-@dp.message(F.text.lower() == "кто нью")
+@dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "кто нью"))
 async def who_new(message: Message):
     users = db.get_new_members(4, exclude_user_id=bot.id)
     if not users:
@@ -1278,9 +1278,10 @@ async def call_new(message: Message):
         await message.answer("📢 Нет новых")
         return
     uid, uname, joined = users[0]
-    await message.answer(f"📢 Нью в чате: @{uname or uid} ({joined[:16]})")
+    joined_text = joined.strftime("%Y-%m-%d %H:%M") if hasattr(joined, "strftime") else str(joined)[:16]
+    await message.answer(f"📢 Нью в чате: @{uname or uid} ({joined_text})")
 
-@dp.message(F.text.lower() == "работать")
+@dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "работать"))
 async def work_word_handler(message: Message):
     """Ворд-триггер 'работать' — получить зарплату по профессии"""
     user_id = message.from_user.id
@@ -1311,9 +1312,14 @@ async def work_word_handler(message: Message):
         if level >= 5:
             bar = "▰▰▰▰▰▰▰ 100% (максимум)"
         else:
-            filled = int((days / 7) * 7)
+            filled = max(0, min(7, int((days / 7) * 7)))
             bar = "▰" * filled + "▱" * (7 - filled) + f" {days}/7 дней"
-            db.log_action(user_id, "work", f"Зарплата ({msg})", amount=db.get_profession_salary(...))
+        # Логирование не должно мешать отправке ответа после начисления зарплаты.
+        try:
+            db.log_action(user_id, "work", f"Зарплата ({msg})",
+                          amount=db.get_profession_salary(prof["profession"], level))
+        except Exception:
+            logger.exception("Не удалось записать лог работы user_id=%s", user_id)
         await message.answer(
             f"💼 {msg}\n"
             f"📊 Прогресс: {bar}\n"
@@ -1609,6 +1615,10 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "cancel_transfer")
 async def cancel_transfer(callback: CallbackQuery, state: FSMContext):
     await state.clear()
+    try:
+        db.log_action(callback.from_user.id, "cancel", "Отменён перевод")
+    except Exception:
+        logger.exception("Не удалось записать отмену перевода user_id=%s", callback.from_user.id)
     await callback.message.edit_text("❌ Отменено", reply_markup=back_to_main_menu())
     await callback.answer()
 
@@ -1634,6 +1644,7 @@ async def approve_purchase(message: Message):
         await message.answer(f"❌ Мало монет")
         return
     if db.add_purchase(uid, item_type):
+        db.log_action(uid, "purchase", f"Покупка подтверждена владельцем: {item_type}", amount=price)
         await message.answer(f"✅ Покупка подтверждена")
         try:
             await bot.send_message(uid, f"✅ Покупка {item_type} подтверждена!")
@@ -1645,6 +1656,14 @@ async def approve_purchase(message: Message):
 async def reject_purchase(message: Message):
     if message.from_user.id != config.OWNER_ID:
         return
+    parts = message.text.split("_")
+    if len(parts) >= 3:
+        item_type = parts[1]
+        try:
+            uid = int(parts[2])
+            db.log_action(uid, "purchase_reject", f"Покупка отклонена владельцем: {item_type}")
+        except (TypeError, ValueError):
+            logger.warning("Некорректная команда отклонения покупки: %r", message.text)
     await message.answer("❌ Отклонено")
 
 
@@ -1653,6 +1672,10 @@ async def reject_purchase(message: Message):
 @dp.callback_query(F.data == "cancel")
 async def cancel_action(callback: CallbackQuery, state: FSMContext):
     await state.clear()
+    try:
+        db.log_action(callback.from_user.id, "cancel", "Пользователь отменил действие")
+    except Exception:
+        logger.exception("Не удалось записать отмену действия user_id=%s", callback.from_user.id)
     await callback.message.edit_text("❌ Отменено", reply_markup=back_to_main_menu())
     await callback.answer()
 
@@ -1843,7 +1866,7 @@ async def spawn_chest():
         msg = await bot.send_message(
             config.FLUD_CHAT_ID,
             "🎁 СУНДУК С СОКРОВИЩАМИ!\n\n"
-            "В Paradise Reef появился сундук. Кто первый откроет — тому приз!\n\n"
+            "В Lavender Dream появился сундук. Кто первый откроет — тому приз!\n\n"
             "⏳ Успей, пока он не исчез!"
         )
         # Теперь добавляем кнопку с message_id
@@ -1990,7 +2013,7 @@ async def main():
 
     import database as db_module
     db_module.init_db()   # <-- это тоже создаст таблицы, если их нет
-    logger.info("🚀 ParadiseCoin запускается...")
+    logger.info("🚀 Lavender Dream Coin запускается...")
     db.remove_bot_from_new_members(bot.id)
     await bot.set_my_commands([
         {"command": "start", "description": "🏠 Запустить бота"},

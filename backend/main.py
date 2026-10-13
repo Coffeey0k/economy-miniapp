@@ -1,5 +1,5 @@
 """
-Backend для Telegram Mini App бота Paradise Reef.
+Backend для Telegram Mini App бота Lavender Dream.
 
 Что делает:
 1. Проверяет подлинность данных, которые Telegram передаёт из Mini App (initData),
@@ -56,7 +56,7 @@ PROFESSIONS = {
     "cook": "🍳 Повар",
     "vet": "🩺 Ветеринар",
     "programmer": "💻 Программист",
-    "ruler": "👑 Правитель Paradise Reef",
+    "ruler": "👑 Правитель Lavender Dream",
 }
 
 CATALOG_NAMES = {
@@ -80,7 +80,7 @@ PROFESSION_INFO = {
     "cook": {"name": "🍳 Повар", "salary": 1000, "cooldown_hours": 3},
     "vet": {"name": "🩺 Ветеринар", "salary": 1200, "cooldown_hours": 4},
     "programmer": {"name": "💻 Программист", "salary": 1400, "cooldown_hours": 5},
-    "ruler": {"name": "👑 Правитель Paradise Reef", "salary": 10000, "cooldown_hours": 12},
+    "ruler": {"name": "👑 Правитель Lavender Dream", "salary": 10000, "cooldown_hours": 12},
 }
 HIRE_COST = 1000
 FIRE_EXTRA_COST = 1000
@@ -113,7 +113,7 @@ PET_EGGS = {
 
 DAILY_TASK_NAMES = {
     "activist":     "💬 Активист",
-    "resident":     "🌴 Житель Paradise Reef",
+    "resident":     "🌴 Житель Lavender Dream",
     "friendly":     "🤍 Дружелюбный",
     "photographer": "📸 Фотограф",
     "musician":     "🎵 Музыкант",
@@ -737,6 +737,17 @@ def spin_wheel(payload: dict = Body(...)):
     )
     conn.commit()
     conn.close()
+    # Логируем только успешно завершённую прокрутку Mini App.
+    try:
+        bot_db.log_action(
+            user_id,
+            "wheel",
+            f"Колесо (Mini App): {result_text}",
+            amount=-WHEEL_COST,
+        )
+    except Exception:
+        # Успешный спин не должен завершаться ошибкой из-за логирования.
+        pass
     return {"ok": True, "result": result_text}
 
 
@@ -787,6 +798,10 @@ def claim_bonus(payload: dict = Body(...)):
     )
     conn.commit()
     conn.close()
+    try:
+        bot_db.log_action(user_id, "bonus", "Ежедневный бонус (Mini App)", amount=bonus)
+    except Exception:
+        pass
     return {"ok": True, "amount": bonus}
 
 
@@ -815,8 +830,16 @@ def transfer_coins(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
     change_balance(cur, target["user_id"], amount)
+    target_id = target["user_id"]
     conn.commit()
     conn.close()
+    try:
+        bot_db.log_action(
+            user_id, "transfer", f"Перевод в Mini App пользователю @{target_username}",
+            amount=amount, target_user_id=target_id
+        )
+    except Exception:
+        pass
     return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}"}
 
 # ========== API: ИГРЫ ==========
@@ -889,6 +912,14 @@ def play_game(payload: dict = Body(...)):
 
     conn.commit()
     conn.close()
+    try:
+        bot_db.log_action(
+            user_id, "game",
+            f"Игра Mini App: {game}; ставка={bet}; выигрыш={win}; результат={text}",
+            amount=(win if win > 0 else -bet),
+        )
+    except Exception:
+        pass
     return {"ok": True, "win": win, "text": text}
 
 
@@ -1852,7 +1883,7 @@ STATUSES = {
 }
 
 THEMES = {
-    "reef":     {"name": "🏝️ Paradise Reef", "price": 0},
+    "reef":     {"name": "🏝️ Lavender Dream", "price": 0},
     "dark":     {"name": "🌙 Тёмная",        "price": 0},
     "light":    {"name": "☀️ Светлая",       "price": 0},
     "neon":     {"name": "🌈 Неоновая",      "price": 50000},
@@ -2978,7 +3009,7 @@ def rcc_exchange_endpoint(payload: dict = Body(...)):
     if not change_balance(cur, user_id, pc_amount):
         conn.rollback()
         conn.close()
-        raise HTTPException(status_code=500, detail="Ошибка начисления PC")
+        raise HTTPException(status_code=500, detail="Ошибка начисления LDC")
 
     conn.commit()
     cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
@@ -2988,7 +3019,7 @@ def rcc_exchange_endpoint(payload: dict = Body(...)):
 
     return {
         "ok": True,
-        "message": f"Обменяно {amount:.2f} RCC → {pc_amount:,} 🪙",
+        "message": f"Обменяно {amount:.2f} RCC → {pc_amount:,} LDC",
         "rcc_balance": round(new_rcc, 4),
         "pc_balance": pc_balance,
     }

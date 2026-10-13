@@ -230,12 +230,28 @@ def init_db():
             user_id BIGINT PRIMARY KEY,
             username TEXT,
             balance BIGINT DEFAULT 0,
-            is_banned BOOLEAN DEFAULT FALSE,
+            is_banned INTEGER DEFAULT 0,
             registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_bonus_time TIMESTAMP
         )
     """)
     
+    # is_banned используется как статус: 0=активен, 1=забанен,
+    # 2=пользователь заблокировал бота. BOOLEAN не может хранить значение 2.
+    cur.execute(
+        "SELECT data_type FROM information_schema.columns "
+        "WHERE table_schema = current_schema() AND table_name = 'users' "
+        "AND column_name = 'is_banned'"
+    )
+    status_type = cur.fetchone()
+    if status_type and status_type[0] == "boolean":
+        cur.execute("ALTER TABLE users ALTER COLUMN is_banned DROP DEFAULT")
+        cur.execute(
+            "ALTER TABLE users ALTER COLUMN is_banned TYPE INTEGER "
+            "USING CASE WHEN is_banned THEN 1 ELSE 0 END"
+        )
+    cur.execute("ALTER TABLE users ALTER COLUMN is_banned SET DEFAULT 0")
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS purchases (
             id SERIAL PRIMARY KEY,

@@ -1,5 +1,5 @@
 """
-Крестики-нолики для ParadiseCoin.
+Крестики-нолики для Lavender Dream Coin.
 
 Два режима:
 1. PvP — вызов игрока командой "кн @username <ставка>".
@@ -315,6 +315,10 @@ def _bot_apply_move(game_id: int, cell: int):
 # ==================== ЗАВЕРШЕНИЕ ====================
 
 async def _finish_draw(callback: CallbackQuery, game: dict):
+    # Ничья тоже считается сыгранной партией, но не победой и не проигрышем.
+    db.update_game_stats(game["player_x"], False, 0)
+    if game.get("player_o"):
+        db.update_game_stats(game["player_o"], False, 0)
     await callback.message.edit_text(
         f"🎮 Ничья!\n\n"
         f"💰 Ставка {game['bet']} 🪙 возвращена обоим игрокам."
@@ -324,6 +328,17 @@ async def _finish_draw(callback: CallbackQuery, game: dict):
 async def _finish_win(callback: CallbackQuery, game: dict):
     winner = game["winner"]
     loser = game["player_o"] if winner == game["player_x"] else game["player_x"]
+    # Учитываем завершённую игру в статистике каждого реального игрока.
+    if game["is_vs_bot"]:
+        if winner == 0:
+            db.update_game_stats(game["player_x"], False, game["bet"])
+        else:
+            db.update_game_stats(game["player_x"], True, game["bet"])
+    else:
+        if winner:
+            db.update_game_stats(winner, True, game["bet"])
+        if loser:
+            db.update_game_stats(loser, False, game["bet"])
 
     if game["is_vs_bot"]:
         if winner == 0:
