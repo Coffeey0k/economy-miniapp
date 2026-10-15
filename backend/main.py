@@ -161,8 +161,19 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
         secret_key, data_check_string.encode(), hashlib.sha256
     ).hexdigest()
 
-    if calculated_hash != received_hash:
+    if not hmac.compare_digest(calculated_hash, received_hash):
         raise HTTPException(status_code=401, detail="Неверная подпись initData")
+
+    # Не принимаем украденные/устаревшие initData бесконечно долго.
+    try:
+        auth_timestamp = int(parsed.get("auth_date", ""))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Нет корректной даты авторизации")
+    now_timestamp = int(datetime.now().timestamp())
+    if auth_timestamp > now_timestamp + 60:
+        raise HTTPException(status_code=401, detail="Некорректная дата авторизации")
+    if now_timestamp - auth_timestamp > 86400:
+        raise HTTPException(status_code=401, detail="Данные авторизации устарели. Перезапустите Mini App")
 
     return parsed
 
