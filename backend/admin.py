@@ -692,7 +692,10 @@ async def admin_promo_create(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminStates.waiting_promo_code)
 async def admin_promo_code(message: Message, state: FSMContext):
-    code = message.text.strip().upper()
+    code = (message.text or "").strip().upper()
+    if not code:
+        await message.answer("❌ Код не может быть пустым. Введите промокод:")
+        return
     await state.update_data(code=code)
     await message.answer(
         "Выберите тип награды:",
@@ -716,8 +719,29 @@ async def admin_promo_type(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminStates.waiting_promo_value)
 async def admin_promo_value(message: Message, state: FSMContext):
-    await state.update_data(reward_value=message.text.strip())
-    await message.answer("Введите максимальное количество активаций (целое число):")
+    value = (message.text or "").strip()
+    data = await state.get_data()
+    reward_type = data.get("reward_type")
+
+    if not value:
+        await message.answer("❌ Значение награды не может быть пустым.")
+        return
+    if reward_type == "money":
+        try:
+            amount = int(value)
+        except ValueError:
+            await message.answer("❌ Введите целое количество монет.")
+            return
+        if amount <= 0:
+            await message.answer("❌ Награда должна быть больше нуля.")
+            return
+        value = str(amount)
+    elif reward_type == "egg" and value not in db.PET_EGGS:
+        await message.answer("❌ Неизвестный тип яйца. Допустимые: ordinary, sea, tropical, mystic, legendary, divine.")
+        return
+
+    await state.update_data(reward_value=value)
+    await message.answer("Введите максимальное количество активаций (целое число больше нуля):")
     await state.set_state(AdminStates.waiting_promo_maxuses)
 
 
@@ -725,6 +749,9 @@ async def admin_promo_value(message: Message, state: FSMContext):
 async def admin_promo_maxuses(message: Message, state: FSMContext):
     try:
         max_uses = int(message.text)
+        if max_uses <= 0:
+            await message.answer("❌ Количество активаций должно быть больше нуля.")
+            return
         await state.update_data(max_uses=max_uses)
         await message.answer(
             "Введите дату окончания в формате ГГГГ-ММ-ДД ЧЧ:ММ (или напишите 'нет'):"
