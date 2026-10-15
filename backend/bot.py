@@ -1344,6 +1344,7 @@ async def work_word_handler(message: Message):
         )
         return
 
+    balance_before = db.get_balance(user_id)
     ok, msg = db.work_profession(user_id)
     if ok:
         # Прогресс-бар
@@ -1357,8 +1358,8 @@ async def work_word_handler(message: Message):
             bar = "▰" * filled + "▱" * (7 - filled) + f" {days}/7 дней"
         # Логирование не должно мешать отправке ответа после начисления зарплаты.
         try:
-            db.log_action(user_id, "work", f"Зарплата ({msg})",
-                          amount=db.get_profession_salary(prof["profession"], level))
+            earned = db.get_balance(user_id) - balance_before
+            db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
         except Exception:
             logger.exception("Не удалось записать лог работы user_id=%s", user_id)
         await message.answer(
