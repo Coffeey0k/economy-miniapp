@@ -1431,7 +1431,10 @@ def _bs_mark_sunk(field: str, shots: list, r: int, c: int):
 @app.post("/api/battleship/start")
 def bs_start(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    bet = int(payload.get("bet") or 500)
+    try:
+        bet = int(payload.get("bet") or BS_BET_MIN)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная ставка")
 
     if bet < BS_BET_MIN:
         raise HTTPException(status_code=400, detail=f"Минимальная ставка: {BS_BET_MIN}")
@@ -1506,9 +1509,15 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
 @app.post("/api/battleship/fire")
 def bs_fire(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    game_id = int(payload.get("game_id"))
-    row = int(payload.get("row"))
-    col = int(payload.get("col"))
+    try:
+        game_id = int(payload.get("game_id"))
+        row = int(payload.get("row"))
+        col = int(payload.get("col"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректные координаты")
+
+    if not (0 <= row < BS_SIZE and 0 <= col < BS_SIZE):
+        raise HTTPException(status_code=400, detail="Координаты вне поля")
 
     conn = db()
     cur = conn.cursor()
@@ -1638,8 +1647,40 @@ def bs_fire(payload: dict = Body(...)):
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     final = cur.fetchone()
+    completed_status = final["status"] if final else "active"
+    if completed_status in {"win", "lose"}:
+        cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
+        cur.execute(
+            """
+            UPDATE game_stats
+            SET games_played = COALESCE(games_played, 0) + 1,
+                games_won = COALESCE(games_won, 0) + ?,
+                total_earned = COALESCE(total_earned, 0) + ?,
+                total_lost = COALESCE(total_lost, 0) + ?
+            WHERE user_id = ?
+            """,
+            (
+                1 if completed_status == "win" else 0,
+                int(final["bet"]) if completed_status == "win" else 0,
+                int(final["bet"]) if completed_status == "lose" else 0,
+                user_id,
+            ),
+        )
+        conn.commit()
+
     balance = require_balance(cur, user_id)
     conn.close()
+
+    if completed_status in {"win", "lose"}:
+        try:
+            net_amount = int(final["bet"]) if completed_status == "win" else -int(final["bet"])
+            bot_db.log_action(
+                user_id, "game",
+                f"Морской бой: {'победа' if completed_status == 'win' else 'поражение'}; ставка={final['bet']}",
+                amount=net_amount,
+            )
+        except Exception:
+            pass
 
     return {
         "ok": True,
