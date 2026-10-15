@@ -851,10 +851,29 @@ SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
 def play_game(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     game = payload.get("game")
-    bet = int(payload.get("bet") or 0)
+    try:
+        bet = int(payload.get("bet") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная ставка")
     choice = payload.get("choice")
+
+    if game not in {"slot", "dice", "coin", "dart", "number"}:
+        raise HTTPException(status_code=400, detail="Неизвестная игра")
     if bet <= 0:
         raise HTTPException(status_code=400, detail="Ставка должна быть больше нуля")
+    if game in {"dice", "number"}:
+        try:
+            choice = int(choice)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Сначала выберите число")
+        upper = 6 if game == "dice" else 10
+        if not 1 <= choice <= upper:
+            raise HTTPException(status_code=400, detail=f"Число должно быть от 1 до {upper}")
+    elif game == "coin":
+        if choice == "Орёл":
+            choice = "Орел"
+        if choice not in {"Орел", "Решка"}:
+            raise HTTPException(status_code=400, detail="Выберите орла или решку")
 
     conn = db()
     cur = conn.cursor()
@@ -902,7 +921,7 @@ def play_game(payload: dict = Body(...)):
             pass
     else:
         conn.close()
-        raise HTTPException(status_code=404, detail="Неизвестная игра")
+        raise HTTPException(status_code=400, detail="Неизвестная игра")
 
     if win > 0:
         change_balance(cur, user_id, bet + win)
