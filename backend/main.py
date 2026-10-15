@@ -1137,9 +1137,12 @@ MS_REWARD = 400
 @app.post("/api/minesweeper/start")
 def ms_start_api(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    bet = int(payload.get("bet") or MS_BET)
-    if bet <= 0:
-        raise HTTPException(status_code=400, detail="Ставка должна быть больше нуля")
+    try:
+        bet = int(payload.get("bet") or MS_BET)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная ставка")
+    if bet != MS_BET:
+        raise HTTPException(status_code=400, detail=f"Ставка в сапёре фиксированная: {MS_BET} 🪙")
 
     conn = db()
     cur = conn.cursor()
@@ -1194,8 +1197,11 @@ def ms_start_api(payload: dict = Body(...)):
 @app.post("/api/minesweeper/open")
 def ms_open_api(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    game_id = int(payload.get("game_id"))
-    cell = int(payload.get("cell"))
+    try:
+        game_id = int(payload.get("game_id"))
+        cell = int(payload.get("cell"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная игра или клетка")
 
     conn = db()
     cur = conn.cursor()
@@ -1212,6 +1218,9 @@ def ms_open_api(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Игра завершена")
 
     size = row["field_size"]
+    if not 0 <= cell < size * size:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Клетка вне поля")
     board = list(row["board"])
     revealed = list(row["revealed"])
 
@@ -1227,12 +1236,25 @@ def ms_open_api(payload: dict = Body(...)):
         revealed_str = "".join(revealed)
         cur.execute("UPDATE minesweeper_games SET revealed = ?, status = 'lose' WHERE id = ?",
                     (revealed_str, game_id))
+        cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
+        cur.execute(
+            "UPDATE game_stats SET games_played = COALESCE(games_played, 0) + 1, "
+            "total_lost = COALESCE(total_lost, 0) + ? WHERE user_id = ?",
+            (row["bet"], user_id),
+        )
+        cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+        balance_row = cur.fetchone()
+        balance = balance_row["balance"] if balance_row else 0
         conn.commit()
         conn.close()
+        try:
+            bot_db.log_action(user_id, "game", f"Сапёр: проигрыш; ставка={row['bet']}", amount=-int(row["bet"]))
+        except Exception:
+            pass
         return {
             "ok": True, "result": "boom",
             "board": "".join(board), "revealed": revealed_str,
-            "balance": require_balance(cur, user_id) if False else None,
+            "balance": balance,
         }
 
     # Безопасная клетка + автооткрытие пустых
@@ -1262,6 +1284,13 @@ def ms_open_api(payload: dict = Body(...)):
         change_balance(cur, user_id, MS_REWARD)
         cur.execute("UPDATE minesweeper_games SET revealed = ?, status = 'win' WHERE id = ?",
                     (revealed_str, game_id))
+        cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
+        cur.execute(
+            "UPDATE game_stats SET games_played = COALESCE(games_played, 0) + 1, "
+            "games_won = COALESCE(games_won, 0) + 1, "
+            "total_earned = COALESCE(total_earned, 0) + ? WHERE user_id = ?",
+            (max(0, MS_REWARD - int(row["bet"])), user_id),
+        )
     else:
         cur.execute("UPDATE minesweeper_games SET revealed = ? WHERE id = ?",
                     (revealed_str, game_id))
@@ -1270,6 +1299,12 @@ def ms_open_api(payload: dict = Body(...)):
     balance = cur.fetchone()["balance"]
     conn.commit()
     conn.close()
+
+    if win:
+        try:
+            bot_db.log_action(user_id, "game", f"Сапёр: победа; ставка={row['bet']}", amount=max(0, MS_REWARD - int(row["bet"])))
+        except Exception:
+            pass
 
     return {
         "ok": True,
