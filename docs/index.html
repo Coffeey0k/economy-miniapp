@@ -556,24 +556,32 @@
   .msg.err { background: rgba(248,113,113,0.18); }
 
   .nav {
-    position: fixed; bottom: 0; left: 0; right: 0;
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
     display: flex;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    justify-content: space-around;
+    overflow: hidden;
     background: var(--nav-bg);
-    padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px));
+    padding: 7px 4px calc(7px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--card-border);
-    scrollbar-width: none;
+    box-shadow: 0 -6px 22px rgba(0,0,0,0.14);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
   }
-  .nav::-webkit-scrollbar { display: none; }
   .nav-item {
-    display: flex; flex-direction: column; align-items: center; gap: 2px;
-    color: var(--hint); font-size: 10px; background: none; border: none; padding: 4px 8px;
-    flex: 0 0 auto;
-    min-width: 56px;
+    display: flex; flex: 1 1 0; min-width: 0;
+    flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    color: var(--hint); font-size: 10px; line-height: 1.15;
+    background: none; border: 0; border-radius: 12px; padding: 5px 2px;
+    white-space: nowrap; transition: color .18s ease, background .18s ease;
+    -webkit-tap-highlight-color: transparent;
   }
-  .nav-item.active { color: var(--accent); }
-  .nav-item .ic { font-size: 20px; }
+  .nav-item.active { color: var(--accent); background: var(--hover-bg); font-weight: 700; }
+  .nav-item .ic { font-size: 20px; line-height: 1; }
+  .nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  @media (max-width: 360px) {
+    .nav-item { font-size: 9px; }
+    .nav-item .ic { font-size: 18px; }
+  }
 
   .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
   .tile {
@@ -1328,6 +1336,20 @@
   <div class="tab" id="tab-more">
     <div id="more-msg"></div>
     <div class="card">
+      <h2>🧭 Все разделы</h2>
+      <p class="label">Быстрый доступ к функциям Lavender Dream</p>
+      <div class="tiles">
+        <button class="tile" onclick="switchTab('top')"><span class="ic">🏆</span>Топ игроков</button>
+        <button class="tile" onclick="switchTab('pets')"><span class="ic">🐾</span>Питомцы</button>
+        <button class="tile" onclick="switchTab('wheel')"><span class="ic">🎡</span>Колесо</button>
+        <button class="tile" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
+        <button class="tile" onclick="switchTab('clans')"><span class="ic">🏛️</span>Кланы</button>
+        <button class="tile" onclick="switchTab('music')"><span class="ic">🎵</span>Музыка</button>
+        <button class="tile" onclick="switchTab('rcc')"><span class="ic">💰</span>RCC</button>
+        <button class="tile" onclick="switchTab('gifts')"><span class="ic">🎁</span>Подарки</button>
+      </div>
+    </div>
+    <div class="card">
       <h2>📂 Дополнительно</h2>
       <div class="item-row">
         <span>👥 Друзья</span>
@@ -1361,18 +1383,12 @@
 
 </div>
 
-<div class="nav" id="nav" style="display:none;">
-  <button class="nav-item active" data-tab="profile" onclick="switchTab('profile')"><span class="ic">👤</span>Профиль</button>
-  <button class="nav-item" data-tab="top" onclick="switchTab('top')"><span class="ic">🏆</span>Топ</button>
-  <button class="nav-item" data-tab="shop" onclick="switchTab('shop')"><span class="ic">🛒</span>Магазин</button>
-  <button class="nav-item" data-tab="games" onclick="switchTab('games')"><span class="ic">🎮</span>Игры</button>
-  <button class="nav-item" data-tab="work" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
-  <button class="nav-item" data-tab="island" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
-  <button class="nav-item" data-tab="clans" onclick="switchTab('clans')"><span class="ic">🏛️</span>Кланы</button>
-  <button class="nav-item" data-tab="music" onclick="switchTab('music')"><span class="ic">🎵</span>Музыка</button>
-  <button class="nav-item" data-tab="rcc" onclick="switchTab('rcc')"><span class="ic">💰</span>RCC</button>
-  <button class="nav-item" data-tab="gifts" onclick="switchTab('gifts')"><span class="ic">🎁</span>Подарки</button>
-  <button class="nav-item" data-tab="more" onclick="switchTab('more')"><span class="ic">⋯</span>Ещё</button>
+<div class="nav" id="nav" style="display:none;" aria-label="Основная навигация">
+  <button class="nav-item active" data-tab="profile" onclick="switchTab('profile')" aria-label="Профиль"><span class="ic">👤</span>Профиль</button>
+  <button class="nav-item" data-tab="games" onclick="switchTab('games')" aria-label="Игры"><span class="ic">🎮</span>Игры</button>
+  <button class="nav-item" data-tab="shop" onclick="switchTab('shop')" aria-label="Магазин"><span class="ic">🛒</span>Магазин</button>
+  <button class="nav-item" data-tab="work" onclick="switchTab('work')" aria-label="Работа"><span class="ic">💼</span>Работа</button>
+  <button class="nav-item" data-tab="more" onclick="switchTab('more')" aria-label="Ещё разделы"><span class="ic">☷</span>Ещё</button>
 </div>
 
 <div id="ptr">🔄 Обновление…</div>
@@ -1444,6 +1460,8 @@
     }
 
     if (!loaded[name]) { loadTab(name); loaded[name] = true; }
+    // После смены раздела показываем его заголовок, а не сохранённую позицию прокрутки.
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function loadTab(name) {
     if (name === "top") loadTop();
