@@ -954,14 +954,15 @@ async def professions_menu_handler(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "my_profession")
-async def my_profession(callback: CallbackQuery):
+async def my_profession(callback: CallbackQuery, answer_callback: bool = True):
     prof = db.get_profession(callback.from_user.id)
     if not prof or not prof["profession"]:
         await callback.message.edit_text(
             "💼 У вас нет профессии.\nУстроиться стоит 1000 🪙.",
             reply_markup=professions_menu()
         )
-        await callback.answer()
+        if answer_callback:
+            await callback.answer()
         return
     from database import PROFESSIONS
     info = PROFESSIONS[prof["profession"]]
@@ -988,7 +989,8 @@ async def my_profession(callback: CallbackQuery):
         f"{bar} {days}/7 дней",
         reply_markup=builder.as_markup()
     )
-    await callback.answer()
+    if answer_callback:
+        await callback.answer()
     return
     from database import PROFESSIONS
     info = PROFESSIONS[prof["profession"]]
@@ -1045,15 +1047,19 @@ async def work_now(callback: CallbackQuery):
     user_id = callback.from_user.id
     balance_before = db.get_balance(user_id)
     ok, msg = db.work_profession(user_id)
-    await callback.answer(msg, show_alert=not ok)
-    if ok:
-        await my_profession(callback)
-        # Логируем фактически начисленную сумму, включая бонусы друзей/клана.
-        try:
-            earned = db.get_balance(user_id) - balance_before
-            db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
-        except Exception:
-            logger.exception("Не удалось записать лог работы user_id=%s", user_id)
+    if not ok:
+        await callback.answer(msg, show_alert=True)
+        return
+
+    # Логируем фактически начисленную сумму, включая бонусы друзей/клана.
+    try:
+        earned = db.get_balance(user_id) - balance_before
+        db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
+    except Exception:
+        logger.exception("Не удалось записать лог работы user_id=%s", user_id)
+
+    await callback.answer(msg)
+    await my_profession(callback, answer_callback=False)
 
 @dp.callback_query(F.data == "fire_profession")
 async def fire_profession(callback: CallbackQuery):
@@ -1215,7 +1221,7 @@ async def wheel_spin(callback: CallbackQuery):
     
 # ==================== ПРОМОКОД ====================
 
-@dp.message(F.text.lower() == "промокод")
+@dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "промокод"))
 async def promo_word(message: Message, state: FSMContext):
     if message.chat.type != "private":
         await message.answer("🎟️ Промокоды активируются только в личке бота.")
