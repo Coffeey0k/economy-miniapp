@@ -598,7 +598,7 @@ def get_all_users() -> List[dict]:
     result = cur.fetchall()
     conn.close()
     return [
-        {"user_id": r[0], "username": r[1], "balance": r[2], "is_banned": bool(r[3])}
+        {"user_id": r[0], "username": r[1], "balance": r[2], "is_banned": int(r[3] or 0)}
         for r in result
     ]
 
