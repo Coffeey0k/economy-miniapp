@@ -910,6 +910,20 @@ def play_game(payload: dict = Body(...)):
     else:
         text += f"\n❌ Проигрыш: {bet} 🪙"
 
+    # Обновляем ту же таблицу статистики, которую читает профиль бота и Mini App.
+    cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
+    cur.execute(
+        """
+        UPDATE game_stats
+        SET games_played = COALESCE(games_played, 0) + 1,
+            games_won = COALESCE(games_won, 0) + ?,
+            total_earned = COALESCE(total_earned, 0) + ?,
+            total_lost = COALESCE(total_lost, 0) + ?
+        WHERE user_id = ?
+        """,
+        (1 if win > 0 else 0, win if win > 0 else 0, bet if win <= 0 else 0, user_id),
+    )
+
     conn.commit()
     conn.close()
     try:
