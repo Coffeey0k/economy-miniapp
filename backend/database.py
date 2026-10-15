@@ -508,7 +508,8 @@ def get_user(user_id: int) -> Optional[dict]:
             "user_id": user[0],
             "username": user[1],
             "balance": user[2],
-            "is_banned": bool(user[3]),
+            # Keep 0=active, 1=admin-banned, 2=blocked the bot distinct.
+            "is_banned": int(user[3] or 0),
             "registered_at": user[4],
         }
     return None
@@ -3773,7 +3774,16 @@ def mark_user_blocked_bot(user_id: int):
     """Помечает пользователя как заблокировавшего бота (is_banned = 2)."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("UPDATE users SET is_banned = 2 WHERE user_id = ?", (user_id,))
+    cur.execute("UPDATE users SET is_banned = 2 WHERE user_id = ? AND is_banned = 0", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def unmark_user_blocked_bot(user_id: int):
+    """Снимает только статус блокировки бота, не затрагивая административный бан."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET is_banned = 0 WHERE user_id = ? AND is_banned = 2", (user_id,))
     conn.commit()
     conn.close()
 
