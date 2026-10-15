@@ -25,6 +25,7 @@ class TechStates(StatesGroup):
     waiting_log_type = State()
     waiting_balance_user = State()
     waiting_balance_amount = State()
+    waiting_balance_new_value = State()
     waiting_purchase_user = State()
     waiting_clan_id = State()
     waiting_island_user = State()
@@ -364,10 +365,10 @@ async def tech_balance_user(message: Message, state: FSMContext):
         f"💰 Баланс @{user['username'] or user['user_id']}: {user['balance']:,} 🪙\n\n"
         f"Введите новое значение (просто число):"
     )
-    await state.set_state(TechStates.waiting_balance_user)
+    await state.set_state(TechStates.waiting_balance_new_value)
 
 
-@router.message(TechStates.waiting_balance_user)
+@router.message(TechStates.waiting_balance_new_value)
 async def tech_balance_set(message: Message, state: FSMContext):
     if not config.is_tech_admin(message.from_user.id):
         return
@@ -420,7 +421,7 @@ async def tech_balance_edit(callback: CallbackQuery, state: FSMContext):
         f"💰 Баланс @{user['username'] or target_id}: {user['balance']:,} 🪙\n\n"
         f"Введите новое значение:"
     )
-    await state.set_state(TechStates.waiting_balance_user)
+    await state.set_state(TechStates.waiting_balance_new_value)
     await callback.answer()
 
 
