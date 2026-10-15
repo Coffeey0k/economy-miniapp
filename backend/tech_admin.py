@@ -390,16 +390,26 @@ async def tech_balance_set(message: Message, state: FSMContext):
     data = await state.get_data()
     target_id = data["target_id"]
 
-    # Устанавливаем напрямую
+    # Сохраняем старое значение, чтобы журнал отражал реальное изменение.
     conn = db.sqlite3.connect(db.DB_NAME)
     cur = conn.cursor()
+    cur.execute("SELECT balance FROM users WHERE user_id = ?", (target_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        await message.answer("❌ Игрок больше не найден.")
+        await state.clear()
+        return
+    old_balance = int(row[0] or 0)
     cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_id))
     conn.commit()
     conn.close()
 
-    db.log_action(target_id, "tech_action",
-                  f"Баланс установлен вручную тех.админом {message.from_user.id}: {new_balance}",
-                  amount=new_balance)
+    db.log_action(
+        target_id, "tech_action",
+        f"Баланс изменён тех.админом {message.from_user.id}: {old_balance} → {new_balance}",
+        amount=new_balance - old_balance,
+    )
 
     await message.answer(
         f"✅ Баланс установлен: {new_balance:,} 🪙",
