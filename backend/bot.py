@@ -964,21 +964,22 @@ async def my_profession(callback: CallbackQuery, answer_callback: bool = True):
         if answer_callback:
             await callback.answer()
         return
+
     from database import PROFESSIONS
     info = PROFESSIONS[prof["profession"]]
     salary = db.get_profession_salary(prof["profession"], prof["level"])
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="💼 Работать", callback_data="work_now"))
-    builder.row(InlineKeyboardButton(text="❌ Уволиться", callback_data="fire_profession"))
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="professions_menu"))
-
     level = prof["level"]
     days = prof["days_worked"]
     if level >= 5:
         bar = "▰▰▰▰▰▰▰ 100% (максимум)"
     else:
-        filled = int((days / 7) * 7)
+        filled = max(0, min(7, int((days / 7) * 7)))
         bar = "▰" * filled + "▱" * (7 - filled)
+
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="💼 Работать", callback_data="work_now"))
+    builder.row(InlineKeyboardButton(text="❌ Уволиться", callback_data="fire_profession"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="professions_menu"))
 
     await callback.message.edit_text(
         f"💼 {info['name']}\n\n"
@@ -991,23 +992,6 @@ async def my_profession(callback: CallbackQuery, answer_callback: bool = True):
     )
     if answer_callback:
         await callback.answer()
-    return
-    from database import PROFESSIONS
-    info = PROFESSIONS[prof["profession"]]
-    salary = db.get_profession_salary(prof["profession"], prof["level"])
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="💼 Работать", callback_data="work_now"))
-    builder.row(InlineKeyboardButton(text="❌ Уволиться", callback_data="fire_profession"))
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="professions_menu"))
-    await callback.message.edit_text(
-        f"💼 {info['name']}\n\n"
-        f"Уровень: {prof['level']}/5\n"
-        f"Зарплата: {salary} 🪙\n"
-        f"Кулдаун: {info['cooldown_hours']} ч\n"
-        f"Дней отработано: {prof['days_worked']}/7 до повышения",
-        reply_markup=builder.as_markup()
-    )
-    await callback.answer()
 
 
 @dp.callback_query(F.data == "list_professions")
