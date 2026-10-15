@@ -337,7 +337,7 @@ async def back_to_main(callback: CallbackQuery):
 # ==================== ПОДСКАЗКИ ====================
 
 @dp.callback_query(F.data == "hints_menu")
-async def hints_menu_handler(callback: CallbackQuery):
+async def hints_menu_handler(callback: CallbackQuery, answer_callback: bool = True):
     user_id = callback.from_user.id
     settings = db.get_user_settings(user_id)
     enabled = settings["hints_enabled"]
@@ -363,7 +363,8 @@ async def hints_menu_handler(callback: CallbackQuery):
         f"где взять бонус и как заработать Lavender Dream Coin.",
         reply_markup=builder.as_markup()
     )
-    await callback.answer()
+    if answer_callback:
+        await callback.answer()
 
 
 @dp.callback_query(F.data == "hints_toggle")
@@ -373,7 +374,7 @@ async def hints_toggle(callback: CallbackQuery):
     new_value = not settings["hints_enabled"]
     db.set_hints_enabled(user_id, new_value)
     await callback.answer("✅ Подсказки включены" if new_value else "❌ Подсказки отключены")
-    await hints_menu_handler(callback)
+    await hints_menu_handler(callback, answer_callback=False)
 
 # ==================== ТОП ====================
 
@@ -1023,7 +1024,7 @@ async def hire(callback: CallbackQuery):
     ok, msg = db.hire_profession(callback.from_user.id, prof_key)
     await callback.answer(msg, show_alert=True)
     if ok:
-        await my_profession(callback)
+        await my_profession(callback, answer_callback=False)
 
 
 @dp.callback_query(F.data == "work_now")
