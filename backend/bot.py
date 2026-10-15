@@ -1022,11 +1022,18 @@ async def hire(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "work_now")
 async def work_now(callback: CallbackQuery):
-    ok, msg = db.work_profession(callback.from_user.id)
+    user_id = callback.from_user.id
+    balance_before = db.get_balance(user_id)
+    ok, msg = db.work_profession(user_id)
     await callback.answer(msg, show_alert=not ok)
     if ok:
         await my_profession(callback)
-        db.log_action(user_id, "work", f"Зарплата ({msg})", amount=db.get_profession_salary(...))
+        # Логируем фактически начисленную сумму, включая бонусы друзей/клана.
+        try:
+            earned = db.get_balance(user_id) - balance_before
+            db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
+        except Exception:
+            logger.exception("Не удалось записать лог работы user_id=%s", user_id)
 
 @dp.callback_query(F.data == "fire_profession")
 async def fire_profession(callback: CallbackQuery):
@@ -1199,10 +1206,33 @@ async def promo_word(message: Message, state: FSMContext):
 
 @dp.message(PromoStates.waiting_code)
 async def promo_activate(message: Message, state: FSMContext):
+    if message.chat.type != "private":
+        await message.answer("🎟️ Промокоды активируются только в личке бота.")
+        await state.clear()
+        return
+    if not message.text or not message.text.strip():
+        await message.answer("❌ Отправьте текстовый код промокода.")
+        return
+
     code = message.text.strip().upper()
-    ok, result = db.activate_promo(code, message.from_user.id)
+    if code in {"/CANCEL", "ОТМЕНА"}:
+        await state.clear()
+        await message.answer("❎ Ввод промокода отменён.")
+        return
+
+    try:
+        ok, result = db.activate_promo(code, message.from_user.id)
+    except Exception:
+        logger.exception("Ошибка активации промокода user_id=%s code=%s", message.from_user.id, code)
+        await message.answer("❌ Не удалось активировать промокод. Попробуйте позже.")
+        await state.clear()
+        return
+
     if ok:
-        db.log_action(message.from_user.id, "promo", f"Промокод {code}", amount=0)
+        try:
+            db.log_action(message.from_user.id, "promo", f"Промокод {code}", amount=0)
+        except Exception:
+            logger.exception("Не удалось записать лог промокода user_id=%s", message.from_user.id)
         await message.answer(f"✅ Промокод активирован!\nНаграда: {result}")
     else:
         await message.answer(f"❌ {result}")
@@ -1264,7 +1294,8 @@ async def who_new(message: Message):
         return
     text = "📊 Кто Нью (4 дня):\n\n"
     for i, (uid, uname, joined) in enumerate(users, 1):
-        text += f"{i}. @{uname or uid} — {joined[:16]}\n"
+        joined_text = joined.strftime("%Y-%m-%d %H:%M") if hasattr(joined, "strftime") else str(joined or "")[:16]
+        text += f"{i}. @{uname or uid} — {joined_text}\n"
     await message.answer(text)
 
 
