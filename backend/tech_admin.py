@@ -105,7 +105,9 @@ def tech_logs_menu() -> InlineKeyboardBuilder:
     builder.row(InlineKeyboardButton(text="🛍️ Покупки", callback_data="tech_logs_type_purchase"))
     builder.row(InlineKeyboardButton(text="💸 Переводы", callback_data="tech_logs_type_transfer"))
     builder.row(InlineKeyboardButton(text="💰 Доходы (работа/остров)", callback_data="tech_logs_type_income"))
-    builder.row(InlineKeyboardButton(text="🎡/🥚 Колесо и яйца", callback_data="tech_logs_type_wheel"))
+    builder.row(InlineKeyboardButton(text="🎡/🥚 Колесо, яйца и промокоды", callback_data="tech_logs_type_wheel"))
+    builder.row(InlineKeyboardButton(text="🎮 Игры", callback_data="tech_logs_type_game"))
+    builder.row(InlineKeyboardButton(text="↩️ Отмены и отклонения", callback_data="tech_logs_type_cancellations"))
     builder.row(InlineKeyboardButton(text="🔍 По игроку", callback_data="tech_logs_user"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="tech_panel"))
     return builder
@@ -182,8 +184,10 @@ async def tech_logs_type(callback: CallbackQuery):
     groups = {
         "purchase": ["purchase"],
         "transfer": ["transfer"],
-        "income":   ["work", "bonus", "island_income"],
-        "wheel":    ["wheel", "egg", "promo"],
+        "income": ["work", "bonus", "island_income"],
+        "wheel": ["wheel", "egg", "promo"],
+        "game": ["game"],
+        "cancellations": ["cancel", "purchase_cancel", "purchase_reject"],
     }
 
     types = groups.get(t, [t])
