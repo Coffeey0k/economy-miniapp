@@ -118,6 +118,26 @@ class OwnerCheckMiddleware(BaseMiddleware):
 # Регистрируем middleware для callback-запросов
 dp.callback_query.middleware(OwnerCheckMiddleware())
 
+
+@dp.my_chat_member()
+async def track_bot_block_status(event: ChatMemberUpdated):
+    """Отслеживает блокировку/разблокировку бота в личных сообщениях."""
+    if event.chat.type != "private":
+        return
+
+    user_id = event.chat.id
+    old_status = event.old_chat_member.status
+    new_status = event.new_chat_member.status
+
+    try:
+        if new_status == "kicked":
+            db.mark_user_blocked_bot(user_id)
+        elif old_status == "kicked" and new_status in {"member", "administrator"}:
+            db.unmark_user_blocked_bot(user_id)
+    except Exception:
+        logger.exception("Не удалось обновить статус блокировки бота user_id=%s", user_id)
+
+
 # ==================== СТАРТ + ТУТОРИАЛ ====================
 
 TUTORIAL_STEPS = [
