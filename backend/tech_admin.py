@@ -146,7 +146,7 @@ def _format_log_entry(entry: dict) -> str:
 
     line = f"• [{ts}] {uname} — {atype}{amt_str}"
     if det:
-        line += f"\n   _{det}_"
+        line += f"\n   {det}"
     return line
 
 
@@ -168,7 +168,7 @@ async def tech_logs_all(callback: CallbackQuery):
     builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="tech_logs_all"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="tech_logs_menu"))
 
-    await callback.message.edit_text(text[:4000], reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text[:4000], reply_markup=builder.as_markup(), parse_mode=None)
     await callback.answer()
 
 
