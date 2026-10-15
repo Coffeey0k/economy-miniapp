@@ -56,7 +56,7 @@ def tech_panel_menu() -> InlineKeyboardBuilder:
 
 
 @router.callback_query(F.data == "tech_panel")
-async def tech_panel(callback: CallbackQuery):
+async def tech_panel(callback: CallbackQuery, answer_callback: bool = True):
     if not _guard(callback):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
@@ -73,7 +73,8 @@ async def tech_panel(callback: CallbackQuery):
         reply_markup=tech_panel_menu().as_markup(),
         parse_mode=None
     )
-    await callback.answer()
+    if answer_callback:
+        await callback.answer()
 
 
 # ==================== ТЕСТ-РЕЖИМ ====================
@@ -94,7 +95,7 @@ async def tech_test_mode(callback: CallbackQuery):
         f"{'Монеты не тратятся.' if new_value else 'Монеты снова тратятся.'}",
         show_alert=True
     )
-    await tech_panel(callback)
+    await tech_panel(callback, answer_callback=False)
 
 
 # ==================== ЛОГИ ====================
