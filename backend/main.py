@@ -3232,7 +3232,8 @@ def _mark_user_blocked(user_id: int):
     try:
         conn = db()
         cur = conn.cursor()
-        cur.execute("UPDATE users SET is_banned = 2 WHERE user_id = %s", (user_id,))
+        # Не перезаписываем административный бан статусом блокировки бота.
+        cur.execute("UPDATE users SET is_banned = 2 WHERE user_id = %s AND is_banned = 0", (user_id,))
         conn.commit()
         conn.close()
     except Exception:
