@@ -1476,6 +1476,97 @@ def transfer_pet(pet_id: int, from_user: int, to_user: int) -> bool:
     return affected > 0
 
 
+
+def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT c.energy, c.mood, c.health, c.level, c.experience "
+        "FROM pet_care c JOIN pets p ON p.id = c.pet_id "
+        "WHERE c.pet_id = ? AND p.user_id = ?",
+        (pet_id, user_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return ({"energy": row[0], "mood": row[1], "health": row[2],
+             "level": row[3], "experience": row[4]} if row else None)
+
+
+def care_for_pet(user_id: int, pet_id: int, action: str) -> tuple:
+    """Уход за своим питомцем; списание и обновление состояния выполняются одной транзакцией."""
+    costs = {"feed": 100, "play": 50, "heal": 250, "upgrade": 1000}
+    if action not in costs:
+        return False, "Неизвестное действие."
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT p.income, c.energy, c.mood, c.health, c.level, c.experience "
+        "FROM pets p JOIN pet_care c ON c.pet_id = p.id "
+        "WHERE p.id = ? AND p.user_id = ?",
+        (pet_id, user_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return False, "Питомец не найден."
+    income, energy, mood, health, level, experience = row
+    # Для обновления баланса используем тот же connection, чтобы уход не мог быть бесплатным при ошибке.
+    cur.execute("UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+                (costs[action], user_id, costs[action]))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, f"Недостаточно LDC. Нужно {costs[action]:,}."
+    if action == "feed":
+        energy, health, experience = min(100, energy + 25), min(100, health + 5), experience + 5
+        msg = "🍖 Питомец накормлен: энергия +25."
+    elif action == "play":
+        energy, mood, experience = max(0, energy - 10), min(100, mood + 25), experience + 10
+        msg = "🎾 Вы поиграли: настроение +25, энергия −10."
+    elif action == "heal":
+        health, mood, experience = min(100, health + 40), min(100, mood + 5), experience + 5
+        msg = "🩺 Питомец вылечен: здоровье +40."
+    else:
+        if experience < level * 25:
+            conn.rollback()
+            conn.close()
+            return False, f"Для улучшения нужен опыт: {level * 25} (сейчас {experience})."
+        level += 1
+        experience -= (level - 1) * 25
+        income = int(income * 1.15)
+        cur.execute("UPDATE pets SET income = ? WHERE id = ? AND user_id = ?", (income, pet_id, user_id))
+        msg = f"⬆️ Уровень питомца повышен до {level}! Доход теперь {income} LDC/4ч."
+    cur.execute(
+        "UPDATE pet_care SET energy = ?, mood = ?, health = ?, level = ?, experience = ?, last_care = ? WHERE pet_id = ?",
+        (energy, mood, health, level, experience, datetime.now().isoformat(), pet_id),
+    )
+    conn.commit()
+    conn.close()
+    return True, msg
+
+
+def sell_pet_to_system(user_id: int, pet_id: int) -> tuple:
+    """Продаёт питомца системе за половину базовой цены дохода, не затрагивая чужих питомцев."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT income, is_active FROM pets WHERE id = ? AND user_id = ?", (pet_id, user_id))
+    pet = cur.fetchone()
+    if not pet:
+        conn.close()
+        return False, "Питомец не найден."
+    price = max(100, int(pet[0]) * 10)
+    cur.execute("DELETE FROM pets WHERE id = ? AND user_id = ?", (pet_id, user_id))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "Питомец уже передан или продан."
+    cur.execute("DELETE FROM pet_care WHERE pet_id = ?", (pet_id,))
+    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (price, user_id))
+    conn.commit()
+    conn.close()
+    return True, f"Питомец продан системе за {price:,} LDC."
+
+
 def get_egg_stock() -> dict:
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
