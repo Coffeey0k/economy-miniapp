@@ -699,7 +699,7 @@ def get_wheel(init_data: str = Query(..., alias="initData")):
 
     cur.execute("INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,))
     # Serialize spins for this user; otherwise concurrent requests can both win.
-    cur.execute("SELECT last_wheel_time FROM user_settings WHERE user_id = ? FOR UPDATE", (user_id,))
+    cur.execute("SELECT last_wheel_time FROM user_settings WHERE user_id = ?", (user_id,))
     row = cur.fetchone()
     conn.commit()
     conn.close()
@@ -720,7 +720,8 @@ def spin_wheel(payload: dict = Body(...)):
     cur = conn.cursor()
 
     cur.execute("INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,))
-    cur.execute("SELECT last_wheel_time FROM user_settings WHERE user_id = ?", (user_id,))
+    # Serialize spins for this user; otherwise concurrent requests can both win.
+    cur.execute("SELECT last_wheel_time FROM user_settings WHERE user_id = ? FOR UPDATE", (user_id,))
     row = cur.fetchone()
     if row and row["last_wheel_time"]:
         delta = (datetime.now() - datetime.fromisoformat(row["last_wheel_time"])).total_seconds()
@@ -802,8 +803,7 @@ def get_bonus_status(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
     conn = db()
     cur = conn.cursor()
-    # Lock the user's row so concurrent claims cannot both pass the cooldown check.
-    cur.execute("SELECT last_bonus_time FROM users WHERE user_id = ? FOR UPDATE", (user_id,))
+    cur.execute("SELECT last_bonus_time FROM users WHERE user_id = ?", (user_id,))
     row = cur.fetchone()
     conn.close()
     if not row:
@@ -821,7 +821,8 @@ def claim_bonus(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT last_bonus_time FROM users WHERE user_id = ?", (user_id,))
+    # Lock the user's row so concurrent claims cannot both pass the cooldown check.
+    cur.execute("SELECT last_bonus_time FROM users WHERE user_id = ? FOR UPDATE", (user_id,))
     row = cur.fetchone()
     if not row:
         conn.close()
