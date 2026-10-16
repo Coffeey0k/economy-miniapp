@@ -1648,6 +1648,7 @@ def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
         "ON CONFLICT(pet_id) DO NOTHING",
         (pet_id, user_id),
     )
+    conn.commit()
     cur.execute(
         "SELECT c.energy, c.mood, c.health, c.level, c.experience "
         "FROM pet_care c JOIN pets p ON p.id = c.pet_id "
