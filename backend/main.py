@@ -396,6 +396,23 @@ def buy_catalog_item(payload: dict = Body(...)):
 
     price = item["price"]
 
+    # These items require owner approval. Do not charge or insert a completed
+    # purchase here: database.add_purchase() performs the charge on approval.
+    if item_type in CONFIRMATION_REQUIRED:
+        balance = require_balance(cur, user_id)
+        conn.close()
+        if balance < price:
+            raise HTTPException(status_code=400, detail="Недостаточно монет")
+        try:
+            _notify_admins_purchase(user_id, item_type, price)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Не удалось уведомить администраторов о запросе покупки")
+        return {
+            "ok": True,
+            "message": f"Запрос на покупку «{item['name']}» отправлен владельцу. Монеты спишутся только после подтверждения."
+        }
+
     if not change_balance(cur, user_id, -price):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
@@ -502,7 +519,7 @@ def toggle_pet(payload: dict = Body(...)):
 @app.get("/api/professions")
 def get_professions(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
-    is_admin = user_id in ADMIN_IDS
+    is_admin = config.is_full_admin(user_id)
 
     conn = db()
     cur = conn.cursor()
@@ -550,6 +567,8 @@ def hire_profession(payload: dict = Body(...)):
     profession = payload.get("profession")
     if profession not in PROFESSION_INFO:
         raise HTTPException(status_code=404, detail="Неизвестная профессия")
+    if profession == "ruler" and not config.is_full_admin(user_id):
+        raise HTTPException(status_code=403, detail="Эта профессия доступна только администраторам")
 
     conn = db()
     cur = conn.cursor()
@@ -981,7 +1000,7 @@ def get_settings(init_data: str = Query(..., alias="initData")):
         "theme": "dark",
         "hints_enabled": bool(row["hints_enabled"]) if row else True,
         "tutorial_done": bool(row["tutorial_done"]) if row else False,
-        "is_admin": user_id in ADMIN_IDS,
+        "is_admin": config.is_full_admin(user_id),
     }
 
 
@@ -1000,7 +1019,8 @@ def set_hints(payload: dict = Body(...)):
 # ========== API: АДМИНКА ==========
 
 def _require_admin(user_id: int):
-    if user_id not in ADMIN_IDS:
+    # The owner, regular admins and tech admins share access to the admin panel.
+    if not config.is_full_admin(user_id):
         raise HTTPException(status_code=403, detail="Нет доступа")
 
 
@@ -1009,7 +1029,12 @@ def admin_give(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     _require_admin(user_id)
     username = (payload.get("username") or "").lstrip("@")
-    amount = int(payload.get("amount") or 0)
+    try:
+        amount = int(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная сумма")
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Сумма должна быть больше нуля")
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT user_id FROM users WHERE username = ?", (username,))
@@ -1028,7 +1053,12 @@ def admin_take(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     _require_admin(user_id)
     username = (payload.get("username") or "").lstrip("@")
-    amount = int(payload.get("amount") or 0)
+    try:
+        amount = int(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная сумма")
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Сумма должна быть больше нуля")
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT user_id, balance FROM users WHERE username = ?", (username,))
@@ -2755,7 +2785,7 @@ def music_shared_get(init_data: str = Query(..., alias="initData")):
 
     # Список на модерации (только для админов)
     pending = []
-    is_admin = user_id in ADMIN_IDS
+    is_admin = config.is_full_admin(user_id)
     if is_admin:
         cur.execute("""
             SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at,
@@ -3361,6 +3391,12 @@ def _notify_admins_purchase(buyer_id: int, item_type: str, price: int):
         f"📦 Товар: {item_name}\n"
         f"💰 Цена: {price:,} 🪙"
     )
+    if item_type in CONFIRMATION_REQUIRED:
+        text += (
+            f"\n\n⚠️ Требуется подтверждение владельца."
+            f"\nПодтвердить: /approve_{item_type}_{buyer_id}"
+            f"\nОтклонить: /reject_{item_type}_{buyer_id}"
+        )
 
     targets = set(ADMIN_IDS) | set(config.TECH_ADMIN_IDS) | {config.OWNER_ID}
     for admin_id in targets:
