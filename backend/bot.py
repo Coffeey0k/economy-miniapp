@@ -1759,12 +1759,14 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
     rname = data["recipient_name"]
     amount = data["amount"]
     sid = callback.from_user.id
-    if amount > db.get_balance(sid):
-        await callback.message.edit_text("❌ Недостаточно", reply_markup=back_to_main_menu())
+    if not db.transfer_coins(sid, rid, amount):
+        await callback.message.edit_text(
+            "❌ Перевод не выполнен: проверь баланс и попробуй ещё раз.",
+            reply_markup=back_to_main_menu(),
+        )
         await state.clear()
+        await callback.answer()
         return
-    db.update_balance(sid, -amount)
-    db.update_balance(rid, amount)
     db.log_action(sid, "transfer", f"Перевод @{rname}", amount=amount, target_user_id=rid)
     await callback.message.edit_text(
         f"✅ Переведено {amount} 🪙 @{rname}\nБаланс: {db.get_balance(sid)} 🪙",
