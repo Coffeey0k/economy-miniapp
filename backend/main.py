@@ -2492,6 +2492,168 @@ SHIP_INCOME = 75000
 SHIP_COOLDOWN = 48 * 3600
 
 
+
+# ========== ТРЕЙДЫ ПРЕДМЕТАМИ MINI APP ==========
+
+TRADE_ITEM_TYPES = {"color", "frame", "status", "theme"}
+
+
+@app.get("/api/trades/inventory")
+def get_trade_inventory(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT item_type, item_key FROM user_cosmetics_owned WHERE user_id = %s ORDER BY item_type, item_key",
+        (user_id,),
+    )
+    items = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return {"items": items}
+
+
+@app.get("/api/trades")
+def get_trades(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT t.id, t.from_user, t.to_user, t.offer_type, t.offer_key,
+               t.request_type, t.request_key, t.status, t.created_at,
+               u1.username AS from_username, u2.username AS to_username
+        FROM web_trades t
+        LEFT JOIN users u1 ON u1.user_id = t.from_user
+        LEFT JOIN users u2 ON u2.user_id = t.to_user
+        WHERE (t.from_user = %s OR t.to_user = %s)
+          AND t.status = 'pending'
+        ORDER BY t.id DESC LIMIT 50
+    """, (user_id, user_id))
+    rows = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return {"trades": rows}
+
+
+@app.post("/api/trades/create")
+def create_trade(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    target_username = str(payload.get("target_username", "")).strip().lstrip("@")
+    offer_type = payload.get("offer_type")
+    offer_key = payload.get("offer_key")
+    request_type = payload.get("request_type")
+    request_key = payload.get("request_key")
+    if not target_username or not offer_key or not request_key:
+        raise HTTPException(status_code=400, detail="Заполни получателя и оба предмета")
+    if offer_type not in TRADE_ITEM_TYPES or request_type not in TRADE_ITEM_TYPES:
+        raise HTTPException(status_code=400, detail="Неизвестный тип предмета")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE LOWER(REPLACE(username, '@', '')) = LOWER(%s) LIMIT 1", (target_username,))
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игрок не найден")
+    target_id = int(target["user_id"])
+    if target_id == user_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Нельзя обмениваться с самим собой")
+    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
+                (user_id, offer_type, offer_key))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="У тебя нет предмета, который предлагаешь")
+    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
+                (target_id, request_type, request_key))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="У выбранного игрока нет запрошенного предмета")
+    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
+                (user_id, request_type, request_key))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ты уже владеешь запрошенным предметом")
+    cur.execute("""
+        INSERT INTO web_trades (from_user, to_user, offer_type, offer_key, request_type, request_key, status)
+        VALUES (%s, %s, %s, %s, %s, %s, 'pending')
+    """, (user_id, target_id, offer_type, offer_key, request_type, request_key))
+    trade_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"ok": True, "trade_id": trade_id, "message": "Предложение создано. Обмен произойдёт только после принятия."}
+
+
+@app.post("/api/trades/resolve")
+def resolve_trade(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        trade_id = int(payload.get("trade_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный ID обмена")
+    action = payload.get("action")
+    if action not in {"accept", "decline", "cancel"}:
+        raise HTTPException(status_code=400, detail="Неизвестное действие")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM web_trades WHERE id = %s", (trade_id,))
+    trade = cur.fetchone()
+    if not trade or trade["status"] != "pending":
+        conn.close()
+        raise HTTPException(status_code=404, detail="Предложение уже недоступно")
+    if action == "cancel":
+        if user_id != trade["from_user"]:
+            conn.close()
+            raise HTTPException(status_code=403, detail="Отменить предложение может только автор")
+        cur.execute("UPDATE web_trades SET status = 'cancelled', resolved_at = CURRENT_TIMESTAMP WHERE id = %s AND status = 'pending'", (trade_id,))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "message": "Предложение отменено"}
+    if user_id != trade["to_user"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Только получатель может ответить на предложение")
+    if action == "decline":
+        cur.execute("UPDATE web_trades SET status = 'declined', resolved_at = CURRENT_TIMESTAMP WHERE id = %s AND status = 'pending'", (trade_id,))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "message": "Предложение отклонено"}
+
+    # Проверяем владение обеими вещами заново внутри транзакции.
+    a = (trade["from_user"], trade["offer_type"], trade["offer_key"])
+    b = (trade["to_user"], trade["request_type"], trade["request_key"])
+    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s", a)
+    sender_owns = cur.fetchone() is not None
+    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s", b)
+    receiver_owns = cur.fetchone() is not None
+    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
+                (trade["from_user"], trade["request_type"], trade["request_key"]))
+    sender_would_duplicate = cur.fetchone() is not None
+    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
+                (trade["to_user"], trade["offer_type"], trade["offer_key"]))
+    receiver_would_duplicate = cur.fetchone() is not None
+    if not sender_owns or not receiver_owns or sender_would_duplicate or receiver_would_duplicate:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Предметы изменились или обмен создаст дубликат. Предложение нельзя принять.")
+
+    cur.execute("DELETE FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s", a)
+    cur.execute("DELETE FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s", b)
+    cur.execute("INSERT INTO user_cosmetics_owned (user_id, item_type, item_key) VALUES (%s, %s, %s)",
+                (trade["from_user"], trade["request_type"], trade["request_key"]))
+    cur.execute("INSERT INTO user_cosmetics_owned (user_id, item_type, item_key) VALUES (%s, %s, %s)",
+                (trade["to_user"], trade["offer_type"], trade["offer_key"]))
+    # If an equipped item leaves its owner, clear the matching equipped slot.
+    col_map = {"color": "nickname_color", "frame": "frame", "status": "status", "theme": "theme"}
+    for owner_id, item_type, item_key in (a, b):
+        col = col_map[item_type]
+        cur.execute(f"UPDATE user_cosmetics SET {col} = NULL WHERE user_id = %s AND {col} = %s", (owner_id, item_key))
+    cur.execute("UPDATE web_trades SET status = 'accepted', resolved_at = CURRENT_TIMESTAMP WHERE id = %s AND status = 'pending'", (trade_id,))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=409, detail="Предложение уже обработано")
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Обмен завершён. Оба предмета переданы."}
+
+
 @app.get("/api/island")
 def get_island(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
