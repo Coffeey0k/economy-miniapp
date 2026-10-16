@@ -381,8 +381,8 @@ def get_top(init_data: str = Query(..., alias="initData")):
 HALLOWEEN_REWARD = 500
 
 def _halloween_is_active() -> bool:
-    # Start at midnight in Europe/Bratislava, independent of the host server timezone.
-    now = datetime.now(ZoneInfo("Europe/Bratislava"))
+    # Start at midnight Moscow time, independent of the host server timezone.
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
     return now.year == 2026 and now.month == 10 and now.day == 31
 
 
@@ -404,8 +404,8 @@ def halloween_event_status(init_data: str = Query(..., alias="initData")):
         "reward": HALLOWEEN_REWARD,
         "title": "🎃 Хэллоуин в Lavender Dream",
         "description": "Загляни на хэллоуинский праздник и забери праздничные монеты!",
-        "starts_at": "2026-10-31T00:00:00+02:00",
-        "ends_at": "2026-11-01T00:00:00+01:00",
+        "starts_at": "2026-10-31T00:00:00+03:00",
+        "ends_at": "2026-11-01T00:00:00+03:00",
     }
 
 
