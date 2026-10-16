@@ -437,13 +437,13 @@ def buy_catalog_item(payload: dict = Body(...)):
     try:
         bot_db.log_action(user_id, "purchase", f"Куплено (Mini App): {item['name']}", amount=price)
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     # Уведомляем всех админов
     try:
         _notify_admins_purchase(user_id, item_type, price)
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     if item_type in CONFIRMATION_REQUIRED:
         return {"ok": True, "message": f"Покупка «{item['name']}» оформлена, ждите подтверждения владельца в боте."}
@@ -841,7 +841,7 @@ def claim_bonus(payload: dict = Body(...)):
     try:
         bot_db.log_action(user_id, "bonus", "Ежедневный бонус (Mini App)", amount=bonus)
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     return {"ok": True, "amount": bonus}
 
 
@@ -879,7 +879,7 @@ def transfer_coins(payload: dict = Body(...)):
             amount=amount, target_user_id=target_id
         )
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}"}
 
 # ========== API: ИГРЫ ==========
@@ -992,7 +992,7 @@ def play_game(payload: dict = Body(...)):
             amount=(win if win > 0 else -bet),
         )
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     return {"ok": True, "win": win, "text": text}
 
 
@@ -1287,7 +1287,7 @@ def ms_open_api(payload: dict = Body(...)):
         try:
             bot_db.log_action(user_id, "game", f"Сапёр: проигрыш; ставка={row['bet']}", amount=-int(row["bet"]))
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
         return {
             "ok": True, "result": "boom",
             "board": "".join(board), "revealed": revealed_str,
@@ -1341,7 +1341,7 @@ def ms_open_api(payload: dict = Body(...)):
         try:
             bot_db.log_action(user_id, "game", f"Сапёр: победа; ставка={row['bet']}", amount=max(0, MS_REWARD - int(row["bet"])))
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
 
     return {
         "ok": True,
@@ -1717,7 +1717,7 @@ def bs_fire(payload: dict = Body(...)):
                 amount=net_amount,
             )
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
 
     return {
         "ok": True,
@@ -1751,7 +1751,7 @@ def send_friend_notification_sync(chat_id: int, text: str):
                 "disable_web_page_preview": True
             })
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
 @app.get("/api/friends")
 def get_friends(init_data: str = Query(..., alias="initData")):
@@ -1871,7 +1871,7 @@ def add_friend(payload: dict = Body(...)):
                 f"✅ @{sender_username} принял твою заявку — вы теперь друзья!"
             )
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
         return {"ok": True, "mutual": True, "message": f"Вы и @{username} теперь друзья!"}
        
     # Обычная заявка (upsert — обновляем статус, если запись уже есть)
@@ -1891,7 +1891,7 @@ def add_friend(payload: dict = Body(...)):
             f"Открой бота → раздел «👥 Друзья», чтобы принять или отклонить."
         )
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     return {"ok": True, "mutual": False, "message": f"Заявка отправлена @{username}"}
 
@@ -3302,7 +3302,7 @@ def _delete_user_full_main(cur, user_id: int):
             try:
                 cur.connection.rollback()
             except Exception:
-                pass
+                logger.exception("Не удалось выполнить необязательную операцию")
 
     # Друзья (где он фигурирует как friend_id или to_user)
     for q in [
@@ -3358,7 +3358,7 @@ def _mark_user_blocked(user_id: int):
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
 
 def _safe_bot_send(chat_id: int, text: str, **kwargs) -> bool:
@@ -3457,7 +3457,7 @@ def get_gifts(init_data: str = Query(..., alias="initData")):
         r = cur.fetchone()
         rcc_balance = r["balance"] if r else 0.0
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     # Питомцы
     cur.execute("SELECT id, pet_name, rarity FROM pets WHERE user_id = %s", (user_id,))
@@ -3680,7 +3680,7 @@ def tech_me(init_data: str = Query(..., alias="initData")):
         try:
             test_mode = bot_db.is_test_mode(user_id)
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
     return {"is_tech_admin": is_tech, "test_mode": test_mode}
 
 
