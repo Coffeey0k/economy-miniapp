@@ -129,6 +129,24 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pet_slot_limits (
+            user_id BIGINT PRIMARY KEY,
+            slots INTEGER NOT NULL DEFAULT 4
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pet_care (
+            pet_id BIGINT PRIMARY KEY,
+            energy INTEGER NOT NULL DEFAULT 100,
+            mood INTEGER NOT NULL DEFAULT 100,
+            health INTEGER NOT NULL DEFAULT 100,
+            level INTEGER NOT NULL DEFAULT 1,
+            experience INTEGER NOT NULL DEFAULT 0,
+            last_care TEXT
+        )
+    """)
+
     # === ПРОФЕССИИ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS professions (
@@ -1283,14 +1301,73 @@ CURSED_EGG_PETS = [
 ]
 
 
+def get_pet_slot_limit(user_id: int) -> int:
+    """4 слота по умолчанию; максимум 15."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT slots FROM pet_slot_limits WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return max(4, min(15, int(row[0]))) if row else 4
+
+
+def buy_pet_slot(user_id: int) -> tuple:
+    """Покупает один слот. Возвращает (success, message)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT slots FROM pet_slot_limits WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    slots = max(4, min(15, int(row[0]))) if row else 4
+    if slots >= 15:
+        conn.close()
+        return False, "У тебя уже максимум — 15 слотов."
+    price = 5000 * (slots - 2)  # цена растёт с каждым новым слотом
+    conn.close()
+    # Списываем перед сохранением слота; повторная покупка ограничивается повторной проверкой.
+    if not update_balance(user_id, -price):
+        return False, f"Недостаточно LDC. Следующий слот стоит {price:,}."
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO pet_slot_limits (user_id, slots) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET slots = EXCLUDED.slots",
+        (user_id, slots + 1),
+    )
+    conn.commit()
+    conn.close()
+    return True, f"Куплен слот {slots + 1}/15 за {price:,} LDC."
+
+
+def _add_pet_with_slot_check(user_id: int, pet: tuple) -> bool:
+    """Новый питомец активируется только если есть свободный слот."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM pets WHERE user_id = ? AND is_active = 1", (user_id,))
+    active_count = cur.fetchone()[0]
+    slots = get_pet_slot_limit(user_id)
+    is_active = 1 if active_count < slots else 0
+    cur.execute(
+        "INSERT INTO pets (user_id, pet_name, pet_emoji, rarity, income, is_active) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, pet[0], pet[0].split()[0], pet[1], pet[2], is_active),
+    )
+    pet_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO pet_care (pet_id) VALUES (?) ON CONFLICT(pet_id) DO NOTHING",
+        (pet_id,),
+    )
+    conn.commit()
+    conn.close()
+    return bool(is_active)
+
+
 def open_egg(user_id: int, egg_type: str) -> Optional[dict]:
-    """Открывает яйцо, списывает монеты, добавляет питомца. Возвращает питомца или None."""
+    """Открывает яйцо; питомец сохраняется даже если все активные слоты заняты."""
     if egg_type not in PET_EGGS:
         return None
     egg = PET_EGGS[egg_type]
     if not update_balance(user_id, -egg["price"]):
         return None
-    # Выбор питомца
     pets = egg["pets"]
     total = sum(p[3] for p in pets)
     r = random.uniform(0, total)
@@ -1301,19 +1378,8 @@ def open_egg(user_id: int, egg_type: str) -> Optional[dict]:
             chosen = p
             break
         upto += p[3]
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO pets (user_id, pet_name, pet_emoji, rarity, income)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, chosen[0], chosen[0].split()[0], chosen[1], chosen[2]))
-    conn.commit()
-    conn.close()
-    return {
-        "name": chosen[0],
-        "rarity": chosen[1],
-        "income": chosen[2],
-    }
+    activated = _add_pet_with_slot_check(user_id, chosen)
+    return {"name": chosen[0], "rarity": chosen[1], "income": chosen[2], "is_active": activated}
 
 
 def open_cursed_egg(user_id: int) -> Optional[dict]:
@@ -1324,9 +1390,10 @@ def open_cursed_egg(user_id: int) -> Optional[dict]:
     if not row or not row[1] or row[0] <= 0:
         conn.close()
         return None
+    conn.close()
     if not update_balance(user_id, -10000):
-        conn.close()
         return None
+
     pets = CURSED_EGG_PETS
     total = sum(p[3] for p in pets)
     r = random.uniform(0, total)
@@ -1337,17 +1404,24 @@ def open_cursed_egg(user_id: int) -> Optional[dict]:
             chosen = p
             break
         upto += p[3]
-    cur.execute("""
-        INSERT INTO pets (user_id, pet_name, pet_emoji, rarity, income)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, chosen[0], chosen[0].split()[0], chosen[1], chosen[2]))
-    cur.execute("UPDATE cursed_egg SET stock = stock - 1 WHERE id = 1")
-    stock_left = row[0] - 1
+
+    activated = _add_pet_with_slot_check(user_id, chosen)
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE cursed_egg SET stock = stock - 1 WHERE id = 1 AND stock > 0 AND is_active = 1")
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        # Не удалось зарезервировать яйцо: возвращаем ставку.
+        update_balance(user_id, 10000)
+        return None
+    cur.execute("SELECT stock FROM cursed_egg WHERE id = 1")
+    stock_left = cur.fetchone()[0]
     if stock_left <= 0:
         cur.execute("UPDATE cursed_egg SET is_active = 0 WHERE id = 1")
     conn.commit()
     conn.close()
-    return {"name": chosen[0], "rarity": chosen[1], "income": chosen[2], "stock_left": stock_left}
+    return {"name": chosen[0], "rarity": chosen[1], "income": chosen[2], "stock_left": stock_left, "is_active": activated}
 
 
 def get_user_pets(user_id: int) -> List[dict]:
@@ -1374,9 +1448,14 @@ def count_active_pets(user_id: int) -> int:
 def set_pet_active(pet_id: int, user_id: int, active: bool) -> bool:
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    if active:
+    cur.execute("SELECT is_active FROM pets WHERE id = ? AND user_id = ?", (pet_id, user_id))
+    pet = cur.fetchone()
+    if not pet:
+        conn.close()
+        return False
+    if active and not pet[0]:
         cur.execute("SELECT COUNT(*) FROM pets WHERE user_id = ? AND is_active = 1", (user_id,))
-        if cur.fetchone()[0] >= 2:
+        if cur.fetchone()[0] >= get_pet_slot_limit(user_id):
             conn.close()
             return False
     cur.execute("UPDATE pets SET is_active = ? WHERE id = ? AND user_id = ?",
