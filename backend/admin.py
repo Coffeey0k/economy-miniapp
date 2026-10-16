@@ -302,7 +302,11 @@ async def admin_add_item(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     await callback.message.edit_text(
-        "➕ Добавление товара\n\nВведите технический ID товара (латиницей, например my_item):",
+        "➕ Добавление товара или буста\n\n"
+        "Обычный товар: my_item\n"
+        "Буст бонуса: boost_bonus_50\n"
+        "Буст работы: boost_work_50\n"
+        "Число в конце — сокращение следующего кулдауна в процентах (1–90).",
         reply_markup=cancel_button()
     )
     await state.set_state(AdminStates.waiting_item_type)
@@ -311,7 +315,11 @@ async def admin_add_item(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminStates.waiting_item_type)
 async def admin_item_type(message: Message, state: FSMContext):
-    await state.update_data(item_type=message.text.strip().lower().replace(" ", "_"))
+    item_type = message.text.strip().lower().replace(" ", "_")
+    if item_type.startswith("boost_") and db.parse_boost_item(item_type) is None:
+        await message.answer("❌ Формат буста: boost_bonus_50 или boost_work_50 (1–90).")
+        return
+    await state.update_data(item_type=item_type)
     await message.answer("Введите название товара (с эмодзи):")
     await state.set_state(AdminStates.waiting_item_name)
 
@@ -329,6 +337,9 @@ async def admin_item_price(message: Message, state: FSMContext):
         price = int(message.text)
     except ValueError:
         await message.answer("❌ Введите число")
+        return
+    if price <= 0:
+        await message.answer("❌ Цена должна быть больше нуля.")
         return
     await state.update_data(item_price=price)
     await message.answer("Введите описание (или напишите 'нет'):")
