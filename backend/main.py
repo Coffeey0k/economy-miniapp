@@ -535,7 +535,7 @@ def get_professions(init_data: str = Query(..., alias="initData")):
     cur = conn.cursor()
     cur.execute(
         "SELECT profession, level, last_work, days_worked, total_changes "
-        "FROM professions WHERE user_id = ? FOR UPDATE",
+        "FROM professions WHERE user_id = ?",
         (user_id,),
     )
     row = cur.fetchone()
