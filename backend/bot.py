@@ -1127,7 +1127,20 @@ async def transfer_word_trigger(message: Message, state: FSMContext):
 @dp.message(F.text.lower().strip().in_({"задания", "задание"}))
 async def tasks_word_trigger(message: Message):
     db.assign_daily_tasks(message.from_user.id)
-    await message.answer("📋 Ежедневные задания Lavender Dream:", reply_markup=tasks_menu())
+    tasks = db.get_user_tasks(message.from_user.id)
+    if not tasks:
+        await message.answer("📋 Заданий пока нет. Загляни позже!", reply_markup=tasks_menu())
+        return
+    from database import DAILY_TASKS
+    lines = ["📋 Ежедневные задания:", ""]
+    for task in tasks:
+        info = DAILY_TASKS.get(task["task_type"], {})
+        status = "✅ выполнено" if task["is_done"] else f"{task['progress']}/{task['target']}"
+        lines.append(f"{info.get('name', task['task_type'])} — {status} (+{task['reward']} 🪙)")
+        if info.get("desc"):
+            lines.append(f"   {info['desc']}")
+        lines.append("")
+    await message.answer("\n".join(lines), reply_markup=tasks_menu())
 
 
 @dp.message(F.text.lower().strip().in_({"топ", "банк топ"}))
