@@ -846,11 +846,16 @@ async def pet_info(callback: CallbackQuery):
     if not pet:
         await callback.answer("❌ Не найден", show_alert=True)
         return
+    care = db.get_pet_care(pet_id, callback.from_user.id) or {"energy": 100, "mood": 100, "health": 100, "level": 1, "experience": 0}
     await callback.message.edit_text(
         f"🐾 {pet['name']}\n"
         f"Редкость: {pet['rarity']}\n"
+        f"Уровень: {care['level']} | Опыт: {care['experience']}\n"
+        f"⚡ Энергия: {care['energy']}/100\n"
+        f"😊 Настроение: {care['mood']}/100\n"
+        f"❤️ Здоровье: {care['health']}/100\n"
         f"Доход: {pet['income']} 🪙 раз в 4 часа\n"
-        f"Статус: {'✅ активен' if pet['is_active'] else '💤 спит'}",
+        f"Статус: {'✅ активен' if pet['is_active'] else '💤 неактивен'}",
         reply_markup=pet_actions_menu(pet_id, pet["is_active"])
     )
     await callback.answer()
@@ -880,13 +885,53 @@ async def pet_info_by_id(callback: CallbackQuery, pet_id: int):
     pet = next((p for p in pets if p["id"] == pet_id), None)
     if not pet:
         return
+    care = db.get_pet_care(pet_id, callback.from_user.id) or {"energy": 100, "mood": 100, "health": 100, "level": 1, "experience": 0}
     await callback.message.edit_text(
         f"🐾 {pet['name']}\n"
         f"Редкость: {pet['rarity']}\n"
+        f"Уровень: {care['level']} | Опыт: {care['experience']}\n"
+        f"⚡ Энергия: {care['energy']}/100\n"
+        f"😊 Настроение: {care['mood']}/100\n"
+        f"❤️ Здоровье: {care['health']}/100\n"
         f"Доход: {pet['income']} 🪙 раз в 4 часа\n"
-        f"Статус: {'✅ активен' if pet['is_active'] else '💤 спит'}",
+        f"Статус: {'✅ активен' if pet['is_active'] else '💤 неактивен'}",
         reply_markup=pet_actions_menu(pet_id, pet["is_active"])
     )
+
+
+@dp.callback_query(F.data.startswith("pet_care_"))
+async def pet_care_handler(callback: CallbackQuery):
+    parts = callback.data.split("_")
+    if len(parts) != 4:
+        await callback.answer("Некорректное действие.", show_alert=True)
+        return
+    action, pet_id_raw = parts[2], parts[3]
+    try:
+        pet_id = int(pet_id_raw)
+    except ValueError:
+        await callback.answer("Некорректный питомец.", show_alert=True)
+        return
+    ok, message_text = db.care_for_pet(callback.from_user.id, pet_id, action)
+    if not ok:
+        await callback.answer(message_text, show_alert=True)
+        return
+    await callback.answer(message_text, show_alert=False)
+    await pet_info_by_id(callback, pet_id)
+
+
+@dp.callback_query(F.data.startswith("pet_sell_"))
+async def pet_sell_handler(callback: CallbackQuery):
+    try:
+        pet_id = int(callback.data.rsplit("_", 1)[1])
+    except ValueError:
+        await callback.answer("Некорректный питомец.", show_alert=True)
+        return
+    ok, message_text = db.sell_pet_to_system(callback.from_user.id, pet_id)
+    if not ok:
+        await callback.answer(message_text, show_alert=True)
+        return
+    await callback.message.edit_text(message_text, reply_markup=pets_menu())
+    await callback.answer("Продано!")
 
 
 @dp.callback_query(F.data.startswith("pet_gift_"))
