@@ -138,8 +138,9 @@ def cancel_button() -> InlineKeyboardMarkup:
 def pets_menu() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🐾 Мои питомцы", callback_data="my_pets"))
+    builder.row(InlineKeyboardButton(text="🪹 Купить слот", callback_data="pet_slot_buy"))
     builder.row(InlineKeyboardButton(text="🥚 Купить яйцо", callback_data="eggs_menu"))
-    builder.row(InlineKeyboardButton(text="🎁 Подарить питомца", callback_data="gift_pet_start"))
+    builder.row(InlineKeyboardButton(text="🎁 Передать питомца", callback_data="gift_pet_start"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
 
