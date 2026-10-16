@@ -373,6 +373,65 @@ def get_top(init_data: str = Query(..., alias="initData")):
 
 # ========== API: КАТАЛОГ ==========
 
+
+# ========== ХЭЛЛОУИНСКИЙ ИВЕНТ 2026 ==========
+HALLOWEEN_REWARD = 500
+
+def _halloween_is_active() -> bool:
+    now = datetime.now()
+    return now.year == 2026 and now.month == 10 and now.day == 31
+
+
+@app.get("/api/events/halloween")
+def halloween_event_status(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    active = _halloween_is_active()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM halloween_claims WHERE user_id = ? AND event_key = 'halloween_2026'",
+        (user_id,),
+    )
+    claimed = cur.fetchone() is not None
+    conn.close()
+    return {
+        "active": active,
+        "claimed": claimed,
+        "reward": HALLOWEEN_REWARD,
+        "title": "🎃 Хэллоуин в Lavender Dream",
+        "description": "Загляни на хэллоуинский праздник и забери праздничные монеты!",
+        "starts_at": "2026-10-31T00:00:00",
+        "ends_at": "2026-11-01T00:00:00",
+    }
+
+
+@app.post("/api/events/halloween/claim")
+def claim_halloween_event(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    if not _halloween_is_active():
+        raise HTTPException(status_code=400, detail="Хэллоуинский ивент пока не активен")
+
+    conn = db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO halloween_claims (user_id, event_key) VALUES (?, 'halloween_2026')",
+            (user_id,),
+        )
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ты уже забрал хэллоуинскую награду")
+    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (HALLOWEEN_REWARD, user_id))
+    conn.commit()
+    conn.close()
+    try:
+        bot_db.log_action(user_id, "event", "Хэллоуин 2026: награда", amount=HALLOWEEN_REWARD)
+    except Exception:
+        logger.exception("Не удалось записать лог хэллоуинской награды")
+    return {"ok": True, "amount": HALLOWEEN_REWARD, "message": f"🎃 Ты получил {HALLOWEEN_REWARD} 🪙!"}
+
+
 @app.get("/api/catalog")
 def get_catalog(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
@@ -430,6 +489,14 @@ def buy_catalog_item(payload: dict = Body(...)):
     cur.execute(
         "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)", (user_id, item_type)
     )
+    boost = bot_db.parse_boost_item(item_type)
+    if boost:
+        boost_type, reduction = boost
+        cur.execute(
+            "INSERT INTO user_boosts (user_id, boost_type, reduction_percent, uses_remaining) "
+            "VALUES (?, ?, ?, 1)",
+            (user_id, boost_type, reduction),
+        )
     conn.commit()
     conn.close()
 
@@ -628,7 +695,7 @@ def work_profession(payload: dict = Body(...)):
     now = datetime.now()
     if row["last_work"]:
         delta = now - datetime.fromisoformat(row["last_work"])
-        cooldown = info["cooldown_hours"] * 3600
+        cooldown = bot_db.get_user_cooldown_seconds(user_id, "work", info["cooldown_hours"] * 3600)
         if delta.total_seconds() < cooldown:
             remaining = cooldown - int(delta.total_seconds())
             conn.close()
@@ -654,7 +721,12 @@ def work_profession(payload: dict = Body(...)):
     """, (now.isoformat(), new_days, new_level, today, user_id))
     conn.commit()
     conn.close()
-    return {"ok": True, "message": f"Заработано {salary} 🪙! Уровень {new_level} ({new_days}/7 дней)"}
+    reduction = bot_db.consume_user_boost(user_id, "work")
+    base_cooldown = info["cooldown_hours"] * 3600
+    next_cooldown = base_cooldown * (100 - reduction) // 100 if reduction else base_cooldown
+    bot_db.set_user_cooldown_seconds(user_id, "work", next_cooldown)
+    boost_message = f" Буст сократил следующий отдых на {reduction}%." if reduction else ""
+    return {"ok": True, "message": f"Заработано {salary} 🪙! Уровень {new_level} ({new_days}/7 дней).{boost_message}"}
 
 
 # ========== API: ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ==========
@@ -809,10 +881,11 @@ def get_bonus_status(init_data: str = Query(..., alias="initData")):
     if not row:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     can_claim, remaining = True, 0
+    cooldown = bot_db.get_user_cooldown_seconds(user_id, "bonus", BONUS_COOLDOWN)
     if row["last_bonus_time"]:
         delta = (datetime.now() - datetime.fromisoformat(row["last_bonus_time"])).total_seconds()
-        if delta < BONUS_COOLDOWN:
-            can_claim, remaining = False, int(BONUS_COOLDOWN - delta)
+        if delta < cooldown:
+            can_claim, remaining = False, int(cooldown - delta)
     return {"can_claim": can_claim, "remaining_seconds": remaining}
 
 
@@ -841,6 +914,9 @@ def claim_bonus(payload: dict = Body(...)):
     )
     conn.commit()
     conn.close()
+    reduction = bot_db.consume_user_boost(user_id, "bonus")
+    next_cooldown = BONUS_COOLDOWN * (100 - reduction) // 100 if reduction else BONUS_COOLDOWN
+    bot_db.set_user_cooldown_seconds(user_id, "bonus", next_cooldown)
     try:
         bot_db.log_action(user_id, "bonus", "Ежедневный бонус (Mini App)", amount=bonus)
     except Exception:
@@ -997,6 +1073,171 @@ def play_game(payload: dict = Body(...)):
     except Exception:
         logger.exception("Не удалось выполнить необязательную операцию")
     return {"ok": True, "win": win, "text": text}
+
+
+
+# ========== КРЕСТИКИ-НОЛИКИ MINI APP ==========
+def _ttt_bot_choice(board: str) -> int:
+    cells = list(board)
+    for symbol in ("O", "X"):
+        for a, b, c in bot_db.TTT_LINES:
+            line = [cells[a], cells[b], cells[c]]
+            if line.count(symbol) == 2 and line.count("_") == 1:
+                return (a, b, c)[line.index("_")]
+    if cells[4] == "_":
+        return 4
+    for cell in (0, 2, 6, 8, 1, 3, 5, 7):
+        if cells[cell] == "_":
+            return cell
+    return 0
+
+
+def _ttt_game_payload(game, balance):
+    return {
+        "game_id": game["id"], "board": game["board"], "status": game["status"],
+        "winner": game["winner"], "bet": game["bet"], "balance": balance,
+        "payout": game["bet"] * 2 if game["status"] == "finished" and game["winner"] == game["player_x"] else (game["bet"] if game["status"] == "draw" else 0),
+    }
+
+
+@app.post("/api/ttt/start")
+def ttt_start(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        bet = int(payload.get("bet") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная ставка")
+    if bet <= 0 or bet > 100000:
+        raise HTTPException(status_code=400, detail="Ставка должна быть от 1 до 100000")
+    conn = db()
+    cur = conn.cursor()
+    if not change_balance(cur, user_id, -bet):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно монет")
+    cur.execute(
+        "INSERT INTO ttt_games (player_x, player_o, is_vs_bot, board, turn, bet, status) "
+        "VALUES (?, NULL, 1, '_________', ?, ?, 'active')",
+        (user_id, user_id, bet),
+    )
+    game_id = cur.lastrowid
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {
+        "game_id": game_id, "board": "_________", "status": "active",
+        "winner": None, "bet": bet, "balance": balance, "payout": 0,
+    }
+
+
+@app.get("/api/ttt/state")
+def ttt_state(init_data: str = Query(..., alias="initData"), game_id: int = Query(...)):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, player_x, player_o, is_vs_bot, board, turn, bet, status, winner "
+        "FROM ttt_games WHERE id = ? AND player_x = ?",
+        (game_id, user_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    game = dict(row)
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return _ttt_game_payload(game, balance)
+
+
+@app.post("/api/ttt/move")
+def ttt_move_web(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        game_id, cell = int(payload.get("game_id")), int(payload.get("cell"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный ход")
+    if not 0 <= cell <= 8:
+        raise HTTPException(status_code=400, detail="Клетка вне поля")
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, player_x, player_o, is_vs_bot, board, turn, bet, status, winner "
+        "FROM ttt_games WHERE id = ? AND player_x = ? FOR UPDATE",
+        (game_id, user_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    game = dict(row)
+    if game["status"] != "active":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Игра уже завершена")
+    if game["turn"] != user_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сейчас не твой ход")
+    board = list(game["board"])
+    if board[cell] != "_":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Клетка уже занята")
+
+    board[cell] = "X"
+    status, winner_id = "active", None
+    result = bot_db.ttt_check_winner("".join(board))
+    if result == "X":
+        status, winner_id = "finished", user_id
+    elif result == "draw":
+        status = "draw"
+    else:
+        bot_cell = _ttt_bot_choice("".join(board))
+        board[bot_cell] = "O"
+        result = bot_db.ttt_check_winner("".join(board))
+        if result == "O":
+            status, winner_id = "finished", 0
+        elif result == "draw":
+            status = "draw"
+
+    final_board = "".join(board)
+    cur.execute(
+        "UPDATE ttt_games SET board = ?, status = ?, winner = ?, turn = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (final_board, status, winner_id, user_id, game_id),
+    )
+    payout = 0
+    won = status == "finished" and winner_id == user_id
+    lost = status == "finished" and winner_id == 0
+    if won:
+        payout = game["bet"] * 2
+        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (payout, user_id))
+    elif status == "draw":
+        payout = game["bet"]
+        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (payout, user_id))
+
+    cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
+    if status != "active":
+        cur.execute(
+            "UPDATE game_stats SET games_played = COALESCE(games_played,0) + 1, "
+            "games_won = COALESCE(games_won,0) + ?, total_earned = COALESCE(total_earned,0) + ?, "
+            "total_lost = COALESCE(total_lost,0) + ? WHERE user_id = ?",
+            (1 if won else 0, game["bet"] if won else 0, game["bet"] if lost else 0, user_id),
+        )
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    if status != "active":
+        try:
+            bot_db.log_action(
+                user_id, "game",
+                f"Крестики-нолики Mini App: ставка={game['bet']}; статус={status}; выплата={payout}",
+                amount=(game["bet"] if won else (-game["bet"] if lost else 0)),
+            )
+        except Exception:
+            logger.exception("Не удалось записать лог игры в крестики-нолики")
+    return {
+        "game_id": game_id, "board": final_board, "status": status, "winner": winner_id,
+        "bet": game["bet"], "balance": balance, "payout": payout,
+        "result": "win" if won else ("lose" if lost else ("draw" if status == "draw" else "next")),
+    }
 
 
 # ========== API: НАСТРОЙКИ ==========
