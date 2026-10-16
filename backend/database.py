@@ -2436,6 +2436,53 @@ def ttt_create_game(player_x, player_o, bet, is_vs_bot=False):
     conn.close()
     return game_id
 
+def ttt_accept_invite_atomic(invite_id: int, accepter_id: int) -> tuple:
+    """Одноразово принимает PvP-вызов, списывает обе ставки и создаёт игру одной транзакцией."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT from_user, to_user, bet, status FROM ttt_invites WHERE id = ?",
+        (invite_id,),
+    )
+    invite = cur.fetchone()
+    if not invite:
+        conn.close()
+        return False, "Приглашение не найдено."
+    from_user, to_user, bet, status = invite
+    if int(to_user) != int(accepter_id):
+        conn.close()
+        return False, "Это приглашение не для тебя."
+    if status != "pending":
+        conn.close()
+        return False, "Приглашение уже обработано."
+    cur.execute(
+        "UPDATE ttt_invites SET status = 'accepted' WHERE id = ? AND status = 'pending'",
+        (invite_id,),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "Приглашение уже обработано."
+    cur.execute("UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?", (bet, from_user, bet))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "У вызывающего недостаточно монет."
+    cur.execute("UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?", (bet, to_user, bet))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "У тебя недостаточно монет."
+    cur.execute(
+        "INSERT INTO ttt_games (player_x, player_o, is_vs_bot, turn, bet, status) VALUES (?, ?, 0, ?, ?, 'active')",
+        (from_user, to_user, from_user, bet),
+    )
+    game_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return True, {"game_id": game_id, "from_user": from_user, "to_user": to_user, "bet": bet}
+
+
 def ttt_get_game(game_id: int) -> Optional[dict]:
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
