@@ -1496,45 +1496,46 @@ async def work_word_handler(message: Message):
 
 @dp.message(F.text.lower().startswith("профиль"))
 async def profile_word_handler(message: Message):
-    """Ворд-триггер 'профиль' — показывает профиль свой или другого игрока"""
-    user_id = message.from_user.id
-    text = message.text.strip()
-
-    target_id = user_id
+    """Свой профиль — с кнопками; профиль по username/ID или reply — без кнопок."""
+    own_id = message.from_user.id
+    raw_text = message.text.strip()
+    target_id = own_id
     target_name = None
+    parts = raw_text.split(maxsplit=1)
 
-    parts = text.split(maxsplit=1)
-    if len(parts) > 1:
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.username
+    elif len(parts) > 1:
         arg = parts[1].strip().lstrip("@")
         if arg.isdigit():
             target_id = int(arg)
         else:
             conn = sqlite3.connect(db.DB_NAME)
             cur = conn.cursor()
-            cur.execute("SELECT user_id, username FROM users WHERE username = ?", (arg,))
+            cur.execute(
+                "SELECT user_id, username FROM users "
+                "WHERE LOWER(REPLACE(TRIM(username), '@', '')) = LOWER(?) LIMIT 1",
+                (arg,),
+            )
             row = cur.fetchone()
             conn.close()
             if not row:
                 await message.answer(f"❌ Пользователь @{arg} не найден.")
                 return
-            target_id = row[0]
-            target_name = row[1]
+            target_id, target_name = row[0], row[1]
 
     user = db.get_user(target_id)
     if not user:
         await message.answer("❌ Профиль не найден.")
         return
 
-    # Проверяем значки (target_id уже точно есть)
     db.check_badges(target_id)
-
-    uname = user["username"] or str(target_id)
     balance = user["balance"]
     rank = db.get_user_rank(target_id)
     warns = db.get_warn_count(target_id)
     pets = db.get_user_pets(target_id)
     prof = db.get_profession(target_id)
-
     display_name = db.get_display_name(target_id)
     cosmetics = db.get_cosmetics(target_id)
     badges = db.get_badges(target_id)
@@ -1544,21 +1545,21 @@ async def profile_word_handler(message: Message):
         lines.append(db.STATUSES[cosmetics["status"]]["name"])
     if badges:
         lines.append(" ".join(db.BADGES[b]["emoji"] for b in badges if b in db.BADGES))
-    lines.append("")
-    lines.append(f"🪙 Баланс: {balance:,}")
-    lines.append(f"🏆 Место в топе: #{rank}")
-    lines.append(f"⚠️ Предупреждения: {warns}")
-
+    lines.extend(["", f"🪙 Баланс: {balance:,}", f"🏆 Место в топе: #{rank}", f"⚠️ Предупреждения: {warns}"])
     if prof and prof["profession"]:
         from database import PROFESSIONS
-        pname = PROFESSIONS[prof["profession"]]["name"]
-        lines.append(f"💼 Профессия: {pname} (ур. {prof['level']})")
-
+        lines.append(f"💼 Профессия: {PROFESSIONS[prof['profession']]['name']} (ур. {prof['level']})")
     if pets:
-        active = sum(1 for p in pets if p["is_active"])
-        lines.append(f"🐾 Питомцев: {len(pets)} (активных: {active})")
+        lines.append(f"🐾 Питомцев: {len(pets)} (активных: {sum(1 for p in pets if p['is_active'])})")
 
-    await message.answer("\n".join(lines))
+    markup = None
+    if target_id == own_id:
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh_profile"))
+        builder.row(InlineKeyboardButton(text="🔙 Главное меню", callback_data="back_to_main"))
+        markup = builder.as_markup()
+    await message.answer("\n".join(lines), reply_markup=markup)
+
 
 @dp.message(F.text.lower() == "банк пинг")
 async def bank_ping_handler(message: Message):
