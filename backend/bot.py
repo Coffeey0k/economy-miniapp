@@ -1785,7 +1785,7 @@ async def test_chest(message: Message):
 
 # ==================== ТРЕКИНГ ЗАДАНИЙ ====================
 
-@dp.message(F.chat.type.in_({"group", "supergroup"}))
+@dp.message(F.chat.type.in_({"group", "supergroup"}), ~F.text.lower().startswith("кн "))
 async def track_daily_tasks(message: Message, state: FSMContext):
     """Отслеживает активность игроков в группах для ежедневных заданий."""
     # Пропускаем ботов
