@@ -905,7 +905,8 @@ def claim_bonus(payload: dict = Body(...)):
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     if row["last_bonus_time"]:
         delta = (datetime.now() - datetime.fromisoformat(row["last_bonus_time"])).total_seconds()
-        if delta < BONUS_COOLDOWN:
+        cooldown = bot_db.get_user_cooldown_seconds(user_id, "bonus", BONUS_COOLDOWN)
+        if delta < cooldown:
             conn.close()
             raise HTTPException(status_code=400, detail="Бонус ещё не готов")
 
