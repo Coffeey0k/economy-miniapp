@@ -1339,6 +1339,25 @@
     </div>
   </div>
   
+  <!-- ТРЕЙДЫ -->
+  <div class="tab" id="tab-trades">
+    <div class="card">
+      <h2>🔁 Обмен предметами</h2>
+      <p class="label">Предлагай косметические предметы другим игрокам. Обмен выполняется только после принятия предложения получателем.</p>
+      <input id="trade-target" type="text" placeholder="Username игрока (без @)">
+      <label class="label" for="trade-offer">Что отдаёшь</label>
+      <select id="trade-offer" class="input"></select>
+      <label class="label" for="trade-request">Что хочешь получить</label>
+      <select id="trade-request" class="input"></select>
+      <button class="btn" onclick="createWebTrade()">Создать предложение</button>
+      <button class="btn btn-secondary" onclick="loadTrades()">Обновить</button>
+    </div>
+    <div class="card">
+      <h2>📨 Активные предложения</h2>
+      <div id="trade-list"><p class="label">Загрузка…</p></div>
+    </div>
+  </div>
+
   <!-- ЕЩЁ -->
   <div class="tab" id="tab-more">
     <div id="more-msg"></div>
@@ -1354,6 +1373,7 @@
         <button class="tile" onclick="switchTab('music')"><span class="ic">🎵</span>Музыка</button>
         <button class="tile" onclick="switchTab('rcc')"><span class="ic">💰</span>RCC</button>
         <button class="tile" onclick="switchTab('gifts')"><span class="ic">🎁</span>Подарки</button>
+        <button class="tile" onclick="switchTab('trades')"><span class="ic">🔁</span>Трейды</button>
       </div>
     </div>
     <div class="card">
@@ -1425,6 +1445,7 @@
 
   const API_BASE = "https://economy-miniapp.onrender.com";
   const initData = tg.initData;
+  try { window._telegramUserId = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null; } catch (e) { window._telegramUserId = null; }
 
   async function apiGet(path) {
     const sep = path.includes("?") ? "&" : "?";
@@ -1494,6 +1515,7 @@
     if (name === "rcc") loadRcc();
     if (name === "users") loadUsers();
     if (name === "gifts") loadGifts();
+    if (name === "trades") loadTrades();
     if (name === "tech-admin") techInit();
   }
 
@@ -1708,6 +1730,64 @@
       loaded.wheel = false; loadWheel();
       loaded.profile = false; loadProfile();
     } catch (e) { showMsg("wheel-msg", e.message, false); }
+  }
+
+  function tradeItemLabel(item) {
+    const names = { color: "🎨 Цвет", frame: "🖼️ Рамка", status: "💬 Статус", theme: "🌈 Тема" };
+    return `${names[item.item_type] || item.item_type}: ${item.item_key}`;
+  }
+
+  async function loadTrades() {
+    const list = document.getElementById("trade-list");
+    if (!list) return;
+    try {
+      const [inventoryData, tradeData] = await Promise.all([apiGet("/api/trades/inventory"), apiGet("/api/trades")]);
+      const inventory = inventoryData.items || [];
+      const options = inventory.map((item, i) => `<option value="${i}">${escapeHtml(tradeItemLabel(item))}</option>`).join("");
+      for (const id of ["trade-offer", "trade-request"]) {
+        const select = document.getElementById(id);
+        if (select) select.innerHTML = options || '<option value="">Нет предметов для обмена</option>';
+      }
+      window._tradeInventory = inventory;
+      if (!inventory.length) {
+        list.innerHTML = '<p class="label">В инвентаре пока нет косметических предметов. Сначала приобрети их в разделе «Косметика».</p>';
+        return;
+      }
+      const trades = tradeData.trades || [];
+      list.innerHTML = trades.length ? trades.map(t => {
+        const incoming = Number(t.to_user) === Number(window._telegramUserId);
+        const other = incoming ? (t.from_username || t.from_user) : (t.to_username || t.to_user);
+        const offered = tradeItemLabel({item_type:t.offer_type,item_key:t.offer_key});
+        const requested = tradeItemLabel({item_type:t.request_type,item_key:t.request_key});
+        const actions = incoming
+          ? `<button class="btn btn-small" onclick="resolveWebTrade(${Number(t.id)},'accept')">Принять</button> <button class="btn btn-small" onclick="resolveWebTrade(${Number(t.id)},'decline')">Отклонить</button>`
+          : `<button class="btn btn-small" onclick="resolveWebTrade(${Number(t.id)},'cancel')">Отменить</button>`;
+        return `<div class="item-row"><div><b>${escapeHtml(other)}</b><p class="label">${escapeHtml(offered)} ⇄ ${escapeHtml(requested)}</p></div><div>${actions}</div></div>`;
+      }).join("") : '<p class="label">Активных предложений нет.</p>';
+    } catch (e) { list.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+
+  async function createWebTrade() {
+    const inventory = window._tradeInventory || [];
+    const offer = inventory[Number(document.getElementById("trade-offer").value)];
+    const request = inventory[Number(document.getElementById("trade-request").value)];
+    const target = document.getElementById("trade-target").value.trim();
+    if (!target || !offer || !request) return toast("Укажи игрока и выбери два предмета.", true);
+    if (offer.item_type === request.item_type && offer.item_key === request.item_key) return toast("Выбери разные предметы.", true);
+    try {
+      const result = await apiPost("/api/trades/create", {target_username:target, offer_type:offer.item_type, offer_key:offer.item_key, request_type:request.item_type, request_key:request.item_key});
+      toast(result.message || "Предложение создано.");
+      await loadTrades();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function resolveWebTrade(tradeId, action) {
+    try {
+      const result = await apiPost("/api/trades/resolve", {trade_id:tradeId, action});
+      toast(result.message || "Готово.");
+      await loadTrades();
+      if (typeof loadCosmetics === "function") loadCosmetics();
+    } catch (e) { toast(e.message, true); }
   }
 
   async function loadMore() {
