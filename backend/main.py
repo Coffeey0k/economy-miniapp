@@ -535,7 +535,7 @@ def get_professions(init_data: str = Query(..., alias="initData")):
     cur = conn.cursor()
     cur.execute(
         "SELECT profession, level, last_work, days_worked, total_changes "
-        "FROM professions WHERE user_id = ?",
+        "FROM professions WHERE user_id = ? FOR UPDATE",
         (user_id,),
     )
     row = cur.fetchone()
@@ -613,7 +613,7 @@ def work_profession(payload: dict = Body(...)):
     cur = conn.cursor()
     cur.execute(
         "SELECT profession, level, last_work, days_worked, last_work_day "
-        "FROM professions WHERE user_id = ?",
+        "FROM professions WHERE user_id = ? FOR UPDATE",
         (user_id,),
     )
     row = cur.fetchone()
@@ -698,7 +698,8 @@ def get_wheel(init_data: str = Query(..., alias="initData")):
     sectors = [dict(r) for r in cur.fetchall()]
 
     cur.execute("INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,))
-    cur.execute("SELECT last_wheel_time FROM user_settings WHERE user_id = ?", (user_id,))
+    # Serialize spins for this user; otherwise concurrent requests can both win.
+    cur.execute("SELECT last_wheel_time FROM user_settings WHERE user_id = ? FOR UPDATE", (user_id,))
     row = cur.fetchone()
     conn.commit()
     conn.close()
@@ -801,7 +802,8 @@ def get_bonus_status(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT last_bonus_time FROM users WHERE user_id = ?", (user_id,))
+    # Lock the user's row so concurrent claims cannot both pass the cooldown check.
+    cur.execute("SELECT last_bonus_time FROM users WHERE user_id = ? FOR UPDATE", (user_id,))
     row = cur.fetchone()
     conn.close()
     if not row:
@@ -2202,6 +2204,24 @@ def apply_cosmetics(payload: dict = Body(...)):
 
     conn = db()
     cur = conn.cursor()
+    valid_keys = {
+        "color": NICK_COLORS,
+        "frame": FRAMES,
+        "status": STATUSES,
+        "theme": THEMES,
+    }[item_type]
+    if item_key not in valid_keys:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Неизвестный предмет косметики")
+
+    cur.execute(
+        "SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
+        (user_id, item_type, item_key),
+    )
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=403, detail="Эта косметика ещё не куплена")
+
     cur.execute("INSERT INTO user_cosmetics (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
     cur.execute(f"UPDATE user_cosmetics SET {col} = %s WHERE user_id = %s", (item_key, user_id))
     conn.commit()
