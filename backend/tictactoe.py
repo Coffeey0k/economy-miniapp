@@ -83,6 +83,9 @@ async def ttt_create(message: Message):
 
     # === Игра с ботом ===
     if target_raw in ("бот", "bot"):
+        if not db.update_balance(from_user, -bet):
+            await message.answer("❌ Не удалось списать ставку. Попробуй ещё раз.")
+            return
         game_id = db.ttt_create_game(
             player_x=from_user,
             player_o=None,
@@ -165,6 +168,15 @@ async def ttt_accept(callback: CallbackQuery):
         return
     if db.get_balance(invite["to_user"]) < bet:
         await callback.answer("❌ У тебя недостаточно монет.", show_alert=True)
+        return
+
+    # Обе ставки списываются до начала партии; ничья вернёт их обоим.
+    if not db.update_balance(invite["from_user"], -bet):
+        await callback.answer("❌ Не удалось списать ставку вызывающего.", show_alert=True)
+        return
+    if not db.update_balance(invite["to_user"], -bet):
+        db.update_balance(invite["from_user"], bet)
+        await callback.answer("❌ Не удалось списать твою ставку.", show_alert=True)
         return
 
     db.ttt_update_invite_status(invite_id, "accepted")
@@ -301,7 +313,7 @@ def _bot_apply_move(game_id: int, cell: int):
     elif winner == "O":
         cur.execute(
             "UPDATE ttt_games SET board = ?, status = 'finished', winner = ? WHERE id = ?",
-            (new_board, game["player_x"], game_id)  # бот = player_x? нет, см. _finish_win
+            (new_board, 0, game_id)  # Нулевой ID зарезервирован для победы бота.
         )
     else:
         cur.execute(
@@ -315,13 +327,15 @@ def _bot_apply_move(game_id: int, cell: int):
 # ==================== ЗАВЕРШЕНИЕ ====================
 
 async def _finish_draw(callback: CallbackQuery, game: dict):
-    # Ничья тоже считается сыгранной партией, но не победой и не проигрышем.
+    # Ставки списываются в начале партии, поэтому при ничьей возвращаем их.
+    db.update_balance(game["player_x"], game["bet"])
     db.update_game_stats(game["player_x"], False, 0)
     if game.get("player_o"):
+        db.update_balance(game["player_o"], game["bet"])
         db.update_game_stats(game["player_o"], False, 0)
     await callback.message.edit_text(
         f"🎮 Ничья!\n\n"
-        f"💰 Ставка {game['bet']} 🪙 возвращена обоим игрокам."
+        f"💰 Ставка {game['bet']} 🪙 возвращена каждому игроку."
     )
 
 
@@ -342,31 +356,33 @@ async def _finish_win(callback: CallbackQuery, game: dict):
 
     if game["is_vs_bot"]:
         if winner == 0:
-            # Победил бот — игрок теряет ставку
-            db.update_balance(game["player_x"], -game["bet"])
+            # Ставка уже списана при старте; при проигрыше дополнительного списания нет.
             text = (
                 f"🤖 Бот победил!\n\n"
-                f"💰 Ты проиграл {game['bet']} 🪙\n"
+                f"❌ Ты потерял ставку: {game['bet']} 🪙\n"
                 f"📊 Баланс: {db.get_balance(game['player_x'])} 🪙"
             )
         else:
-            # Победил игрок — получает 2× ставки (свою + выигрыш)
-            db.update_balance(game["player_x"], game["bet"] * 2)
+            # Возвращаем собственную ставку + приз равный ставке.
+            payout = game["bet"] * 2
+            db.update_balance(game["player_x"], payout)
             text = (
                 f"🏆 Победа!\n\n"
-                f"💰 Ты выиграл {game['bet']} 🪙\n"
+                f"🎁 Выплата: {payout} 🪙 (ставка {game['bet']} + выигрыш {game['bet']})\n"
+                f"📈 Чистый выигрыш: +{game['bet']} 🪙\n"
                 f"📊 Баланс: {db.get_balance(game['player_x'])} 🪙"
             )
     else:
         # PvP
         if winner and loser:
-            db.update_balance(loser, -game["bet"])
-            db.update_balance(winner, game["bet"])
+            payout = game["bet"] * 2
+            db.update_balance(winner, payout)
         winner_name = _get_username(winner) if winner else "?"
         text = (
             f"🏆 Победа!\n\n"
             f"Победил: @{winner_name}\n"
-            f"💰 Выигрыш: {game['bet']} 🪙"
+            f"🎁 Выплата победителю: {game['bet'] * 2} 🪙 (ставка + выигрыш)\n"
+            f"📉 Чистый выигрыш: {game['bet']} 🪙"
         )
 
     await callback.message.edit_text(text)
