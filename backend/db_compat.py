@@ -154,6 +154,11 @@ class Cursor:
         columns = [d[0] for d in self._cur.description]
         return Row(raw_row, columns)
 
+    @property
+    def rowcount(self):
+        """Number of rows affected by the most recent SQL statement."""
+        return self._cur.rowcount
+
     def fetchone(self):
         if self._pragma_columns is not None:
             if not self._pragma_columns:
