@@ -1157,6 +1157,14 @@ async def balance_top_word_trigger(message: Message):
     await message.answer(text)
 
 
+@dp.message(F.text.lower().strip().in_({"трейд", "трейды", "обмен предметами"}))
+async def web_trade_word_trigger(message: Message):
+    await message.answer(
+        "🔁 Трейды предметами доступны в Mini App. Открой Lavender Dream → «Ещё» → «Трейды», "
+        "выбери свой предмет и предмет другого игрока. Обмен завершится только после подтверждения второй стороны."
+    )
+
+
 @dp.message(F.text.lower().strip().in_({"игры", "игра"}))
 async def games_word_trigger(message: Message):
     await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
