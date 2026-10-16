@@ -1,6 +1,7 @@
 import db_compat as sqlite3
 from datetime import datetime
 from aiogram import Router, F
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
@@ -592,28 +593,58 @@ async def admin_broadcast_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_broadcast_text)
 async def admin_broadcast_send(message: Message, state: FSMContext):
     from aiogram import Bot
+
     text = message.text
     bot: Bot = message.bot
     users = db.get_all_users()
     sent = 0
+    blocked = 0
     failed = 0
+
     for u in users:
-        if u["is_banned"]:
+        user_id = u["user_id"]
+        status = int(u.get("is_banned") or 0)
+
+        # Административно забаненным не рассылаем. Уже известные блокировки
+        # учитываем в отчёте, не пытаясь отправлять им сообщения повторно.
+        if status == 1:
             continue
+        if status == 2:
+            blocked += 1
+            continue
+
         try:
-            await bot.send_message(u["user_id"], f"📢 {text}")
+            await bot.send_message(user_id, f"📢 {text}")
             sent += 1
+        except TelegramForbiddenError:
+            # Telegram подтвердил, что бот не может писать этому пользователю.
+            # Сохраняем статус, чтобы вкладка «Пользователи» показывала его
+            # и следующие рассылки не пытались писать этому аккаунту снова.
+            blocked += 1
+            try:
+                db.mark_user_blocked_bot(user_id)
+            except Exception:
+                # Не ломаем всю рассылку, если не удалось сохранить статус.
+                pass
         except Exception:
+            # Не любую ошибку Telegram можно считать блокировкой бота.
             failed += 1
+
     # В чат флуда
     try:
         await bot.send_message(config.FLUD_CHAT_ID, f"📢 {text}")
     except Exception:
         pass
-    await message.answer(
-        f"✅ Рассылка завершена!\nДоставлено: {sent}\nЗаблокировали бота: {failed}",
-        reply_markup=admin_menu()
+
+    report = (
+        f"✅ Рассылка завершена!\n"
+        f"Доставлено: {sent}\n"
+        f"Заблокировали бота: {blocked}"
     )
+    if failed:
+        report += f"\nДругие ошибки доставки: {failed}"
+
+    await message.answer(report, reply_markup=admin_menu())
     await state.clear()
 
 
