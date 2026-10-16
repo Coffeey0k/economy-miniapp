@@ -706,7 +706,8 @@ async def open_egg_handler(callback: CallbackQuery):
         f"🥚 {egg['name']} открыто!\n\n"
         f"Внутри: {result['name']}\n"
         f"Редкость: {result['rarity']}\n"
-        f"Доход: {result['income']} 🪙 раз в 4 часа\n\n"
+        f"Доход: {result['income']} 🪙 раз в 4 часа\n"
+        f"Статус: {'✅ активирован' if result.get('is_active') else '💤 сохранён в коллекции — нет свободного слота'}\n\n"
         f"💰 Баланс: {db.get_balance(user_id)} 🪙",
         reply_markup=back_to_catalog_keyboard()
     )
@@ -749,7 +750,8 @@ async def cursed_open_yes(callback: CallbackQuery):
         f"🕯️ Проклятое яйцо открыто...\n\n"
         f"Из него выполз: {result['name']}\n"
         f"Редкость: {result['rarity']}\n"
-        f"Доход: {result['income']} 🪙 раз в 4 часа\n\n"
+        f"Доход: {result['income']} 🪙 раз в 4 часа\n"
+        f"Статус: {'✅ активирован' if result.get('is_active') else '💤 сохранён в коллекции — нет свободного слота'}\n\n"
         f"Осталось яиц: {result['stock_left']}",
         reply_markup=back_to_catalog_keyboard()
     )
@@ -861,7 +863,7 @@ async def pet_activate(callback: CallbackQuery):
     if ok:
         await callback.answer("✅ Активирован")
     else:
-        await callback.answer("❌ Максимум 2 активных питомца", show_alert=True)
+        await callback.answer("❌ Все слоты заняты. Купи дополнительный слот или освободи один.", show_alert=True)
     await pet_info_by_id(callback, pet_id)
 
 
@@ -938,6 +940,40 @@ async def gift_pet_start(callback: CallbackQuery):
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="pets_menu"))
     await callback.message.edit_text("Кого подарить?", reply_markup=builder.as_markup())
     await callback.answer()
+
+
+# ==================== ТЕКСТОВЫЕ ТРИГГЕРЫ: ПИТОМЦЫ И КАТАЛОГ ====================
+
+@dp.message(F.text.lower().strip().in_({"питомцы", "питомец"}))
+async def pets_word_trigger(message: Message):
+    await message.answer(
+        f"🐾 Питомцы\nАктивные слоты: {db.count_active_pets(message.from_user.id)}/{db.get_pet_slot_limit(message.from_user.id)}\nВыбери действие:",
+        reply_markup=pets_menu(),
+    )
+
+
+@dp.message(F.text.lower().strip() == "каталог")
+async def catalog_word_trigger(message: Message):
+    await message.answer("📦 Каталог Lavender Dream\nВыбери товар:", reply_markup=catalog_menu())
+
+
+@dp.callback_query(F.data == "pet_slot_buy")
+async def pet_slot_buy_handler(callback: CallbackQuery):
+    slots = db.get_pet_slot_limit(callback.from_user.id)
+    if slots >= 15:
+        await callback.answer("Уже куплены все 15 слотов.", show_alert=True)
+        return
+    price = 5000 * (slots - 2)
+    ok, result_text = db.buy_pet_slot(callback.from_user.id)
+    if not ok:
+        await callback.answer(result_text, show_alert=True)
+        return
+    await callback.message.edit_text(
+        f"🪹 {result_text}\n\n"
+        f"Активные питомцы: {db.count_active_pets(callback.from_user.id)}/{db.get_pet_slot_limit(callback.from_user.id)}",
+        reply_markup=pets_menu(),
+    )
+    await callback.answer("Слот куплен!")
 
 
 # ==================== ПРОФЕССИИ ====================
