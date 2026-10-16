@@ -1644,6 +1644,11 @@ def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute(
+        "INSERT INTO pet_care (pet_id) SELECT id FROM pets WHERE id = ? AND user_id = ? "
+        "ON CONFLICT(pet_id) DO NOTHING",
+        (pet_id, user_id),
+    )
+    cur.execute(
         "SELECT c.energy, c.mood, c.health, c.level, c.experience "
         "FROM pet_care c JOIN pets p ON p.id = c.pet_id "
         "WHERE c.pet_id = ? AND p.user_id = ?",
@@ -1662,6 +1667,11 @@ def care_for_pet(user_id: int, pet_id: int, action: str) -> tuple:
         return False, "Неизвестное действие."
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO pet_care (pet_id) SELECT id FROM pets WHERE id = ? AND user_id = ? "
+        "ON CONFLICT(pet_id) DO NOTHING",
+        (pet_id, user_id),
+    )
     cur.execute(
         "SELECT p.income, c.energy, c.mood, c.health, c.level, c.experience "
         "FROM pets p JOIN pet_care c ON c.pet_id = p.id "
