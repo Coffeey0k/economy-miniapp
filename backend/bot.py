@@ -2066,10 +2066,10 @@ async def islands_income_loop():
 
 
 async def halloween_event_scheduler():
-    """Автоматически объявляет хэллоуинский ивент в полночь по времени Словакии."""
+    """Автоматически объявляет хэллоуинский ивент в полночь по московскому времени."""
     event_key = "halloween_2026"
     while True:
-        now = datetime.now(ZoneInfo("Europe/Bratislava"))
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
         if (now.year, now.month, now.day) == (2026, 10, 31) and not db.event_was_announced(event_key):
             try:
                 await bot.send_message(
