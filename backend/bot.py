@@ -1799,12 +1799,22 @@ async def track_daily_tasks(message: Message, state: FSMContext):
 
     user_id = message.from_user.id
 
-    # Проверяем, есть ли пользователь в БД
-    if not db.get_user(user_id):
-        return
+    # Синхронизируем профиль по сообщениям в группе: это позволяет
+    # находить участников для дуэлей даже если они ещё не запускали бота в ЛС.
+    current_username = message.from_user.username
+    user = db.get_user(user_id)
+    if not user:
+        db.create_user(user_id, current_username)
+        user = db.get_user(user_id)
+    elif current_username and user.get("username") != current_username:
+        conn = sqlite3.connect(db.DB_NAME)
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET username = ? WHERE user_id = ?", (current_username, user_id))
+        conn.commit()
+        conn.close()
+        user = db.get_user(user_id)
 
     # Проверяем, не забанен ли
-    user = db.get_user(user_id)
     if user and user["is_banned"]:
         return
 
