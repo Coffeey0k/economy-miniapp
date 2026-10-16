@@ -108,7 +108,7 @@ async def ttt_create(message: Message):
     conn_import_sqlite3 = __import__("db_compat")
     conn = conn_import_sqlite3.connect(db.DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users WHERE LOWER(username) = ?", (target_raw.lower(),))
+    cur.execute("SELECT user_id FROM users WHERE LOWER(REPLACE(TRIM(username), '@', '')) = ?", (target_raw.lower(),))
     row = cur.fetchone()
     conn.close()
 
