@@ -529,25 +529,31 @@ def create_user(user_id: int, username: str = None):
     conn.close()
     
 def update_balance(user_id: int, amount: int) -> bool:
+    """Atomically change a balance without allowing concurrent overspending."""
     # Тест-режим: списание игнорируется, начисление идёт как обычно
     if amount < 0 and is_test_mode(user_id):
         return True
 
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-    result = cur.fetchone()
-    if not result:
+    try:
+        cur.execute(
+            "UPDATE users SET balance = balance + ? "
+            "WHERE user_id = ? AND balance + ? >= 0",
+            (amount, user_id, amount),
+        )
+        updated = cur.rowcount > 0
+        if updated:
+            conn.commit()
+        else:
+            conn.rollback()
         conn.close()
-        return False
-    new_balance = result[0] + amount
-    if new_balance < 0:
+        return updated
+    except Exception:
+        conn.rollback()
         conn.close()
+        logger.exception("Не удалось изменить баланс user_id=%s amount=%s", user_id, amount)
         return False
-    cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, user_id))
-    conn.commit()
-    conn.close()
-    return True
 
 def get_balance(user_id: int) -> int:
     conn = sqlite3.connect(DB_NAME)
