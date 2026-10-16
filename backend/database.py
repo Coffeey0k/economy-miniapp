@@ -2122,7 +2122,10 @@ def ttt_get_game(game_id: int) -> Optional[dict]:
 
 
 def ttt_make_move(game_id: int, cell: int, player_id: int) -> tuple:
-    """Возвращает (успех, сообщение)."""
+    """Атомарно применяет ход; параллельные/повторные нажатия не могут применить один ход дважды."""
+    if not isinstance(cell, int) or cell < 0 or cell > 8:
+        return False, "Некорректная клетка"
+
     game = ttt_get_game(game_id)
     if not game or game["status"] != "active":
         return False, "Игра неактивна"
@@ -2130,72 +2133,92 @@ def ttt_make_move(game_id: int, cell: int, player_id: int) -> tuple:
         return False, "Не ваш ход"
 
     board = list(game["board"])
-    if board[cell] != "_":
+    if len(board) != 9 or board[cell] != "_":
         return False, "Клетка занята"
 
     symbol = "X" if player_id == game["player_x"] else "O"
+    if player_id not in (game["player_x"], game["player_o"]):
+        return False, "Вы не участник игры"
     board[cell] = symbol
     new_board = "".join(board)
-
     winner = ttt_check_winner(new_board)
 
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+    guard = "WHERE id = ? AND status = 'active' AND turn = ? AND board = ?"
+    params_guard = (game_id, player_id, game["board"])
 
     if winner == "draw":
-        cur.execute("UPDATE ttt_games SET board = ?, status = 'draw' WHERE id = ?", (new_board, game_id))
+        cur.execute(
+            "UPDATE ttt_games SET board = ?, status = 'draw' " + guard,
+            (new_board, *params_guard),
+        )
     elif winner:
         winner_id = game["player_x"] if winner == "X" else game["player_o"]
-        cur.execute("UPDATE ttt_games SET board = ?, status = 'finished', winner = ? WHERE id = ?",
-                    (new_board, winner_id, game_id))
+        cur.execute(
+            "UPDATE ttt_games SET board = ?, status = 'finished', winner = ? " + guard,
+            (new_board, winner_id, *params_guard),
+        )
     else:
-        # Передаём ход
-        if game["is_vs_bot"]:
-            next_turn = game["player_x"]  # для бота ход делает сам бот
-        else:
-            next_turn = game["player_o"] if player_id == game["player_x"] else game["player_x"]
-        cur.execute("UPDATE ttt_games SET board = ?, turn = ? WHERE id = ?", (new_board, next_turn, game_id))
+        next_turn = game["player_x"] if game["is_vs_bot"] else (
+            game["player_o"] if player_id == game["player_x"] else game["player_x"]
+        )
+        cur.execute(
+            "UPDATE ttt_games SET board = ?, turn = ? " + guard,
+            (new_board, next_turn, *params_guard),
+        )
 
+    changed = cur.rowcount
     conn.commit()
     conn.close()
-
+    if changed != 1:
+        return False, "Ход уже обработан. Обнови игровое поле."
     return True, winner or "next"
 
 
 def ttt_bot_move(game_id: int) -> Optional[int]:
-    """Простой бот: выигрывает, если может; блокирует; иначе центр/угол."""
+    """Оптимальный minimax-бот: не проигрывает при корректной игре."""
     game = ttt_get_game(game_id)
-    if not game:
+    if not game or game["status"] != "active":
         return None
+
     board = list(game["board"])
-
-    def find_win(symbol):
-        for a, b, c in TTT_LINES:
-            line = [board[a], board[b], board[c]]
-            if line.count(symbol) == 2 and line.count("_") == 1:
-                return [a, b, c][line.index("_")]
+    if len(board) != 9 or any(cell not in ("X", "O", "_") for cell in board):
         return None
 
-    # 1. Выиграть
-    move = find_win("O")
-    if move is not None:
-        return move
-    # 2. Заблокировать
-    move = find_win("X")
-    if move is not None:
-        return move
-    # 3. Центр
-    if board[4] == "_":
-        return 4
-    # 4. Угол
-    for i in [0, 2, 6, 8]:
-        if board[i] == "_":
-            return i
-    # 5. Любая
-    for i in range(9):
-        if board[i] == "_":
-            return i
-    return None
+    def minimax(state, bot_turn, depth=0):
+        result = ttt_check_winner("".join(state))
+        if result == "O":
+            return 10 - depth
+        if result == "X":
+            return depth - 10
+        if result == "draw":
+            return 0
+
+        scores = []
+        symbol = "O" if bot_turn else "X"
+        for index, value in enumerate(state):
+            if value != "_":
+                continue
+            state[index] = symbol
+            scores.append((minimax(state, not bot_turn, depth + 1), index))
+            state[index] = "_"
+        if not scores:
+            return 0
+        return (max if bot_turn else min)(score for score, _ in scores)
+
+    best_move = None
+    best_score = float("-inf")
+    # Фиксированный порядок нужен только для выбора среди равноценных ходов.
+    for index in (4, 0, 2, 6, 8, 1, 3, 5, 7):
+        if board[index] != "_":
+            continue
+        board[index] = "O"
+        score = minimax(board, False, 1)
+        board[index] = "_"
+        if score > best_score:
+            best_score, best_move = score, index
+    return best_move
 
 
 def ttt_finish_game(game_id: int, winner_id: int):
