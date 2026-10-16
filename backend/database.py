@@ -250,6 +250,12 @@ def init_db():
             PRIMARY KEY (user_id, event_key)
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS seasonal_event_announcements (
+            event_key TEXT PRIMARY KEY,
+            announced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     # Инициализация проклятого яйца
     cur.execute("SELECT COUNT(*) FROM cursed_egg")
@@ -881,6 +887,27 @@ def grant_catalog_boost(user_id: int, item_type: str):
     conn.commit()
     conn.close()
     return True
+
+
+def event_was_announced(event_key: str) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM seasonal_event_announcements WHERE event_key = ?", (event_key,))
+    found = cur.fetchone() is not None
+    conn.close()
+    return found
+
+
+def mark_event_announced(event_key: str):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO seasonal_event_announcements (event_key) VALUES (?) "
+        "ON CONFLICT(event_key) DO NOTHING",
+        (event_key,),
+    )
+    conn.commit()
+    conn.close()
 
 
 def claim_halloween_reward(user_id: int) -> bool:
