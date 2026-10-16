@@ -18,3 +18,17 @@ jobs:
           python-version: "3.12"
       - name: Compile backend Python files
         run: python -m compileall -q backend
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check inline Mini App JavaScript syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("docs/index.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", html, flags=re.I | re.S)
+          Path("/tmp/miniapp-inline.js").write_text("\n".join(scripts), encoding="utf-8")
+          PY
+          node --check /tmp/miniapp-inline.js

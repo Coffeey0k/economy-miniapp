@@ -41,7 +41,18 @@ def init_db():
                 "INSERT INTO catalog_items (item_type, name, price, description) VALUES (?, ?, ?, ?)",
                 it
             )
-            
+
+    # Бусты по умолчанию. Они добавляются и в уже заполненный каталог.
+    for boost in [
+        ("boost_bonus_50", "🎁 Буст бонуса −50%", 1500, "Одноразово сокращает текущий или следующий кулдаун бонуса на 50%"),
+        ("boost_work_50", "💼 Буст отдыха −50%", 2500, "Одноразово сокращает текущий или следующий кулдаун работы на 50%"),
+    ]:
+        cur.execute(
+            "INSERT INTO catalog_items (item_type, name, price, description) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(item_type) DO NOTHING",
+            boost,
+        )
+
     # Пользователи
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -210,6 +221,41 @@ def init_db():
     columns = [col[1] for col in cur.fetchall()]
     if "last_bonus_time" not in columns:
         cur.execute("ALTER TABLE users ADD COLUMN last_bonus_time TIMESTAMP")
+
+    # Купленные бусты — каждая покупка даёт одно использование.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_boosts (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            boost_type TEXT NOT NULL,
+            reduction_percent INTEGER NOT NULL,
+            uses_remaining INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_cooldowns (
+            user_id BIGINT NOT NULL,
+            action_type TEXT NOT NULL,
+            cooldown_seconds INTEGER NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, action_type)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS halloween_claims (
+            user_id BIGINT NOT NULL,
+            event_key TEXT NOT NULL,
+            claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, event_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS seasonal_event_announcements (
+            event_key TEXT PRIMARY KEY,
+            announced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     # Инициализация проклятого яйца
     cur.execute("SELECT COUNT(*) FROM cursed_egg")
@@ -741,6 +787,9 @@ def add_purchase(user_id: int, item_type: str) -> bool:
             "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)",
             (user_id, item_type)
         )
+        # Если кулдаун уже идёт, буст сокращает оставшееся время сразу.
+        # Иначе буст применяется к следующему кулдауну после действия.
+        _grant_catalog_boost_cursor(cur, user_id, item_type)
         conn.commit()
         conn.close()
         return True
@@ -748,6 +797,174 @@ def add_purchase(user_id: int, item_type: str) -> bool:
         conn.rollback()
         conn.close()
         logger.exception("Не удалось оформить покупку user_id=%s item_type=%s", user_id, item_type)
+        return False
+
+
+def parse_boost_item(item_type: str):
+    """Разбирает ID вида boost_bonus_50 или boost_work_25."""
+    if not isinstance(item_type, str):
+        return None
+    parts = item_type.split("_")
+    if len(parts) != 3 or parts[0] != "boost" or parts[1] not in {"bonus", "work"}:
+        return None
+    try:
+        reduction = int(parts[2])
+    except ValueError:
+        return None
+    if not 1 <= reduction <= 90:
+        return None
+    return parts[1], reduction
+
+
+def get_user_cooldown_seconds(user_id: int, action_type: str, default_seconds: int) -> int:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT cooldown_seconds FROM user_cooldowns WHERE user_id = ? AND action_type = ?",
+        (user_id, action_type),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return int(row[0]) if row else int(default_seconds)
+
+
+def set_user_cooldown_seconds(user_id: int, action_type: str, seconds: int):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO user_cooldowns (user_id, action_type, cooldown_seconds, updated_at) "
+        "VALUES (?, ?, ?, ?) ON CONFLICT(user_id, action_type) DO UPDATE SET "
+        "cooldown_seconds = excluded.cooldown_seconds, updated_at = excluded.updated_at",
+        (user_id, action_type, int(seconds), datetime.now().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def consume_user_boost(user_id: int, boost_type: str) -> int:
+    """Активирует один буст и возвращает процент сокращения (0, если буста нет)."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, reduction_percent FROM user_boosts "
+        "WHERE user_id = ? AND boost_type = ? AND uses_remaining > 0 "
+        "ORDER BY created_at, id LIMIT 1",
+        (user_id, boost_type),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return 0
+    cur.execute(
+        "UPDATE user_boosts SET uses_remaining = uses_remaining - 1 WHERE id = ? AND uses_remaining > 0",
+        (row[0],),
+    )
+    used = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return int(row[1]) if used else 0
+
+
+def _grant_catalog_boost_cursor(cur, user_id: int, item_type: str) -> bool:
+    boost = parse_boost_item(item_type)
+    if not boost:
+        return False
+    boost_type, reduction = boost
+    action_type = boost_type
+    default_cooldown = 10800
+    if boost_type == "work":
+        cur.execute("SELECT last_work, profession FROM professions WHERE user_id = ?", (user_id,))
+        action_row = cur.fetchone()
+        profession = action_row[1] if action_row else None
+        if profession:
+            default_cooldown = int(PROFESSIONS.get(profession, {}).get("cooldown_hours", 3)) * 3600
+        last_time = action_row[0] if action_row else None
+    else:
+        cur.execute("SELECT last_bonus_time FROM users WHERE user_id = ?", (user_id,))
+        action_row = cur.fetchone()
+        last_time = action_row[0] if action_row else None
+
+    cur.execute(
+        "SELECT cooldown_seconds FROM user_cooldowns WHERE user_id = ? AND action_type = ?",
+        (user_id, action_type),
+    )
+    cooldown_row = cur.fetchone()
+    cooldown = int(cooldown_row[0]) if cooldown_row else default_cooldown
+    if last_time:
+        last_dt = datetime.fromisoformat(str(last_time))
+        elapsed = max(0, int((datetime.now() - last_dt).total_seconds()))
+        if elapsed < cooldown:
+            remaining = cooldown - elapsed
+            reduced_cooldown = elapsed + remaining * (100 - reduction) // 100
+            cur.execute(
+                "INSERT INTO user_cooldowns (user_id, action_type, cooldown_seconds, updated_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(user_id, action_type) DO UPDATE SET "
+                "cooldown_seconds = excluded.cooldown_seconds, updated_at = excluded.updated_at",
+                (user_id, action_type, reduced_cooldown, datetime.now().isoformat()),
+            )
+            return True
+
+    cur.execute(
+        "INSERT INTO user_boosts (user_id, boost_type, reduction_percent, uses_remaining) "
+        "VALUES (?, ?, ?, 1)",
+        (user_id, boost_type, reduction),
+    )
+    return True
+
+
+def grant_catalog_boost(user_id: int, item_type: str):
+    """Применяет буст к текущему кулдауну или сохраняет его на следующее действие."""
+    if not parse_boost_item(item_type):
+        return False
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        ok = _grant_catalog_boost_cursor(cur, user_id, item_type)
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception:
+        conn.rollback()
+        conn.close()
+        logger.exception("Не удалось применить буст user_id=%s item_type=%s", user_id, item_type)
+        return False
+
+
+def event_was_announced(event_key: str) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM seasonal_event_announcements WHERE event_key = ?", (event_key,))
+    found = cur.fetchone() is not None
+    conn.close()
+    return found
+
+
+def mark_event_announced(event_key: str):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO seasonal_event_announcements (event_key) VALUES (?) "
+        "ON CONFLICT(event_key) DO NOTHING",
+        (event_key,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def claim_halloween_reward(user_id: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO halloween_claims (user_id, event_key) VALUES (?, 'halloween_2026')",
+            (user_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        conn.rollback()
+        conn.close()
         return False
 
 
@@ -867,9 +1084,10 @@ def can_claim_bonus(user_id: int) -> Tuple[bool, int]:
         return True, 0
     now = datetime.now()
     delta = now - datetime.fromisoformat(last_time)
-    if delta.total_seconds() >= 10800:
+    cooldown = get_user_cooldown_seconds(user_id, "bonus", 10800)
+    if delta.total_seconds() >= cooldown:
         return True, 0
-    remaining = 10800 - int(delta.total_seconds())
+    remaining = cooldown - int(delta.total_seconds())
     return False, remaining
 
 
@@ -884,6 +1102,9 @@ def claim_bonus(user_id: int) -> int:
     )
     conn.commit()
     conn.close()
+    reduction = consume_user_boost(user_id, "bonus")
+    cooldown = 10800 * (100 - reduction) // 100 if reduction else 10800
+    set_user_cooldown_seconds(user_id, "bonus", cooldown)
     return bonus
 
 
@@ -1289,7 +1510,7 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     last = prof["last_work"]
     if last:
         delta = now - datetime.fromisoformat(last)
-        cooldown = info["cooldown_hours"] * 3600
+        cooldown = get_user_cooldown_seconds(user_id, "work", info["cooldown_hours"] * 3600)
         if delta.total_seconds() < cooldown:
             remaining = cooldown - int(delta.total_seconds())
             return False, f"Отдых ещё не закончен. Осталось: {remaining // 3600} ч {(remaining % 3600) // 60} мин"
@@ -1299,6 +1520,9 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     total_bonus = friend_bonus + clan_bonus
     salary = base_salary + (base_salary * total_bonus // 100)
     update_balance(user_id, salary)
+    reduction = consume_user_boost(user_id, "work")
+    next_cooldown = info["cooldown_hours"] * 3600 * (100 - reduction) // 100 if reduction else info["cooldown_hours"] * 3600
+    set_user_cooldown_seconds(user_id, "work", next_cooldown)
     today = now.date().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -1322,7 +1546,8 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     if friend_bonus > 0: bonus_parts.append(f"+{friend_bonus}% друзья")
     if clan_bonus > 0: bonus_parts.append(f"+{clan_bonus}% клан")
     bonus_text = f" ({', '.join(bonus_parts)})" if bonus_parts else ""
-    return True, f"Вы заработали {salary} 🪙{bonus_text}! (уровень {new_level}, дней: {new_days}/7)"
+    boost_text = f" Буст сократил следующий отдых на {reduction}%." if reduction else ""
+    return True, f"Вы заработали {salary} 🪙{bonus_text}! (уровень {new_level}, дней: {new_days}/7){boost_text}"
 
 
 # === ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ===
