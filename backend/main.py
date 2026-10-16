@@ -42,6 +42,7 @@ import database as bot_db   # <— для log_action / get_price / is_test_mode
 
 logger = logging.getLogger(__name__)
 init_db()
+bot_db.DB_NAME = os.environ.get("DB_PATH", bot_db.DB_NAME)
 bot_db.init_db()  # Ensure boost/event tables exist even when the API starts before the bot.
 
 from fastapi import Body, FastAPI, HTTPException, Query
@@ -492,14 +493,7 @@ def buy_catalog_item(payload: dict = Body(...)):
     cur.execute(
         "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)", (user_id, item_type)
     )
-    boost = bot_db.parse_boost_item(item_type)
-    if boost:
-        boost_type, reduction = boost
-        cur.execute(
-            "INSERT INTO user_boosts (user_id, boost_type, reduction_percent, uses_remaining) "
-            "VALUES (?, ?, ?, 1)",
-            (user_id, boost_type, reduction),
-        )
+    bot_db._grant_catalog_boost_cursor(cur, user_id, item_type)
     conn.commit()
     conn.close()
 
