@@ -1498,7 +1498,7 @@ def activate_promo(code: str, user_id: int) -> Tuple[bool, str]:
             if datetime.now() > exp:
                 return False, "Промокод истёк"
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
     # Проверка: не активировал ли уже этот пользователь
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -2511,7 +2511,7 @@ def friend_accept(request_id: int, to_user: int) -> bool:
         cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (from_u, to_u))
         cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (to_u, from_u))
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     conn.commit()
     conn.close()
     return True
@@ -2917,7 +2917,7 @@ def check_badges(user_id: int):
         if friend_count(user_id) >= 20:
             add_badge(user_id, "social")
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
 # ==================== ОСТРОВ ====================
 
@@ -3790,14 +3790,14 @@ def _delete_user_full(cur, user_id: int):
         try:
             cur.execute(f"DELETE FROM {t} WHERE user_id = ?", (user_id,))
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
 
     # Друзья, где он друг
     try:
         cur.execute("DELETE FROM friends WHERE friend_id = ?", (user_id,))
         cur.execute("DELETE FROM friend_requests WHERE to_user = ?", (user_id,))
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     # Кланы, где он лидер
     try:
@@ -3808,7 +3808,7 @@ def _delete_user_full(cur, user_id: int):
             cur.execute("DELETE FROM clan_requests WHERE clan_id = ?", (cid,))
             cur.execute("DELETE FROM clans WHERE id = ?", (cid,))
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     cur.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
 
@@ -4030,7 +4030,7 @@ def set_test_mode(user_id: int, enabled: bool, added_by: int = None):
         """, (user_id, 1 if enabled else 0, added_by, 1 if enabled else 0))
         conn.commit()
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     conn.close()
 
 
