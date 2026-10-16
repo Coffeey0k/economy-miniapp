@@ -2,8 +2,6 @@ from PIL import Image
 import os
 from banner import print_banner
 import asyncio
-from email.mime import message
-from email import message
 import logging
 import db_compat as sqlite3
 import random
@@ -17,7 +15,7 @@ from clans import router as clans_router
 from tech_admin import router as tech_admin_router
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -25,8 +23,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ChatMemberUpdated
 from aiogram import BaseMiddleware
-from aiogram.types import CallbackQuery
-from aiogram.types import InlineKeyboardButton
 from aiogram.types import FSInputFile
 
 import config
