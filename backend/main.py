@@ -1224,7 +1224,8 @@ def ms_start_api(payload: dict = Body(...)):
 
     return {
         "game_id": game_id,
-        "board": board_str,
+        # Never send unrevealed mine positions to the client.
+        "board": "?" * cells,
         "revealed": revealed_str,
         "size": size,
         "mines": MS_MINES,
@@ -1348,7 +1349,10 @@ def ms_open_api(payload: dict = Body(...)):
     return {
         "ok": True,
         "result": "win" if win else "safe",
-        "board": "".join(board),
+        # Reveal only cells the player has opened while the game is active.
+        "board": "".join(board) if win else "".join(
+            board[i] if revealed_str[i] == "1" else "?" for i in range(size * size)
+        ),
         "revealed": revealed_str,
         "balance": balance,
         "reward": MS_REWARD if win else 0,
@@ -1504,7 +1508,7 @@ def bs_start(payload: dict = Body(...)):
         "bet": bet,
         "reward": bet * 2,
         "player_field": player_field,
-        "bot_field": bot_field,
+        # Keep the opponent's field server-side until the game is over.
         "player_shots": empty,
         "bot_shots": empty,
         "turn": "player",
@@ -1536,7 +1540,7 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
         "bet": row["bet"],
         "reward": row["bet"] * 2,
         "player_field": row["player_field"],
-        "bot_field": row["bot_field"],
+        **({"bot_field": row["bot_field"]} if row["status"] in {"win", "lose"} else {}),
         "player_shots": row["player_shots"],
         "bot_shots": row["bot_shots"],
         "turn": row["turn"],
@@ -1729,7 +1733,7 @@ def bs_fire(payload: dict = Body(...)):
         "bet": final["bet"],
         "reward": final["bet"] * 2,
         "player_field": final["player_field"],
-        "bot_field": final["bot_field"],
+        **({"bot_field": final["bot_field"]} if completed_status in {"win", "lose"} else {}),
         "player_shots": final["player_shots"],
         "bot_shots": final["bot_shots"],
         "turn": final["turn"],
