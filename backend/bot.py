@@ -1821,13 +1821,32 @@ async def track_daily_tasks(message: Message, state: FSMContext):
 
     # Обновляем прогресс
     try:
-        db.track_message_tasks(
+        completed_tasks = db.track_message_tasks(
             user_id,
             is_reply=is_reply,
             is_photo=is_photo,
             is_audio=is_audio,
             is_night=is_night
         )
+
+        if completed_tasks:
+            username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
+            for task in completed_tasks:
+                notification = (
+                    f"{username}, ты выполнил(а) ежедневное задание "
+                    f"«{task['name']}» и получил(а) {task['reward']} 🪙"
+                )
+                # Личное уведомление может не дойти, если пользователь не запускал бота.
+                try:
+                    await bot.send_message(user_id, notification)
+                except Exception as notify_error:
+                    logger.info(f"Не удалось отправить личное уведомление о задании user_id={user_id}: {notify_error}")
+
+                # Дублируем уведомление в основной чат флуда.
+                try:
+                    await bot.send_message(config.FLUD_CHAT_ID, notification)
+                except Exception as notify_error:
+                    logger.warning(f"Не удалось отправить уведомление о задании в чат флуда: {notify_error}")
     except Exception as e:
         logger.error(f"Ошибка трекинга заданий: {e}")
 
