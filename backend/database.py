@@ -170,6 +170,19 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pet_trades (
+            id SERIAL PRIMARY KEY,
+            from_user BIGINT NOT NULL,
+            to_user BIGINT NOT NULL,
+            from_pet BIGINT NOT NULL,
+            to_pet BIGINT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            resolved_at TIMESTAMP
+        )
+    """)
+
     # === ПРОФЕССИИ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS professions (
@@ -1539,6 +1552,78 @@ def transfer_pet(pet_id: int, from_user: int, to_user: int) -> bool:
     conn.close()
     return affected > 0
 
+
+
+
+def create_pet_trade(from_user: int, to_user: int, from_pet: int) -> tuple:
+    if from_user == to_user:
+        return False, "Нельзя обмениваться с самим собой."
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM pets WHERE id = ? AND user_id = ?", (from_pet, from_user))
+    if not cur.fetchone():
+        conn.close()
+        return False, "Этого питомца у тебя нет."
+    cur.execute("SELECT id FROM pets WHERE user_id = ? ORDER BY id", (to_user,))
+    target_pets = [int(row[0]) for row in cur.fetchall()]
+    if not target_pets:
+        conn.close()
+        return False, "У игрока нет питомца для обмена."
+    # Choose the first pet and include its ID in the offer; recipient can decline if unsuitable.
+    to_pet = target_pets[0]
+    cur.execute(
+        "INSERT INTO pet_trades (from_user, to_user, from_pet, to_pet, status) VALUES (?, ?, ?, ?, 'pending')",
+        (from_user, to_user, from_pet, to_pet),
+    )
+    trade_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return True, {"trade_id": trade_id, "to_pet": to_pet}
+
+
+def resolve_pet_trade(trade_id: int, user_id: int, accept: bool) -> tuple:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT from_user, to_user, from_pet, to_pet, status FROM pet_trades WHERE id = ?", (trade_id,))
+    row = cur.fetchone()
+    if not row or row[4] != "pending":
+        conn.close()
+        return False, "Предложение уже недоступно."
+    from_user, to_user, from_pet, to_pet, status = row
+    if user_id != to_user:
+        conn.close()
+        return False, "Это предложение не для тебя."
+    if not accept:
+        cur.execute("UPDATE pet_trades SET status = 'declined', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'", (trade_id,))
+        conn.commit()
+        conn.close()
+        return True, "Обмен отклонён."
+    cur.execute("SELECT id FROM pets WHERE id = ? AND user_id = ?", (from_pet, from_user))
+    sender_pet_exists = cur.fetchone() is not None
+    cur.execute("SELECT id FROM pets WHERE id = ? AND user_id = ?", (to_pet, to_user))
+    receiver_pet_exists = cur.fetchone() is not None
+    if not sender_pet_exists or not receiver_pet_exists:
+        conn.rollback()
+        conn.close()
+        return False, "Один из питомцев уже передан или продан."
+    cur.execute("UPDATE pets SET user_id = ?, is_active = 0 WHERE id = ? AND user_id = ?", (to_user, from_pet, from_user))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "Не удалось передать первого питомца."
+    cur.execute("UPDATE pets SET user_id = ?, is_active = 0 WHERE id = ? AND user_id = ?", (from_user, to_pet, to_user))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "Не удалось передать второго питомца."
+    cur.execute("UPDATE pet_trades SET status = 'accepted', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'", (trade_id,))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "Предложение уже обработано."
+    conn.commit()
+    conn.close()
+    return True, "Обмен завершён! Оба питомца сохранены в коллекциях неактивными."
 
 
 def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
