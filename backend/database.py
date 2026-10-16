@@ -859,9 +859,10 @@ def consume_user_boost(user_id: int, boost_type: str) -> int:
         "UPDATE user_boosts SET uses_remaining = uses_remaining - 1 WHERE id = ? AND uses_remaining > 0",
         (row[0],),
     )
+    used = cur.rowcount > 0
     conn.commit()
     conn.close()
-    return int(row[1]) if cur.rowcount else 0
+    return int(row[1]) if used else 0
 
 
 def grant_catalog_boost(user_id: int, item_type: str):
@@ -1477,7 +1478,8 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     if friend_bonus > 0: bonus_parts.append(f"+{friend_bonus}% друзья")
     if clan_bonus > 0: bonus_parts.append(f"+{clan_bonus}% клан")
     bonus_text = f" ({', '.join(bonus_parts)})" if bonus_parts else ""
-    return True, f"Вы заработали {salary} 🪙{bonus_text}! (уровень {new_level}, дней: {new_days}/7)"
+    boost_text = f" Буст сократил следующий отдых на {reduction}%." if reduction else ""
+    return True, f"Вы заработали {salary} 🪙{bonus_text}! (уровень {new_level}, дней: {new_days}/7){boost_text}"
 
 
 # === ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ===
