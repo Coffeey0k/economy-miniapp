@@ -2512,6 +2512,27 @@ def get_trade_inventory(init_data: str = Query(..., alias="initData")):
     return {"items": items}
 
 
+@app.get("/api/trades/target-inventory")
+def get_target_trade_inventory(username: str = Query(...), init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    target_name = username.strip().lstrip("@")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE LOWER(REPLACE(username, '@', '')) = LOWER(%s) LIMIT 1", (target_name,))
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игрок не найден")
+    target_id = int(target["user_id"])
+    if target_id == user_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Нельзя обмениваться с самим собой")
+    cur.execute("SELECT item_type, item_key FROM user_cosmetics_owned WHERE user_id = %s ORDER BY item_type, item_key", (target_id,))
+    items = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return {"items": items}
+
+
 @app.get("/api/trades")
 def get_trades(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
