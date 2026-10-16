@@ -147,6 +147,14 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        INSERT INTO pet_care (pet_id)
+        SELECT p.id FROM pets p
+        LEFT JOIN pet_care c ON c.pet_id = p.id
+        WHERE c.pet_id IS NULL
+        ON CONFLICT(pet_id) DO NOTHING
+    """)
+
     # === ПРОФЕССИИ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS professions (
