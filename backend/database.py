@@ -1349,7 +1349,7 @@ def assign_daily_tasks(user_id: int):
 
 
 def update_task_progress(user_id: int, task_type: str, amount: int = 1):
-    """Обновляет прогресс задания. task_type — ключ задания (activist, resident и т.д.)"""
+    """Обновляет прогресс задания и возвращает данные, если задание завершено."""
     date = datetime.now().date().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -1360,11 +1360,11 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
     row = cur.fetchone()
     if not row:
         conn.close()
-        return
+        return None
     task_id, progress, target, is_done = row
     if is_done:
         conn.close()
-        return
+        return None
 
     new_progress = min(progress + amount, target)
     done = new_progress >= target
@@ -1376,13 +1376,16 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
     conn.close()
 
     if done:
-        reward = DAILY_TASKS[task_type]["reward"]
+        task_info = DAILY_TASKS[task_type]
+        reward = task_info["reward"]
         update_balance(user_id, reward)
         conn2 = sqlite3.connect(DB_NAME)
         cur2 = conn2.cursor()
         cur2.execute("UPDATE daily_tasks SET is_claimed = 1 WHERE id = ?", (task_id,))
         conn2.commit()
         conn2.close()
+        return {"task_type": task_type, "name": task_info["name"], "reward": reward}
+    return None
 
 
 def get_tasks_by_type(user_id: int, task_type: str) -> List[dict]:
@@ -3346,20 +3349,28 @@ def clan_income_bonus(user_id: int) -> int:
 def track_message_tasks(user_id: int, is_reply: bool = False,
                         is_photo: bool = False, is_audio: bool = False,
                         is_night: bool = False):
-    """Вызывается при каждом сообщении в чате.
-    Обновляет прогресс всех подходящих активных заданий игрока."""
+    """Обновляет прогресс и возвращает список только что завершённых заданий."""
+    completed = []
+
+    def track(task_type: str):
+        result = update_task_progress(user_id, task_type, 1)
+        if result:
+            completed.append(result)
+
     # Активист / Житель — каждое сообщение
-    update_task_progress(user_id, "activist", 1)
-    update_task_progress(user_id, "resident", 1)
+    track("activist")
+    track("resident")
 
     if is_reply:
-        update_task_progress(user_id, "friendly", 1)
+        track("friendly")
     if is_photo:
-        update_task_progress(user_id, "photographer", 1)
+        track("photographer")
     if is_audio:
-        update_task_progress(user_id, "musician", 1)
+        track("musician")
     if is_night:
-        update_task_progress(user_id, "night_owl", 1)
+        track("night_owl")
+
+    return completed
 
 # ==================== МУЗЫКА ====================
 
