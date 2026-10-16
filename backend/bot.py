@@ -951,7 +951,10 @@ async def pet_gift_send(message: Message, state: FSMContext):
     target = message.text.strip().lstrip("@")
     conn = sqlite3.connect(db.DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users WHERE username = ?", (target,))
+    cur.execute(
+        "SELECT user_id, username FROM users WHERE LOWER(REPLACE(TRIM(username), '@', '')) = LOWER(?) LIMIT 1",
+        (target,),
+    )
     row = cur.fetchone()
     conn.close()
     if not row:
