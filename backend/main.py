@@ -35,12 +35,14 @@ import httpx
 import config
 import db_compat as sqlite3
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl
 from db_compat import init_db
 import database as bot_db   # <— для log_action / get_price / is_test_mode
 
 logger = logging.getLogger(__name__)
 init_db()
+bot_db.init_db()  # Ensure boost/event tables exist even when the API starts before the bot.
 
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -378,7 +380,8 @@ def get_top(init_data: str = Query(..., alias="initData")):
 HALLOWEEN_REWARD = 500
 
 def _halloween_is_active() -> bool:
-    now = datetime.now()
+    # Start at midnight in Europe/Bratislava, independent of the host server timezone.
+    now = datetime.now(ZoneInfo("Europe/Bratislava"))
     return now.year == 2026 and now.month == 10 and now.day == 31
 
 
@@ -400,8 +403,8 @@ def halloween_event_status(init_data: str = Query(..., alias="initData")):
         "reward": HALLOWEEN_REWARD,
         "title": "🎃 Хэллоуин в Lavender Dream",
         "description": "Загляни на хэллоуинский праздник и забери праздничные монеты!",
-        "starts_at": "2026-10-31T00:00:00",
-        "ends_at": "2026-11-01T00:00:00",
+        "starts_at": "2026-10-31T00:00:00+02:00",
+        "ends_at": "2026-11-01T00:00:00+01:00",
     }
 
 
