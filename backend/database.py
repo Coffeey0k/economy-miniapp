@@ -700,23 +700,49 @@ def delete_catalog_item(item_type: str) -> bool:
     return affected > 0
 
 def add_purchase(user_id: int, item_type: str) -> bool:
+    """Charge and record a purchase in one transaction."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    balance = get_balance(user_id)
-    price = get_price(item_type)
-    if balance < price:
+    try:
+        cur.execute("SELECT price FROM catalog_items WHERE item_type = ?", (item_type,))
+        price_row = cur.fetchone()
+        if not price_row:
+            conn.close()
+            return False
+        price = price_row[0]
+
+        # Keep the existing test-mode rule: purchases still require sufficient
+        # balance, but test-mode users are not charged.
+        cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+        balance_row = cur.fetchone()
+        if not balance_row or balance_row[0] < price:
+            conn.rollback()
+            conn.close()
+            return False
+
+        if not (price > 0 and is_test_mode(user_id)):
+            cur.execute(
+                "UPDATE users SET balance = balance - ? "
+                "WHERE user_id = ? AND balance >= ?",
+                (price, user_id, price),
+            )
+            if cur.rowcount == 0:
+                conn.rollback()
+                conn.close()
+                return False
+
+        cur.execute(
+            "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)",
+            (user_id, item_type)
+        )
+        conn.commit()
         conn.close()
-        return False
-    if not update_balance(user_id, -price):
+        return True
+    except Exception:
+        conn.rollback()
         conn.close()
+        logger.exception("Не удалось оформить покупку user_id=%s item_type=%s", user_id, item_type)
         return False
-    cur.execute(
-        "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)",
-        (user_id, item_type)
-    )
-    conn.commit()
-    conn.close()
-    return True
 
 
 def get_user_purchases(user_id: int) -> List[dict]:
