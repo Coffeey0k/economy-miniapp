@@ -1012,6 +1012,7 @@ def play_game(payload: dict = Body(...)):
 
     conn = db()
     cur = conn.cursor()
+    test_mode = bool(bot_db.is_test_mode(user_id))
     if not change_balance(cur, user_id, -bet):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
@@ -1058,7 +1059,10 @@ def play_game(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=400, detail="Неизвестная игра")
 
-    if win > 0:
+    if test_mode:
+        # Тестовые ставки не должны создавать реальные монеты даже при выигрыше.
+        text += f"\n🧪 Тест-режим: баланс не изменён."
+    elif win > 0:
         change_balance(cur, user_id, bet + win)
         text += f"\n✅ Выигрыш: {win} 🪙"
     else:
