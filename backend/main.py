@@ -27,6 +27,7 @@ Backend для Telegram Mini App бота Lavender Dream.
 import hashlib
 import hmac
 import json
+import logging
 import os
 import random
 import time
@@ -37,6 +38,8 @@ from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 from db_compat import init_db
 import database as bot_db   # <— для log_action / get_price / is_test_mode
+
+logger = logging.getLogger(__name__)
 init_db()
 
 from fastapi import Body, FastAPI, HTTPException, Query
@@ -202,22 +205,28 @@ def require_balance(cur, user_id: int) -> int:
     return row["balance"]
 
 def change_balance(cur, user_id: int, delta: int) -> bool:
-    """Списывает/начисляет монеты. Возвращает False, если не хватает денег.
-    Учитывает тест-режим тех.админов: списание игнорируется."""
-    # Тест-режим: списание не выполняется
+    """Atomically change balance; never allow concurrent requests to overspend."""
     if delta < 0:
         try:
             if bot_db.is_test_mode(user_id):
                 return True
         except Exception:
-            pass
+            logger.exception("Не удалось проверить тест-режим user_id=%s", user_id)
 
-    balance = require_balance(cur, user_id)
-    new_balance = balance + delta
-    if new_balance < 0:
-        return False
-    cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, user_id))
-    return True
+    # Preserve the 404 for unknown users before performing the atomic update.
+    require_balance(cur, user_id)
+    if delta < 0:
+        cur.execute(
+            "UPDATE users SET balance = balance + ? "
+            "WHERE user_id = ? AND balance >= ?",
+            (delta, user_id, -delta),
+        )
+    else:
+        cur.execute(
+            "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+            (delta, user_id),
+        )
+    return cur.rowcount > 0
 
 
 # ========== ЧТЕНИЕ ДАННЫХ ИЗ paradise.db ==========
