@@ -927,15 +927,21 @@ def claim_bonus(payload: dict = Body(...)):
 @app.post("/api/transfer")
 def transfer_coins(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    target_username = (payload.get("username") or "").lstrip("@")
-    amount = int(payload.get("amount") or 0)
+    target_username = str(payload.get("username") or "").strip().lstrip("@")
+    try:
+        amount = int(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Сумма должна быть целым числом")
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Сумма должна быть больше нуля")
+    if not target_username:
+        raise HTTPException(status_code=400, detail="Укажи username получателя")
 
     conn = db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT user_id FROM users WHERE username = ? AND user_id != ?",
+        "SELECT user_id, username FROM users "
+        "WHERE LOWER(REPLACE(TRIM(username), '@', '')) = LOWER(?) AND user_id != ? LIMIT 1",
         (target_username, user_id),
     )
     target = cur.fetchone()
@@ -943,11 +949,22 @@ def transfer_coins(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=404, detail="Пользователь с таким username не найден")
 
-    if not change_balance(cur, user_id, -amount):
+    target_id = int(target["user_id"])
+    # Перевод — реальная денежная операция: намеренно обходим test-mode скидку,
+    # иначе тех.админ в тестовом режиме мог бы переводить монеты бесплатно.
+    cur.execute(
+        "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+        (amount, user_id, amount),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
-    change_balance(cur, target["user_id"], amount)
-    target_id = target["user_id"]
+    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Не удалось зачислить перевод; деньги не списаны")
     conn.commit()
     conn.close()
     try:
@@ -958,6 +975,7 @@ def transfer_coins(payload: dict = Body(...)):
     except Exception:
         logger.exception("Не удалось выполнить необязательную операцию")
     return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}"}
+
 
 # ========== API: ИГРЫ ==========
 
