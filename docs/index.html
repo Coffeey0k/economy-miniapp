@@ -1344,15 +1344,11 @@
     <div class="card">
       <h2>🔁 Обмен предметами</h2>
       <p class="label">Предлагай косметические предметы другим игрокам. Обмен выполняется только после принятия предложения получателем.</p>
-      <input id="trade-target" type="text" placeholder="Username игрока (без @)">
+      <input id="trade-target" type="text" placeholder="Username игрока (без @)" onchange="loadTargetTradeInventory()">
       <label class="label" for="trade-offer">Что отдаёшь</label>
       <select id="trade-offer" class="input"></select>
-      <label class="label" for="trade-request-type">Тип предмета, который хочешь получить</label>
-      <select id="trade-request-type" class="input">
-        <option value="color">🎨 Цвет</option><option value="frame">🖼️ Рамка</option>
-        <option value="status">💬 Статус</option><option value="theme">🌈 Тема</option>
-      </select>
-      <input id="trade-request-key" type="text" placeholder="Точный ключ предмета игрока">
+      <label class="label" for="trade-request">Что хочешь получить от игрока</label>
+      <select id="trade-request" class="input"><option value="">Сначала введи username игрока</option></select>
       <button class="btn" onclick="createWebTrade()">Создать предложение</button>
       <button class="btn btn-secondary" onclick="loadTrades()">Обновить</button>
     </div>
@@ -1741,6 +1737,23 @@
     return `${names[item.item_type] || item.item_type}: ${item.item_key}`;
   }
 
+  async function loadTargetTradeInventory() {
+    const target = document.getElementById("trade-target").value.trim();
+    const select = document.getElementById("trade-request");
+    if (!target) { select.innerHTML = '<option value="">Введи username игрока</option>'; return; }
+    try {
+      const data = await apiGet("/api/trades/target-inventory?username=" + encodeURIComponent(target));
+      const items = data.items || [];
+      select.innerHTML = items.length ? items.map((item, i) =>
+        `<option value="${i}">${escapeHtml(tradeItemLabel(item))}</option>`
+      ).join("") : '<option value="">У игрока нет предметов для обмена</option>';
+      window._targetTradeInventory = items;
+    } catch (e) {
+      select.innerHTML = `<option value="">${escapeHtml(e.message)}</option>`;
+      window._targetTradeInventory = [];
+    }
+  }
+
   async function loadTrades() {
     const list = document.getElementById("trade-list");
     if (!list) return;
@@ -1772,13 +1785,13 @@
   async function createWebTrade() {
     const inventory = window._tradeInventory || [];
     const offer = inventory[Number(document.getElementById("trade-offer").value)];
-    const requestType = document.getElementById("trade-request-type").value;
-    const requestKey = document.getElementById("trade-request-key").value.trim();
+    const targetInventory = window._targetTradeInventory || [];
+    const request = targetInventory[Number(document.getElementById("trade-request").value)];
     const target = document.getElementById("trade-target").value.trim();
-    if (!target || !offer || !requestKey) return toast("Укажи игрока и оба предмета.", true);
-    if (offer.item_type === requestType && offer.item_key === requestKey) return toast("Выбери разные предметы.", true);
+    if (!target || !offer || !request) return toast("Укажи игрока и выбери предметы.", true);
+    if (offer.item_type === request.item_type && offer.item_key === request.item_key) return toast("Выбери разные предметы.", true);
     try {
-      const result = await apiPost("/api/trades/create", {target_username:target, offer_type:offer.item_type, offer_key:offer.item_key, request_type:requestType, request_key:requestKey});
+      const result = await apiPost("/api/trades/create", {target_username:target, offer_type:offer.item_type, offer_key:offer.item_key, request_type:request.item_type, request_key:request.item_key});
       toast(result.message || "Предложение создано.");
       await loadTrades();
     } catch (e) { toast(e.message, true); }
