@@ -2748,7 +2748,7 @@
         document.getElementById("music-personal-list").innerHTML = musicPersonal.tracks.map(t => `
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
             <div class="item-row" style="border-bottom:none;padding:0 0 8px 0;">
-              <span>🎵 <b>${t.title}</b><br><span class="label">${t.author}</span></span>
+              <span>🎵 <b>${escapeHtml(t.title)}</b><br><span class="label">${escapeHtml(t.author)}</span></span>
               <button class="btn btn-small" onclick="musicDeletePersonal(${t.id})">❌</button>
             </div>
             ${musicEmbed(t)}
@@ -2767,7 +2767,7 @@
         document.getElementById("music-shared-list").innerHTML = musicShared.tracks.map(t => `
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
             <div class="item-row" style="border-bottom:none;padding:0 0 8px 0;">
-              <span>🎵 <b>${t.title}</b><br><span class="label">${t.author} • от @${t.added_by || "—"}</span></span>
+              <span>🎵 <b>${escapeHtml(t.title)}</b><br><span class="label">${escapeHtml(t.author)} • от @${escapeHtml(t.added_by || "—")}</span></span>
               ${musicShared.is_admin ? `<button class="btn btn-small" onclick="musicDeleteShared(${t.id})">❌</button>` : ""}
             </div>
             ${musicEmbed(t)}
@@ -2787,7 +2787,7 @@
       if (musicShared.pending && musicShared.pending.length > 0) {
         document.getElementById("music-pending-list").innerHTML = musicShared.pending.map(t => `
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
-            <span>🎵 <b>${t.title}</b><br><span class="label">${t.author} • от @${t.added_by || "—"}</span></span>
+            <span>🎵 <b>${escapeHtml(t.title)}</b><br><span class="label">${escapeHtml(t.author)} • от @${escapeHtml(t.added_by || "—")}</span></span>
             ${musicEmbed(t)}
             <div style="margin-top:8px;display:flex;gap:8px;">
               <button class="btn btn-small" style="flex:1;" onclick="musicReview(${t.id}, true)">✅ Одобрить</button>
@@ -2818,7 +2818,7 @@
                 src="https://w.soundcloud.com/player/?url=${scUrl}&color=%230088cc&auto_play=false&hide_related=true"
                 allow="autoplay"></iframe>`;
     }
-    return `<a href="${t.url}" target="_blank" style="color:var(--link);">${t.url}</a>`;
+    return `<a href="${escapeHtml(t.url)}" target="_blank" style="color:var(--link);">${escapeHtml(t.url)}</a>`;
   }
 
   function extractYoutubeId(url) {
