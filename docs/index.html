@@ -829,6 +829,11 @@
       <button class="tile" onclick="switchTab('work')"><span class="ic">💼</span>Работа</button>
       <button class="tile" onclick="switchTab('wheel')"><span class="ic">🎡</span>Колесо</button>
     </div>
+    <div class="card" id="halloween-event-card" style="display:none;">
+      <h2 id="halloween-event-title">🎃 Хэллоуин в Lavender Dream</h2>
+      <p class="label" id="halloween-event-description"></p>
+      <button class="btn" id="halloween-event-claim" onclick="claimHalloweenReward()">Забрать награду</button>
+    </div>
     <div class="card">
       <div class="profile-header">
         <div id="p-avatar-wrapper">
@@ -946,10 +951,12 @@
         <button class="game-tab" onclick="selectGame('number', event)">🃏 Число</button>
         <button class="game-tab" onclick="selectGame('minesweeper', event)">💣 Сапёр</button>
         <button class="game-tab" onclick="selectGame('battleship', event)">⚓ Морской бой</button>
+        <button class="game-tab" onclick="selectGame('ttt', event)">❌ Крестики-нолики</button>
       </div>
       <div id="game-area"></div>
       <div id="minesweeper-area" style="display:none;margin-top:12px;"></div>
       <div id="battleship-area" style="display:none;margin-top:12px;"></div>
+      <div id="ttt-area" style="display:none;margin-top:12px;"></div>
     </div>
   </div>
 
@@ -1534,6 +1541,35 @@
     } catch (e) { showMsg("top-msg", e.message, false); }
   }
 
+
+  async function loadHalloweenEvent() {
+    const card = document.getElementById("halloween-event-card");
+    if (!card) return;
+    try {
+      const eventData = await apiGet("/api/events/halloween");
+      card.style.display = eventData.active ? "block" : "none";
+      if (!eventData.active) return;
+      document.getElementById("halloween-event-title").textContent = eventData.title;
+      document.getElementById("halloween-event-description").textContent =
+        eventData.description + " Награда: " + eventData.reward + " 🪙. Ивент действует 31 октября до 00:00 следующего дня.";
+      const btn = document.getElementById("halloween-event-claim");
+      btn.disabled = eventData.claimed;
+      btn.textContent = eventData.claimed ? "✅ Награда уже получена" : "🎁 Забрать " + eventData.reward + " 🪙";
+    } catch (e) {
+      card.style.display = "none";
+    }
+  }
+
+  async function claimHalloweenReward() {
+    try {
+      const result = await apiPost("/api/events/halloween/claim", {});
+      toast(result.message, false);
+      await loadHalloweenEvent();
+      loaded.profile = false;
+      await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
   function showShopSub(which) {
     document.querySelectorAll(".tabs-sub button").forEach(b => b.classList.remove("active"));
     event.target.classList.add("active");
@@ -1712,17 +1748,88 @@
     document.getElementById("game-area").style.display = "none";
     document.getElementById("minesweeper-area").style.display = "none";
     document.getElementById("battleship-area").style.display = "none";
+    document.getElementById("ttt-area").style.display = "none";
     if (game === "minesweeper") {
       document.getElementById("minesweeper-area").style.display = "block";
       renderMinesweeperStart();
     } else if (game === "battleship") {
       document.getElementById("battleship-area").style.display = "block";
       renderBattleshipStart();
+    } else if (game === "ttt") {
+      document.getElementById("ttt-area").style.display = "block";
+      renderTttStart();
     } else {
       document.getElementById("game-area").style.display = "block";
       renderGameUI();
     }
   }
+
+  let tttState = null;
+  function renderTttStart() {
+    tttState = null;
+    document.getElementById("ttt-area").innerHTML = \`
+      <div class="card">
+        <h2>❌ Крестики-нолики против бота</h2>
+        <p class="label">Ставка списывается при старте. Победа: выплата 2× ставки (ставка + выигрыш), поражение: ставка теряется, ничья: ставка возвращается.</p>
+        <div class="tabs-sub" style="flex-wrap:wrap;">
+          \${[10,50,100,500,1000].map(b => \`<button class="btn btn-small" onclick="startTtt(\${b})">\${b} 🪙</button>\`).join("")}
+        </div>
+      </div>\`;
+  }
+
+  async function startTtt(bet) {
+    try {
+      const result = await apiPost("/api/ttt/start", { bet });
+      tttState = { game_id: result.game_id, board: result.board, status: result.status, bet: result.bet, balance: result.balance };
+      loaded.profile = false;
+      await loadProfile();
+      renderTttBoard("Твой ход — ❌");
+    } catch (e) { toast(e.message, true); }
+  }
+
+  function renderTttBoard(message) {
+    const area = document.getElementById("ttt-area");
+    if (!tttState) return renderTttStart();
+    if (tttState.status !== "active") {
+      const resultText = tttState.status === "draw"
+        ? \`🤝 Ничья! Ставка \${tttState.bet} 🪙 возвращена.\`
+        : tttState.result === "win"
+          ? \`🏆 Победа! Выплата \${tttState.payout} 🪙 (ставка \${tttState.bet} + выигрыш \${tttState.bet}).\`
+          : \`🤖 Бот победил. Ты потерял ставку \${tttState.bet} 🪙.\`;
+      area.innerHTML = \`<div class="card"><h2>❌ Крестики-нолики</h2><p>\${resultText}</p><p class="label">Баланс: \${tttState.balance} 🪙</p><button class="btn" onclick="renderTttStart()">Играть ещё</button></div>\`;
+      return;
+    }
+    const symbols = {X:"❌", O:"⭕", _: "⬜"};
+    area.innerHTML = \`
+      <div class="card">
+        <h2>❌ Крестики-нолики</h2>
+        <p class="label">Ставка: \${tttState.bet} 🪙 · Ты — ❌ · Бот — ⭕</p>
+        <p style="text-align:center;">\${message || "Твой ход — ❌"}</p>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;max-width:300px;margin:12px auto;">
+          \${Array.from(tttState.board).map((cell,i) => \`<button class="btn" style="height:76px;font-size:26px;" \${cell !== "_" ? "disabled" : ""} onclick="tttMove(\${i})">\${symbols[cell] || "⬜"}</button>\`).join("")}
+        </div>
+        <button class="btn btn-small" onclick="renderTttStart()">Отмена / новая игра</button>
+      </div>\`;
+  }
+
+  async function tttMove(cell) {
+    if (!tttState || tttState.status !== "active") return;
+    try {
+      const result = await apiPost("/api/ttt/move", { game_id: tttState.game_id, cell });
+      tttState = { ...tttState, ...result };
+      loaded.profile = false;
+      await loadProfile();
+      const message = result.status === "active" ? "Твой ход — ❌" :
+        result.status === "draw" ? "Ничья!" : result.result === "win" ? "Ты победил!" : "Бот победил!";
+      renderTttBoard(message);
+      if (result.status !== "active") {
+        if (result.result === "win") { playSound("success"); haptic("success"); }
+        else if (result.result === "lose") { playSound("error"); haptic("error"); }
+        toast(message, result.result === "lose");
+      }
+    } catch (e) { toast(e.message, true); }
+  }
+
   function renderGameUI() {
     const area = document.getElementById("game-area");
     const bets = [10, 50, 100, 500, 1000];
@@ -3376,6 +3483,8 @@
       document.getElementById("nav").style.display = "flex";
       setInterval(() => { loadProfile().catch(() => {}); }, 20000);
       setInterval(() => { checkFriendRequests().catch(() => {}); }, 30000);
+      loadHalloweenEvent().catch(() => {});
+      setInterval(() => { loadHalloweenEvent().catch(() => {}); }, 60000);
     } catch (err) {
       document.getElementById("status").textContent = "Не удалось загрузить профиль. " + err.message;
     }
