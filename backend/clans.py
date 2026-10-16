@@ -7,7 +7,7 @@
 - `кланы` — топ кланов
 """
 
-import sqlite3
+import db_compat as sqlite3
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
