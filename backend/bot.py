@@ -938,7 +938,7 @@ async def pet_sell_handler(callback: CallbackQuery):
     await callback.answer("Продано!")
 
 
-@dp.callback_query(F.data.startswith("pet_trade_"))
+@dp.callback_query(F.data.startswith("pet_trade_start_"))
 async def pet_trade_start(callback: CallbackQuery, state: FSMContext):
     try:
         pet_id = int(callback.data.rsplit("_", 1)[1])
