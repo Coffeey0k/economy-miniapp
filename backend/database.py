@@ -25,6 +25,17 @@ def init_db():
             is_hidden BOOLEAN DEFAULT 0
         )
     """)
+    # В PostgreSQL sequence для SERIAL может отстать от уже существующих ID
+    # (например, если строки каталога были перенесены с явными id). Синхронизируем
+    # её до INSERT-ов, чтобы новый товар не получил уже занятый primary key.
+    cur.execute("""
+        SELECT setval(
+            pg_get_serial_sequence('catalog_items', 'id'),
+            COALESCE((SELECT MAX(id) FROM catalog_items), 1),
+            EXISTS (SELECT 1 FROM catalog_items)
+        )
+    """)
+
     # Инициализация начальными товарами
     cur.execute("SELECT COUNT(*) FROM catalog_items")
     if cur.fetchone()[0] == 0:
