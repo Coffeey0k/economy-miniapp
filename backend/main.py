@@ -13,8 +13,8 @@ Backend для Telegram Mini App бота Lavender Dream.
 - Азартные игры (слот/кубик/монетка/угадай число) — там ставки и честная
   случайность, безопаснее держать в одном месте (боте), а не дублировать
   в двух системах.
-- Админ-панель — управление чужими балансами не должно быть доступно из
-  веб-страницы без дополнительной защиты.
+- Админ-панель — все действия с чужими балансами должны проверять роль
+  администратора на сервере, а не только в интерфейсе.
 - Промокоды — по задумке активируются только в ЛС с ботом.
 - Покупки, требующие подтверждения владельца (unban, admin) — их и здесь
   можно "заказать", но подтверждает их по-прежнему владелец в боте.
@@ -27,8 +27,10 @@ Backend для Telegram Mini App бота Lavender Dream.
 import hashlib
 import hmac
 import json
+import logging
 import os
 import random
+import time
 import httpx
 import config
 import db_compat as sqlite3
@@ -36,6 +38,8 @@ from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 from db_compat import init_db
 import database as bot_db   # <— для log_action / get_price / is_test_mode
+
+logger = logging.getLogger(__name__)
 init_db()
 
 from fastapi import Body, FastAPI, HTTPException, Query
@@ -201,22 +205,28 @@ def require_balance(cur, user_id: int) -> int:
     return row["balance"]
 
 def change_balance(cur, user_id: int, delta: int) -> bool:
-    """Списывает/начисляет монеты. Возвращает False, если не хватает денег.
-    Учитывает тест-режим тех.админов: списание игнорируется."""
-    # Тест-режим: списание не выполняется
+    """Atomically change balance; never allow concurrent requests to overspend."""
     if delta < 0:
         try:
             if bot_db.is_test_mode(user_id):
                 return True
         except Exception:
-            pass
+            logger.exception("Не удалось проверить тест-режим user_id=%s", user_id)
 
-    balance = require_balance(cur, user_id)
-    new_balance = balance + delta
-    if new_balance < 0:
-        return False
-    cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, user_id))
-    return True
+    # Preserve the 404 for unknown users before performing the atomic update.
+    require_balance(cur, user_id)
+    if delta < 0:
+        cur.execute(
+            "UPDATE users SET balance = balance + ? "
+            "WHERE user_id = ? AND balance >= ?",
+            (delta, user_id, -delta),
+        )
+    else:
+        cur.execute(
+            "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+            (delta, user_id),
+        )
+    return cur.rowcount > 0
 
 
 # ========== ЧТЕНИЕ ДАННЫХ ИЗ paradise.db ==========
@@ -396,6 +406,23 @@ def buy_catalog_item(payload: dict = Body(...)):
 
     price = item["price"]
 
+    # These items require owner approval. Do not charge or insert a completed
+    # purchase here: database.add_purchase() performs the charge on approval.
+    if item_type in CONFIRMATION_REQUIRED:
+        balance = require_balance(cur, user_id)
+        conn.close()
+        if balance < price:
+            raise HTTPException(status_code=400, detail="Недостаточно монет")
+        try:
+            _notify_admins_purchase(user_id, item_type, price)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Не удалось уведомить администраторов о запросе покупки")
+        return {
+            "ok": True,
+            "message": f"Запрос на покупку «{item['name']}» отправлен владельцу. Монеты спишутся только после подтверждения."
+        }
+
     if not change_balance(cur, user_id, -price):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
@@ -410,13 +437,13 @@ def buy_catalog_item(payload: dict = Body(...)):
     try:
         bot_db.log_action(user_id, "purchase", f"Куплено (Mini App): {item['name']}", amount=price)
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     # Уведомляем всех админов
     try:
         _notify_admins_purchase(user_id, item_type, price)
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     if item_type in CONFIRMATION_REQUIRED:
         return {"ok": True, "message": f"Покупка «{item['name']}» оформлена, ждите подтверждения владельца в боте."}
@@ -502,7 +529,7 @@ def toggle_pet(payload: dict = Body(...)):
 @app.get("/api/professions")
 def get_professions(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
-    is_admin = user_id in ADMIN_IDS
+    is_admin = config.is_full_admin(user_id)
 
     conn = db()
     cur = conn.cursor()
@@ -550,6 +577,8 @@ def hire_profession(payload: dict = Body(...)):
     profession = payload.get("profession")
     if profession not in PROFESSION_INFO:
         raise HTTPException(status_code=404, detail="Неизвестная профессия")
+    if profession == "ruler" and not config.is_full_admin(user_id):
+        raise HTTPException(status_code=403, detail="Эта профессия доступна только администраторам")
 
     conn = db()
     cur = conn.cursor()
@@ -812,7 +841,7 @@ def claim_bonus(payload: dict = Body(...)):
     try:
         bot_db.log_action(user_id, "bonus", "Ежедневный бонус (Mini App)", amount=bonus)
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     return {"ok": True, "amount": bonus}
 
 
@@ -850,7 +879,7 @@ def transfer_coins(payload: dict = Body(...)):
             amount=amount, target_user_id=target_id
         )
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}"}
 
 # ========== API: ИГРЫ ==========
@@ -963,7 +992,7 @@ def play_game(payload: dict = Body(...)):
             amount=(win if win > 0 else -bet),
         )
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     return {"ok": True, "win": win, "text": text}
 
 
@@ -981,7 +1010,7 @@ def get_settings(init_data: str = Query(..., alias="initData")):
         "theme": "dark",
         "hints_enabled": bool(row["hints_enabled"]) if row else True,
         "tutorial_done": bool(row["tutorial_done"]) if row else False,
-        "is_admin": user_id in ADMIN_IDS,
+        "is_admin": config.is_full_admin(user_id),
     }
 
 
@@ -1000,7 +1029,8 @@ def set_hints(payload: dict = Body(...)):
 # ========== API: АДМИНКА ==========
 
 def _require_admin(user_id: int):
-    if user_id not in ADMIN_IDS:
+    # The owner, regular admins and tech admins share access to the admin panel.
+    if not config.is_full_admin(user_id):
         raise HTTPException(status_code=403, detail="Нет доступа")
 
 
@@ -1009,7 +1039,12 @@ def admin_give(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     _require_admin(user_id)
     username = (payload.get("username") or "").lstrip("@")
-    amount = int(payload.get("amount") or 0)
+    try:
+        amount = int(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная сумма")
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Сумма должна быть больше нуля")
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT user_id FROM users WHERE username = ?", (username,))
@@ -1028,7 +1063,12 @@ def admin_take(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     _require_admin(user_id)
     username = (payload.get("username") or "").lstrip("@")
-    amount = int(payload.get("amount") or 0)
+    try:
+        amount = int(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректная сумма")
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Сумма должна быть больше нуля")
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT user_id, balance FROM users WHERE username = ?", (username,))
@@ -1092,15 +1132,12 @@ def admin_ban(payload: dict = Body(...)):
 
 # ========== API: АДМИН ПИНГ ==========
 
-import time
-
 
 @app.get("/api/admin/ping")
 def admin_ping(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
     _require_admin(user_id)
 
-    import httpx
     try:
         start = time.monotonic()
         # Запрос к Telegram API
@@ -1250,7 +1287,7 @@ def ms_open_api(payload: dict = Body(...)):
         try:
             bot_db.log_action(user_id, "game", f"Сапёр: проигрыш; ставка={row['bet']}", amount=-int(row["bet"]))
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
         return {
             "ok": True, "result": "boom",
             "board": "".join(board), "revealed": revealed_str,
@@ -1304,7 +1341,7 @@ def ms_open_api(payload: dict = Body(...)):
         try:
             bot_db.log_action(user_id, "game", f"Сапёр: победа; ставка={row['bet']}", amount=max(0, MS_REWARD - int(row["bet"])))
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
 
     return {
         "ok": True,
@@ -1680,7 +1717,7 @@ def bs_fire(payload: dict = Body(...)):
                 amount=net_amount,
             )
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
 
     return {
         "ok": True,
@@ -1703,8 +1740,6 @@ def bs_fire(payload: dict = Body(...)):
 FRIEND_BONUS_PER = 2
 FRIEND_BONUS_MAX = 20
 
-import httpx
-
 def send_friend_notification_sync(chat_id: int, text: str):
     """Отправляет ЛС от имени бота."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -1716,7 +1751,7 @@ def send_friend_notification_sync(chat_id: int, text: str):
                 "disable_web_page_preview": True
             })
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
 @app.get("/api/friends")
 def get_friends(init_data: str = Query(..., alias="initData")):
@@ -1836,7 +1871,7 @@ def add_friend(payload: dict = Body(...)):
                 f"✅ @{sender_username} принял твою заявку — вы теперь друзья!"
             )
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
         return {"ok": True, "mutual": True, "message": f"Вы и @{username} теперь друзья!"}
        
     # Обычная заявка (upsert — обновляем статус, если запись уже есть)
@@ -1856,7 +1891,7 @@ def add_friend(payload: dict = Body(...)):
             f"Открой бота → раздел «👥 Друзья», чтобы принять или отклонить."
         )
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     return {"ok": True, "mutual": False, "message": f"Заявка отправлена @{username}"}
 
@@ -2755,7 +2790,7 @@ def music_shared_get(init_data: str = Query(..., alias="initData")):
 
     # Список на модерации (только для админов)
     pending = []
-    is_admin = user_id in ADMIN_IDS
+    is_admin = config.is_full_admin(user_id)
     if is_admin:
         cur.execute("""
             SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at,
@@ -2936,7 +2971,6 @@ def music_buy_slot(payload: dict = Body(...)):
 
 # Вспомогательные функции
 
-import httpx
 
 
 def _music_get_info(url: str):
@@ -3268,7 +3302,7 @@ def _delete_user_full_main(cur, user_id: int):
             try:
                 cur.connection.rollback()
             except Exception:
-                pass
+                logger.exception("Не удалось выполнить необязательную операцию")
 
     # Друзья (где он фигурирует как friend_id или to_user)
     for q in [
@@ -3324,7 +3358,7 @@ def _mark_user_blocked(user_id: int):
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
 
 def _safe_bot_send(chat_id: int, text: str, **kwargs) -> bool:
@@ -3361,6 +3395,12 @@ def _notify_admins_purchase(buyer_id: int, item_type: str, price: int):
         f"📦 Товар: {item_name}\n"
         f"💰 Цена: {price:,} 🪙"
     )
+    if item_type in CONFIRMATION_REQUIRED:
+        text += (
+            f"\n\n⚠️ Требуется подтверждение владельца."
+            f"\nПодтвердить: /approve_{item_type}_{buyer_id}"
+            f"\nОтклонить: /reject_{item_type}_{buyer_id}"
+        )
 
     targets = set(ADMIN_IDS) | set(config.TECH_ADMIN_IDS) | {config.OWNER_ID}
     for admin_id in targets:
@@ -3369,8 +3409,6 @@ def _notify_admins_purchase(buyer_id: int, item_type: str, price: int):
         _safe_bot_send(admin_id, text)
 
 # ========== API: ПОДАРКИ ==========
-
-import json as _json
 
 
 @app.get("/api/gifts")
@@ -3419,7 +3457,7 @@ def get_gifts(init_data: str = Query(..., alias="initData")):
         r = cur.fetchone()
         rcc_balance = r["balance"] if r else 0.0
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     # Питомцы
     cur.execute("SELECT id, pet_name, rarity FROM pets WHERE user_id = %s", (user_id,))
@@ -3485,7 +3523,7 @@ def send_gift(payload: dict = Body(...)):
         if not change_balance(cur, user_id, -amount):
             conn.close()
             raise HTTPException(status_code=400, detail="Недостаточно монет")
-        gift_data = _json.dumps({"amount": amount})
+        gift_data = json.dumps({"amount": amount})
 
     elif gift_type == "rcc":
         amount = float(gift_data_raw)
@@ -3498,7 +3536,7 @@ def send_gift(payload: dict = Body(...)):
             conn.close()
             raise HTTPException(status_code=400, detail="Недостаточно RCC")
         cur.execute("UPDATE rcc_balance SET balance = balance - %s WHERE user_id = %s", (amount, user_id))
-        gift_data = _json.dumps({"amount": amount})
+        gift_data = json.dumps({"amount": amount})
 
     elif gift_type == "pet":
         pet_id = int(gift_data_raw)
@@ -3508,7 +3546,7 @@ def send_gift(payload: dict = Body(...)):
             conn.close()
             raise HTTPException(status_code=404, detail="Питомец не найден")
         cur.execute("DELETE FROM pets WHERE id = %s AND user_id = %s", (pet_id, user_id))
-        gift_data = _json.dumps({"pet_name": r["pet_name"], "rarity": r["rarity"], "income": r["income"]})
+        gift_data = json.dumps({"pet_name": r["pet_name"], "rarity": r["rarity"], "income": r["income"]})
 
     elif gift_type == "cosmetic":
         # gift_data_raw = "item_type:item_key"
@@ -3529,7 +3567,7 @@ def send_gift(payload: dict = Body(...)):
             DELETE FROM user_cosmetics_owned
             WHERE user_id = %s AND item_type = %s AND item_key = %s
         """, (user_id, item_type, item_key))
-        gift_data = _json.dumps({"item_type": item_type, "item_key": item_key})
+        gift_data = json.dumps({"item_type": item_type, "item_key": item_key})
 
     # Создаём подарок
     cur.execute("""
@@ -3586,7 +3624,7 @@ def open_gift(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Подарок сгорел")
 
     gift_type = row["gift_type"]
-    gift_data = _json.loads(row["gift_data"])
+    gift_data = json.loads(row["gift_data"])
 
     # Выдаём награду
     result_text = ""
@@ -3642,7 +3680,7 @@ def tech_me(init_data: str = Query(..., alias="initData")):
         try:
             test_mode = bot_db.is_test_mode(user_id)
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
     return {"is_tech_admin": is_tech, "test_mode": test_mode}
 
 

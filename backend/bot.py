@@ -2,8 +2,6 @@ from PIL import Image
 import os
 from banner import print_banner
 import asyncio
-from email.mime import message
-from email import message
 import logging
 import db_compat as sqlite3
 import random
@@ -17,7 +15,7 @@ from clans import router as clans_router
 from tech_admin import router as tech_admin_router
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -25,8 +23,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ChatMemberUpdated
 from aiogram import BaseMiddleware
-from aiogram.types import CallbackQuery
-from aiogram.types import InlineKeyboardButton
 from aiogram.types import FSInputFile
 
 import config
@@ -783,12 +779,12 @@ async def announce_cursed_egg():
         try:
             await bot.send_message(u["user_id"], text)
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
     # В чат флуда
     try:
         await bot.send_message(config.FLUD_CHAT_ID, text)
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
 
 async def announce_cursed_egg_sold_out():
@@ -802,11 +798,11 @@ async def announce_cursed_egg_sold_out():
         try:
             await bot.send_message(u["user_id"], text)
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
     try:
         await bot.send_message(config.FLUD_CHAT_ID, text)
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
 
 # ==================== ПИТОМЦЫ ====================
@@ -920,7 +916,7 @@ async def pet_gift_send(message: Message, state: FSMContext):
         try:
             await bot.send_message(target_id, f"🎁 Вам подарили питомца!")
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
     else:
         await message.answer("❌ Не удалось подарить")
     await state.clear()
@@ -1650,7 +1646,7 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
     try:
         await bot.send_message(rid, f"💰 Вам перевели {amount} 🪙 от @{callback.from_user.username or sid}")
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     await state.clear()
     await callback.answer()
 
@@ -1692,7 +1688,7 @@ async def approve_purchase(message: Message):
         try:
             await bot.send_message(uid, f"✅ Покупка {item_type} подтверждена!")
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
 
 
 @dp.message(F.text.startswith("/reject_"))
@@ -1770,7 +1766,7 @@ async def open_chest(callback: CallbackQuery):
             parse_mode=None
         )
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     
     await callback.answer(f"🎉 Ты получил: {reward_text}", show_alert=True)
     
@@ -1868,7 +1864,7 @@ async def weekly_clean_reminder():
                     "🔔 Напоминание о чистке!\n\nПосле завершения напишите 'чистка окончена'."
                 )
             except Exception:
-                pass
+                logger.exception("Не удалось выполнить необязательную операцию")
 
 
 async def clear_old_members():
@@ -1949,7 +1945,7 @@ async def spawn_chest():
                     "🎁 Сундук исчез... никто не успел его открыть 😢"
                 )
             except Exception:
-                pass
+                logger.exception("Не удалось выполнить необязательную операцию")
     except Exception as e:
         logger.error(f"Ошибка спавна сундука: {e}")
 
@@ -2035,7 +2031,7 @@ async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
         try:
             await bot.send_message(admin_id, text)
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
 
 # ==================== MAIN ====================
 
@@ -2061,7 +2057,7 @@ async def islands_income_loop():
                         f"💰 Доход с острова!\n{item_name}: +{amount:,} 🪙"
                     )
                 except Exception:
-                    pass
+                    logger.exception("Не удалось выполнить необязательную операцию")
         except Exception as e:
             logger.error(f"Ошибка дохода острова: {e}")
 

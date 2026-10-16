@@ -529,25 +529,31 @@ def create_user(user_id: int, username: str = None):
     conn.close()
     
 def update_balance(user_id: int, amount: int) -> bool:
+    """Atomically change a balance without allowing concurrent overspending."""
     # Тест-режим: списание игнорируется, начисление идёт как обычно
     if amount < 0 and is_test_mode(user_id):
         return True
 
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-    result = cur.fetchone()
-    if not result:
+    try:
+        cur.execute(
+            "UPDATE users SET balance = balance + ? "
+            "WHERE user_id = ? AND balance + ? >= 0",
+            (amount, user_id, amount),
+        )
+        updated = cur.rowcount > 0
+        if updated:
+            conn.commit()
+        else:
+            conn.rollback()
         conn.close()
-        return False
-    new_balance = result[0] + amount
-    if new_balance < 0:
+        return updated
+    except Exception:
+        conn.rollback()
         conn.close()
+        logger.exception("Не удалось изменить баланс user_id=%s amount=%s", user_id, amount)
         return False
-    cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, user_id))
-    conn.commit()
-    conn.close()
-    return True
 
 def get_balance(user_id: int) -> int:
     conn = sqlite3.connect(DB_NAME)
@@ -700,23 +706,49 @@ def delete_catalog_item(item_type: str) -> bool:
     return affected > 0
 
 def add_purchase(user_id: int, item_type: str) -> bool:
+    """Charge and record a purchase in one transaction."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    balance = get_balance(user_id)
-    price = get_price(item_type)
-    if balance < price:
+    try:
+        cur.execute("SELECT price FROM catalog_items WHERE item_type = ?", (item_type,))
+        price_row = cur.fetchone()
+        if not price_row:
+            conn.close()
+            return False
+        price = price_row[0]
+
+        # Keep the existing test-mode rule: purchases still require sufficient
+        # balance, but test-mode users are not charged.
+        cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+        balance_row = cur.fetchone()
+        if not balance_row or balance_row[0] < price:
+            conn.rollback()
+            conn.close()
+            return False
+
+        if not (price > 0 and is_test_mode(user_id)):
+            cur.execute(
+                "UPDATE users SET balance = balance - ? "
+                "WHERE user_id = ? AND balance >= ?",
+                (price, user_id, price),
+            )
+            if cur.rowcount == 0:
+                conn.rollback()
+                conn.close()
+                return False
+
+        cur.execute(
+            "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)",
+            (user_id, item_type)
+        )
+        conn.commit()
         conn.close()
-        return False
-    if not update_balance(user_id, -price):
+        return True
+    except Exception:
+        conn.rollback()
         conn.close()
+        logger.exception("Не удалось оформить покупку user_id=%s item_type=%s", user_id, item_type)
         return False
-    cur.execute(
-        "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)",
-        (user_id, item_type)
-    )
-    conn.commit()
-    conn.close()
-    return True
 
 
 def get_user_purchases(user_id: int) -> List[dict]:
@@ -1466,7 +1498,7 @@ def activate_promo(code: str, user_id: int) -> Tuple[bool, str]:
             if datetime.now() > exp:
                 return False, "Промокод истёк"
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
     # Проверка: не активировал ли уже этот пользователь
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -2479,7 +2511,7 @@ def friend_accept(request_id: int, to_user: int) -> bool:
         cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (from_u, to_u))
         cur.execute("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)", (to_u, from_u))
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     conn.commit()
     conn.close()
     return True
@@ -2885,7 +2917,7 @@ def check_badges(user_id: int):
         if friend_count(user_id) >= 20:
             add_badge(user_id, "social")
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
 # ==================== ОСТРОВ ====================
 
@@ -3758,14 +3790,14 @@ def _delete_user_full(cur, user_id: int):
         try:
             cur.execute(f"DELETE FROM {t} WHERE user_id = ?", (user_id,))
         except Exception:
-            pass
+            logger.exception("Не удалось выполнить необязательную операцию")
 
     # Друзья, где он друг
     try:
         cur.execute("DELETE FROM friends WHERE friend_id = ?", (user_id,))
         cur.execute("DELETE FROM friend_requests WHERE to_user = ?", (user_id,))
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     # Кланы, где он лидер
     try:
@@ -3776,7 +3808,7 @@ def _delete_user_full(cur, user_id: int):
             cur.execute("DELETE FROM clan_requests WHERE clan_id = ?", (cid,))
             cur.execute("DELETE FROM clans WHERE id = ?", (cid,))
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
 
     cur.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
 
@@ -3998,7 +4030,7 @@ def set_test_mode(user_id: int, enabled: bool, added_by: int = None):
         """, (user_id, 1 if enabled else 0, added_by, 1 if enabled else 0))
         conn.commit()
     except Exception:
-        pass
+        logger.exception("Не удалось выполнить необязательную операцию")
     conn.close()
 
 
