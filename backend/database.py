@@ -1501,6 +1501,20 @@ def open_cursed_egg(user_id: int) -> Optional[dict]:
             "stock_left": stock_left, "is_active": bool(is_active)}
 
 
+def get_pet_by_id(pet_id: int, user_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, pet_name, rarity, income, is_active FROM pets WHERE id = ? AND user_id = ?",
+        (pet_id, user_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "name": row[1], "rarity": row[2], "income": row[3], "is_active": bool(row[4])}
+
+
 def get_user_pets(user_id: int) -> List[dict]:
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
