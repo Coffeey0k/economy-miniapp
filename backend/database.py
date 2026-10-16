@@ -1345,27 +1345,35 @@ def get_pet_slot_limit(user_id: int) -> int:
 
 
 def buy_pet_slot(user_id: int) -> tuple:
-    """Покупает один слот. Возвращает (success, message)."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT slots FROM pet_slot_limits WHERE user_id = ?", (user_id,))
-    row = cur.fetchone()
-    slots = max(4, min(15, int(row[0]))) if row else 4
-    if slots >= 15:
-        conn.close()
-        return False, "У тебя уже максимум — 15 слотов."
-    price = 5000 * (slots - 2)  # цена растёт с каждым новым слотом
-    conn.close()
-    # Списываем перед сохранением слота; повторная покупка ограничивается повторной проверкой.
-    if not update_balance(user_id, -price):
-        return False, f"Недостаточно LDC. Следующий слот стоит {price:,}."
+    """Покупает слот транзакционно: параллельные нажатия не списывают деньги дважды за один слот."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO pet_slot_limits (user_id, slots) VALUES (?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET slots = EXCLUDED.slots",
-        (user_id, slots + 1),
+        "INSERT INTO pet_slot_limits (user_id, slots) VALUES (?, 4) ON CONFLICT(user_id) DO NOTHING",
+        (user_id,),
     )
+    cur.execute("SELECT slots FROM pet_slot_limits WHERE user_id = ? FOR UPDATE", (user_id,))
+    row = cur.fetchone()
+    slots = max(4, min(15, int(row[0]))) if row else 4
+    if slots >= 15:
+        conn.rollback()
+        conn.close()
+        return False, "У тебя уже максимум — 15 слотов."
+    price = 5000 * (slots - 2)
+    cur.execute(
+        "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+        (price, user_id, price),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, f"Недостаточно LDC. Следующий слот стоит {price:,}."
+    cur.execute("UPDATE pet_slot_limits SET slots = ? WHERE user_id = ? AND slots = ?",
+                (slots + 1, user_id, slots))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "Слоты изменились одновременно. Попробуй ещё раз."
     conn.commit()
     conn.close()
     return True, f"Куплен слот {slots + 1}/15 за {price:,} LDC."
