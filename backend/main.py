@@ -13,8 +13,8 @@ Backend для Telegram Mini App бота Lavender Dream.
 - Азартные игры (слот/кубик/монетка/угадай число) — там ставки и честная
   случайность, безопаснее держать в одном месте (боте), а не дублировать
   в двух системах.
-- Админ-панель — управление чужими балансами не должно быть доступно из
-  веб-страницы без дополнительной защиты.
+- Админ-панель — все действия с чужими балансами должны проверять роль
+  администратора на сервере, а не только в интерфейсе.
 - Промокоды — по задумке активируются только в ЛС с ботом.
 - Покупки, требующие подтверждения владельца (unban, admin) — их и здесь
   можно "заказать", но подтверждает их по-прежнему владелец в боте.
@@ -29,6 +29,7 @@ import hmac
 import json
 import os
 import random
+import time
 import httpx
 import config
 import db_compat as sqlite3
@@ -1122,15 +1123,12 @@ def admin_ban(payload: dict = Body(...)):
 
 # ========== API: АДМИН ПИНГ ==========
 
-import time
-
 
 @app.get("/api/admin/ping")
 def admin_ping(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
     _require_admin(user_id)
 
-    import httpx
     try:
         start = time.monotonic()
         # Запрос к Telegram API
@@ -1732,8 +1730,6 @@ def bs_fire(payload: dict = Body(...)):
 
 FRIEND_BONUS_PER = 2
 FRIEND_BONUS_MAX = 20
-
-import httpx
 
 def send_friend_notification_sync(chat_id: int, text: str):
     """Отправляет ЛС от имени бота."""
@@ -2966,7 +2962,6 @@ def music_buy_slot(payload: dict = Body(...)):
 
 # Вспомогательные функции
 
-import httpx
 
 
 def _music_get_info(url: str):
@@ -3406,8 +3401,6 @@ def _notify_admins_purchase(buyer_id: int, item_type: str, price: int):
 
 # ========== API: ПОДАРКИ ==========
 
-import json as _json
-
 
 @app.get("/api/gifts")
 def get_gifts(init_data: str = Query(..., alias="initData")):
@@ -3521,7 +3514,7 @@ def send_gift(payload: dict = Body(...)):
         if not change_balance(cur, user_id, -amount):
             conn.close()
             raise HTTPException(status_code=400, detail="Недостаточно монет")
-        gift_data = _json.dumps({"amount": amount})
+        gift_data = json.dumps({"amount": amount})
 
     elif gift_type == "rcc":
         amount = float(gift_data_raw)
@@ -3534,7 +3527,7 @@ def send_gift(payload: dict = Body(...)):
             conn.close()
             raise HTTPException(status_code=400, detail="Недостаточно RCC")
         cur.execute("UPDATE rcc_balance SET balance = balance - %s WHERE user_id = %s", (amount, user_id))
-        gift_data = _json.dumps({"amount": amount})
+        gift_data = json.dumps({"amount": amount})
 
     elif gift_type == "pet":
         pet_id = int(gift_data_raw)
@@ -3544,7 +3537,7 @@ def send_gift(payload: dict = Body(...)):
             conn.close()
             raise HTTPException(status_code=404, detail="Питомец не найден")
         cur.execute("DELETE FROM pets WHERE id = %s AND user_id = %s", (pet_id, user_id))
-        gift_data = _json.dumps({"pet_name": r["pet_name"], "rarity": r["rarity"], "income": r["income"]})
+        gift_data = json.dumps({"pet_name": r["pet_name"], "rarity": r["rarity"], "income": r["income"]})
 
     elif gift_type == "cosmetic":
         # gift_data_raw = "item_type:item_key"
@@ -3565,7 +3558,7 @@ def send_gift(payload: dict = Body(...)):
             DELETE FROM user_cosmetics_owned
             WHERE user_id = %s AND item_type = %s AND item_key = %s
         """, (user_id, item_type, item_key))
-        gift_data = _json.dumps({"item_type": item_type, "item_key": item_key})
+        gift_data = json.dumps({"item_type": item_type, "item_key": item_key})
 
     # Создаём подарок
     cur.execute("""
@@ -3622,7 +3615,7 @@ def open_gift(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Подарок сгорел")
 
     gift_type = row["gift_type"]
-    gift_data = _json.loads(row["gift_data"])
+    gift_data = json.loads(row["gift_data"])
 
     # Выдаём награду
     result_text = ""
