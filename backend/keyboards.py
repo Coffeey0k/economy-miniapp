@@ -165,7 +165,18 @@ def pet_actions_menu(pet_id: int, is_active: bool) -> InlineKeyboardMarkup:
         builder.row(InlineKeyboardButton(text="💤 Деактивировать", callback_data=f"pet_deactivate_{pet_id}"))
     else:
         builder.row(InlineKeyboardButton(text="✅ Активировать", callback_data=f"pet_activate_{pet_id}"))
-    builder.row(InlineKeyboardButton(text="🎁 Подарить", callback_data=f"pet_gift_{pet_id}"))
+    builder.row(
+        InlineKeyboardButton(text="🍖 Кормить", callback_data=f"pet_care_feed_{pet_id}"),
+        InlineKeyboardButton(text="🎾 Играть", callback_data=f"pet_care_play_{pet_id}"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🩺 Лечить", callback_data=f"pet_care_heal_{pet_id}"),
+        InlineKeyboardButton(text="⬆️ Улучшить", callback_data=f"pet_care_upgrade_{pet_id}"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="💰 Продать системе", callback_data=f"pet_sell_{pet_id}"),
+        InlineKeyboardButton(text="🎁 Передать", callback_data=f"pet_gift_{pet_id}"),
+    )
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="my_pets"))
     return builder.as_markup()
 
