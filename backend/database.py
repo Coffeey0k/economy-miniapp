@@ -155,6 +155,21 @@ def init_db():
         ON CONFLICT(pet_id) DO NOTHING
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS web_trades (
+            id SERIAL PRIMARY KEY,
+            from_user BIGINT NOT NULL,
+            to_user BIGINT NOT NULL,
+            offer_type TEXT NOT NULL,
+            offer_key TEXT NOT NULL,
+            request_type TEXT NOT NULL,
+            request_key TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            resolved_at TIMESTAMP
+        )
+    """)
+
     # === ПРОФЕССИИ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS professions (
