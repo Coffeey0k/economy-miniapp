@@ -1367,7 +1367,7 @@ def buy_pet_slot(user_id: int) -> tuple:
         "INSERT INTO pet_slot_limits (user_id, slots) VALUES (?, 4) ON CONFLICT(user_id) DO NOTHING",
         (user_id,),
     )
-    cur.execute("SELECT slots FROM pet_slot_limits WHERE user_id = ? FOR UPDATE", (user_id,))
+    cur.execute("SELECT slots FROM pet_slot_limits WHERE user_id = ?", (user_id,))
     row = cur.fetchone()
     slots = max(4, min(15, int(row[0]))) if row else 4
     if slots >= 15:
@@ -1439,17 +1439,7 @@ def open_egg(user_id: int, egg_type: str) -> Optional[dict]:
 
 
 def open_cursed_egg(user_id: int) -> Optional[dict]:
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT stock, is_active FROM cursed_egg WHERE id = 1")
-    row = cur.fetchone()
-    if not row or not row[1] or row[0] <= 0:
-        conn.close()
-        return None
-    conn.close()
-    if not update_balance(user_id, -10000):
-        return None
-
+    """Открывает проклятое яйцо одной транзакцией, включая резервирование остатка и списание."""
     pets = CURSED_EGG_PETS
     total = sum(p[3] for p in pets)
     r = random.uniform(0, total)
@@ -1461,23 +1451,41 @@ def open_cursed_egg(user_id: int) -> Optional[dict]:
             break
         upto += p[3]
 
-    activated = _add_pet_with_slot_check(user_id, chosen)
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("UPDATE cursed_egg SET stock = stock - 1 WHERE id = 1 AND stock > 0 AND is_active = 1")
     if cur.rowcount != 1:
         conn.rollback()
         conn.close()
-        # Не удалось зарезервировать яйцо: возвращаем ставку.
-        update_balance(user_id, 10000)
         return None
+
+    cur.execute("UPDATE users SET balance = balance - 10000 WHERE user_id = ? AND balance >= 10000", (user_id,))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return None
+
+    cur.execute("SELECT slots FROM pet_slot_limits WHERE user_id = ?", (user_id,))
+    slot_row = cur.fetchone()
+    slots = max(4, min(15, int(slot_row[0]))) if slot_row else 4
+    cur.execute("SELECT COUNT(*) FROM pets WHERE user_id = ? AND is_active = 1", (user_id,))
+    active_count = cur.fetchone()[0]
+    is_active = 1 if active_count < slots else 0
+
+    cur.execute(
+        "INSERT INTO pets (user_id, pet_name, pet_emoji, rarity, income, is_active) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, chosen[0], chosen[0].split()[0], chosen[1], chosen[2], is_active),
+    )
+    pet_id = cur.lastrowid
+    cur.execute("INSERT INTO pet_care (pet_id) VALUES (?) ON CONFLICT(pet_id) DO NOTHING", (pet_id,))
     cur.execute("SELECT stock FROM cursed_egg WHERE id = 1")
     stock_left = cur.fetchone()[0]
     if stock_left <= 0:
         cur.execute("UPDATE cursed_egg SET is_active = 0 WHERE id = 1")
     conn.commit()
     conn.close()
-    return {"name": chosen[0], "rarity": chosen[1], "income": chosen[2], "stock_left": stock_left, "is_active": activated}
+    return {"name": chosen[0], "rarity": chosen[1], "income": chosen[2],
+            "stock_left": stock_left, "is_active": bool(is_active)}
 
 
 def get_user_pets(user_id: int) -> List[dict]:
