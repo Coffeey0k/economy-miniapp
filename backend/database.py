@@ -638,6 +638,31 @@ def update_balance(user_id: int, amount: int) -> bool:
         logger.exception("Не удалось изменить баланс user_id=%s amount=%s", user_id, amount)
         return False
 
+
+def transfer_coins(sender_id: int, recipient_id: int, amount: int) -> bool:
+    """Атомарный перевод без комиссии: либо обе стороны обновлены, либо ни одна."""
+    if amount <= 0 or sender_id == recipient_id:
+        return False
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+        (amount, sender_id, amount),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False
+    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, recipient_id))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False
+    conn.commit()
+    conn.close()
+    return True
+
+
 def get_balance(user_id: int) -> int:
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
