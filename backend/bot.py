@@ -1149,11 +1149,22 @@ async def games_word_trigger(message: Message):
     await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
 
 
-@dp.message(F.text.lower().strip().in_({"монетка", "казино", "слот", "слоты"}))
+@dp.message(F.text.lower().strip().in_({
+    "монетка", "казино", "слот", "слоты", "кубик", "кости",
+    "дротик", "дартс", "угадай число", "число"
+}))
 async def game_word_trigger(message: Message):
     word = message.text.lower().strip()
-    game_type = "coin" if word == "монетка" else "slot"
-    title = "🪙 Монетка" if game_type == "coin" else "🎰 Казино / слот"
+    if word == "монетка":
+        game_type, title = "coin", "🪙 Монетка"
+    elif word in {"кубик", "кости"}:
+        game_type, title = "dice", "🎲 Кубик"
+    elif word in {"дротик", "дартс"}:
+        game_type, title = "dart", "🎯 Дартс"
+    elif word in {"угадай число", "число"}:
+        game_type, title = "number", "🃏 Угадай число"
+    else:
+        game_type, title = "slot", "🎰 Казино / слот"
     await message.answer(f"{title}\nВыбери ставку:", reply_markup=game_bet_menu(game_type))
 
 
