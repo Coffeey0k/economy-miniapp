@@ -161,33 +161,13 @@ async def ttt_accept(callback: CallbackQuery):
         await callback.answer("❌ Это приглашение не для тебя.", show_alert=True)
         return
 
-    # Проверяем ставки ещё раз
-    bet = invite["bet"]
-    if db.get_balance(invite["from_user"]) < bet:
-        await callback.answer("❌ У вызывающего уже нет столько монет.", show_alert=True)
+    # Списание обеих ставок, смена статуса вызова и создание партии атомарны.
+    ok, result = db.ttt_accept_invite_atomic(invite_id, callback.from_user.id)
+    if not ok:
+        await callback.answer(f"❌ {result}", show_alert=True)
         return
-    if db.get_balance(invite["to_user"]) < bet:
-        await callback.answer("❌ У тебя недостаточно монет.", show_alert=True)
-        return
+    game_id = result["game_id"]
 
-    # Обе ставки списываются до начала партии; ничья вернёт их обоим.
-    if not db.update_balance(invite["from_user"], -bet):
-        await callback.answer("❌ Не удалось списать ставку вызывающего.", show_alert=True)
-        return
-    if not db.update_balance(invite["to_user"], -bet):
-        db.update_balance(invite["from_user"], bet)
-        await callback.answer("❌ Не удалось списать твою ставку.", show_alert=True)
-        return
-
-    db.ttt_update_invite_status(invite_id, "accepted")
-
-    # Создаём игру: X — вызывающий, O — принявший
-    game_id = db.ttt_create_game(
-        player_x=invite["from_user"],
-        player_o=invite["to_user"],
-        bet=bet,
-        is_vs_bot=False
-    )
     game = db.ttt_get_game(game_id)
 
     text = (
