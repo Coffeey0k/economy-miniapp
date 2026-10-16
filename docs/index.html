@@ -1765,8 +1765,8 @@
       if (offerSelect) offerSelect.innerHTML = options || '<option value="">Нет предметов для обмена</option>';
       window._tradeInventory = inventory;
       if (!inventory.length) {
-        list.innerHTML = '<p class="label">В инвентаре пока нет косметических предметов. Сначала приобрети их в разделе «Косметика».</p>';
-        return;
+        const offerSelect = document.getElementById("trade-offer");
+        if (offerSelect) offerSelect.innerHTML = '<option value="">Нет предметов для обмена</option>';
       }
       const trades = tradeData.trades || [];
       list.innerHTML = trades.length ? trades.map(t => {
