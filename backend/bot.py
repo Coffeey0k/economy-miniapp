@@ -6,6 +6,7 @@ import logging
 import db_compat as sqlite3
 import random
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from collections import defaultdict
 from tictactoe import router as ttt_router
 from minesweeper import router as ms_router
@@ -1254,10 +1255,11 @@ async def bank_word(message: Message):
     can, remaining = db.can_claim_bonus(uid)
     if can:
         bonus = db.claim_bonus(uid)
+        next_cooldown = db.get_user_cooldown_seconds(uid, "bonus", 10800)
         await message.answer(
             f"🏦 Вы получили бонус {bonus} 🪙!\n"
             f"💰 Баланс: {db.get_balance(uid)} 🪙\n"
-            "Следующий бонус через 3 часа."
+            f"Следующий бонус через {format_time(next_cooldown)}."
         )
     else:
         await message.answer(f"⏳ Бонус ещё не доступен. Осталось: {format_time(remaining)}.")
@@ -2061,6 +2063,27 @@ async def islands_income_loop():
         except Exception as e:
             logger.error(f"Ошибка дохода острова: {e}")
 
+
+
+async def halloween_event_scheduler():
+    """Автоматически объявляет хэллоуинский ивент в полночь по времени Словакии."""
+    event_key = "halloween_2026"
+    while True:
+        now = datetime.now(ZoneInfo("Europe/Bratislava"))
+        if (now.year, now.month, now.day) == (2026, 10, 31) and not db.event_was_announced(event_key):
+            try:
+                await bot.send_message(
+                    config.FLUD_CHAT_ID,
+                    "🎃 ХЭЛЛОУИНСКИЙ ИВЕНТ LAVENDER DREAM! 👻\n\n"
+                    "Праздник уже начался! Открой Mini App 31 октября и забери праздничную награду 500 🪙.\n"
+                    "Ивент действует до 00:00 1 ноября."
+                )
+                db.mark_event_announced(event_key)
+                logger.info("Хэллоуинский ивент объявлен")
+            except Exception:
+                logger.exception("Не удалось объявить хэллоуинский ивент")
+        await asyncio.sleep(30)
+
 async def main():
     from db_compat import init_db
     init_db()
@@ -2086,6 +2109,7 @@ async def main():
     asyncio.create_task(chest_scheduler())
     asyncio.create_task(islands_income_loop())
     asyncio.create_task(gifts_cleanup_loop())
+    asyncio.create_task(halloween_event_scheduler())
     await dp.start_polling(bot)
 
 
