@@ -44,8 +44,8 @@ def init_db():
 
     # Бусты по умолчанию. Они добавляются и в уже заполненный каталог.
     for boost in [
-        ("boost_bonus_50", "🎁 Буст бонуса −50%", 1500, "Одноразово сокращает следующий кулдаун бонуса на 50%"),
-        ("boost_work_50", "💼 Буст отдыха −50%", 2500, "Одноразово сокращает следующий кулдаун работы на 50%"),
+        ("boost_bonus_50", "🎁 Буст бонуса −50%", 1500, "Одноразово сокращает текущий или следующий кулдаун бонуса на 50%"),
+        ("boost_work_50", "💼 Буст отдыха −50%", 2500, "Одноразово сокращает текущий или следующий кулдаун работы на 50%"),
     ]:
         cur.execute(
             "INSERT INTO catalog_items (item_type, name, price, description) VALUES (?, ?, ?, ?) "
@@ -787,15 +787,9 @@ def add_purchase(user_id: int, item_type: str) -> bool:
             "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)",
             (user_id, item_type)
         )
-        # Каталоговые бусты автоматически становятся одноразовыми активными предметами.
-        boost = parse_boost_item(item_type)
-        if boost:
-            boost_type, reduction = boost
-            cur.execute(
-                "INSERT INTO user_boosts (user_id, boost_type, reduction_percent, uses_remaining) "
-                "VALUES (?, ?, ?, 1)",
-                (user_id, boost_type, reduction),
-            )
+        # Если кулдаун уже идёт, буст сокращает оставшееся время сразу.
+        # Иначе буст применяется к следующему кулдауну после действия.
+        _grant_catalog_boost_cursor(cur, user_id, item_type)
         conn.commit()
         conn.close()
         return True
@@ -871,22 +865,69 @@ def consume_user_boost(user_id: int, boost_type: str) -> int:
     return int(row[1]) if used else 0
 
 
-def grant_catalog_boost(user_id: int, item_type: str):
-    """Вызывается API после покупки буста; бот выдаёт бусты внутри add_purchase."""
+def _grant_catalog_boost_cursor(cur, user_id: int, item_type: str) -> bool:
     boost = parse_boost_item(item_type)
     if not boost:
         return False
     boost_type, reduction = boost
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
+    action_type = boost_type
+    default_cooldown = 10800
+    if boost_type == "work":
+        cur.execute("SELECT last_work, profession FROM professions WHERE user_id = ?", (user_id,))
+        action_row = cur.fetchone()
+        profession = action_row[1] if action_row else None
+        if profession:
+            default_cooldown = int(PROFESSIONS.get(profession, {}).get("cooldown_hours", 3)) * 3600
+        last_time = action_row[0] if action_row else None
+    else:
+        cur.execute("SELECT last_bonus_time FROM users WHERE user_id = ?", (user_id,))
+        action_row = cur.fetchone()
+        last_time = action_row[0] if action_row else None
+
+    cur.execute(
+        "SELECT cooldown_seconds FROM user_cooldowns WHERE user_id = ? AND action_type = ?",
+        (user_id, action_type),
+    )
+    cooldown_row = cur.fetchone()
+    cooldown = int(cooldown_row[0]) if cooldown_row else default_cooldown
+    if last_time:
+        last_dt = datetime.fromisoformat(str(last_time))
+        elapsed = max(0, int((datetime.now() - last_dt).total_seconds()))
+        if elapsed < cooldown:
+            remaining = cooldown - elapsed
+            reduced_cooldown = elapsed + remaining * (100 - reduction) // 100
+            cur.execute(
+                "INSERT INTO user_cooldowns (user_id, action_type, cooldown_seconds, updated_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(user_id, action_type) DO UPDATE SET "
+                "cooldown_seconds = excluded.cooldown_seconds, updated_at = excluded.updated_at",
+                (user_id, action_type, reduced_cooldown, datetime.now().isoformat()),
+            )
+            return True
+
     cur.execute(
         "INSERT INTO user_boosts (user_id, boost_type, reduction_percent, uses_remaining) "
         "VALUES (?, ?, ?, 1)",
         (user_id, boost_type, reduction),
     )
-    conn.commit()
-    conn.close()
     return True
+
+
+def grant_catalog_boost(user_id: int, item_type: str):
+    """Применяет буст к текущему кулдауну или сохраняет его на следующее действие."""
+    if not parse_boost_item(item_type):
+        return False
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        ok = _grant_catalog_boost_cursor(cur, user_id, item_type)
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception:
+        conn.rollback()
+        conn.close()
+        logger.exception("Не удалось применить буст user_id=%s item_type=%s", user_id, item_type)
+        return False
 
 
 def event_was_announced(event_key: str) -> bool:
