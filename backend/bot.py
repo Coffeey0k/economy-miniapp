@@ -1021,6 +1021,50 @@ async def pet_slot_buy_handler(callback: CallbackQuery):
     await callback.answer("Слот куплен!")
 
 
+# ==================== ДОПОЛНИТЕЛЬНЫЕ СЛОВЕСНЫЕ ТРИГГЕРЫ ====================
+
+@dp.message(F.text.lower().strip().in_({"пэй", "перевести", "перевод"}))
+async def transfer_word_trigger(message: Message, state: FSMContext):
+    await message.answer(
+        "💸 Перевод LDC\nВведите username получателя без @:",
+        reply_markup=cancel_button(),
+    )
+    await state.set_state(TransferStates.waiting_recipient)
+
+
+@dp.message(F.text.lower().strip().in_({"задания", "задание"}))
+async def tasks_word_trigger(message: Message):
+    db.assign_daily_tasks(message.from_user.id)
+    await message.answer("📋 Ежедневные задания Lavender Dream:", reply_markup=tasks_menu())
+
+
+@dp.message(F.text.lower().strip().in_({"топ", "банк топ"}))
+async def balance_top_word_trigger(message: Message):
+    top_users = db.get_top_users(10)
+    if not top_users:
+        await message.answer("📊 Топ пока пуст.")
+        return
+    medals = ["🥇", "🥈", "🥉"]
+    text = "🏦 Топ игроков по балансу LDC\n\n"
+    for i, (uid, username, balance) in enumerate(top_users, 1):
+        medal = medals[i - 1] if i <= 3 else f"{i}."
+        text += f"{medal} {db.get_display_name(uid)} — {balance:,} 🪙\n"
+    await message.answer(text)
+
+
+@dp.message(F.text.lower().strip().in_({"игры", "игра"}))
+async def games_word_trigger(message: Message):
+    await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
+
+
+@dp.message(F.text.lower().strip().in_({"монетка", "казино", "слот", "слоты"}))
+async def game_word_trigger(message: Message):
+    word = message.text.lower().strip()
+    game_type = "coin" if word == "монетка" else "slot"
+    title = "🪙 Монетка" if game_type == "coin" else "🎰 Казино / слот"
+    await message.answer(f"{title}\nВыбери ставку:", reply_markup=game_bet_menu(game_type))
+
+
 # ==================== ПРОФЕССИИ ====================
 
 @dp.callback_query(F.data == "professions_menu")
