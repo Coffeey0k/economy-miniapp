@@ -1679,11 +1679,19 @@ def _bs_points(cur, user_id: int) -> int:
 
 
 def _bs_change_points(cur, user_id: int, delta: int) -> int:
-    current = _bs_points(cur, user_id)
-    if delta < 0 and current < -delta:
-        raise HTTPException(status_code=400, detail="Недостаточно морских очков")
-    cur.execute("UPDATE battleship_economy SET sea_points = sea_points + ? WHERE user_id = ?", (delta, user_id))
-    return current + delta
+    _bs_points(cur, user_id)
+    if delta < 0:
+        cur.execute(
+            "UPDATE battleship_economy SET sea_points = sea_points + ? WHERE user_id = ? AND sea_points >= ?",
+            (delta, user_id, -delta),
+        )
+        if cur.rowcount != 1:
+            raise HTTPException(status_code=400, detail="Недостаточно морских очков")
+    else:
+        cur.execute("UPDATE battleship_economy SET sea_points = sea_points + ? WHERE user_id = ?", (delta, user_id))
+    cur.execute("SELECT sea_points FROM battleship_economy WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    return int(row["sea_points"] if row else 0)
 
 
 def _bs_validate_defenses(defenses, field: str) -> bool:
@@ -2283,7 +2291,12 @@ def bs_special(payload: dict = Body(...)):
             conn.close()
             raise HTTPException(status_code=400, detail="Самолёт уже готов к вылету")
         _bs_change_points(cur, user_id, -BS_PLANE_COST)
-        cur.execute("UPDATE battleship_games SET plane_available = 1 WHERE id = ?", (game_id,))
+        cur.execute("UPDATE battleship_games SET plane_available = 1 WHERE id = ? AND plane_available = 0 AND status = 'active' AND turn = 'player'", (game_id,))
+        if cur.rowcount != 1:
+            _bs_change_points(cur, user_id, BS_PLANE_COST)
+            conn.commit()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Самолёт уже куплен или сейчас нельзя его использовать")
     elif action == "radar":
         try:
             row, col = int(payload.get("row")), int(payload.get("col"))
@@ -2318,6 +2331,10 @@ def bs_special(payload: dict = Body(...)):
         if (orientation == "horizontal" and col + 5 > 10) or (orientation == "vertical" and row + 5 > 10):
             conn.close()
             raise HTTPException(status_code=400, detail="Линия из 5 клеток выходит за границы поля")
+        cur.execute("UPDATE battleship_games SET plane_available = 0 WHERE id = ? AND plane_available = 1 AND status = 'active' AND turn = 'player'", (game_id,))
+        if cur.rowcount != 1:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Самолёт уже использован")
         line = [_bs_cell_index(row, col + n) if orientation == "horizontal" else _bs_cell_index(row + n, col) for n in range(5)]
         shots = list(g["player_shots"])
         defenses = list(g["bot_defenses"] or "." * 100)
