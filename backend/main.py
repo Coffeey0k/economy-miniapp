@@ -1091,7 +1091,7 @@ def play_game(payload: dict = Body(...)):
         )
     except Exception:
         logger.exception("Не удалось выполнить необязательную операцию")
-    return {"ok": True, "win": win, "text": text}
+    return {"ok": True, "win": net_profit, "payout": win, "text": text}
 
 
 
@@ -3837,10 +3837,17 @@ def _safe_bot_send(chat_id: int, text: str, **kwargs) -> bool:
         payload.update(kwargs)
         with httpx.Client(timeout=5) as client:
             r = client.post(url, json=payload)
-            if r.status_code == 403:  # Forbidden — бот заблокирован
+            try:
+                response_data = r.json()
+            except ValueError:
+                response_data = {}
+            # Telegram Bot API может сообщить ошибку в JSON-ответе;
+            # проверяем и HTTP-статус, и поле error_code.
+            error_code = response_data.get("error_code")
+            if r.status_code == 403 or error_code == 403:
                 _mark_user_blocked(chat_id)
                 return False
-            return r.status_code == 200
+            return r.status_code == 200 and response_data.get("ok", True) is True
     except Exception:
         return False
 
