@@ -2758,7 +2758,7 @@ def ms_open_cell(game_id: int, cell: int, user_id: int) -> tuple:
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     if win:
-        update_balance(game["user_id"], MS_REWARD)
+        update_balance(game["user_id"], game["bet"] * 2)
         cur.execute("""
             UPDATE minesweeper_games SET revealed = ?, status = 'win' WHERE id = ?
         """, (revealed_str, game_id))
