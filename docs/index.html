@@ -2039,7 +2039,7 @@
     if (!cells) return false;
     const occupied = new Set();
     for (const ship of ships) {
-      if (ship.id === movingId) continue;
+      if (ship.id === movingId || ship.placed === false) continue;
       const other = bsPlacementCells(ship);
       if (other) other.forEach(i => occupied.add(i));
     }
@@ -2063,7 +2063,7 @@
         const row = Math.floor(Math.random() * (ship.horizontal ? 10 : 11 - ship.size));
         const col = Math.floor(Math.random() * (ship.horizontal ? 11 - ship.size : 10));
         ship.start = row * 10 + col;
-        if (bsCanPlace(ships.filter(s => s.placed), ship.id, ship.start, ship.horizontal)) placed = true;
+        if (bsCanPlace(ships, ship.id, ship.start, ship.horizontal)) placed = true;
       }
       if (!placed) return bsRandomPlacement();
       ship.placed = true;
