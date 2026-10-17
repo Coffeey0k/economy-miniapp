@@ -2243,6 +2243,11 @@
         let label = "", bg = "", color = "#e0f7ff", border = "1px solid rgba(125,211,252,.32)";
         const radarVisible = Array.isArray(bsState.radar_cells) && bsState.radar_cells.includes(i);
         const ownDefense = !bsViewEnemy && (bsState.player_defenses || "").charAt(i) === "D";
+        const aaZone = !bsViewEnemy && (bsState.player_defenses || "").split("").some((v, pos) => {
+          if (v !== "D") return false;
+          const defenseRow = Math.floor(pos / 10), cellRow = Math.floor(i / 10);
+          return cellRow === (defenseRow < 9 ? defenseRow + 1 : defenseRow - 1) || cellRow === defenseRow;
+        });
         if (shots[i] === "1") { label = "💦"; bg = "rgba(148,163,184,.28)"; }
         else if (shots[i] === "2") { label = "💥"; bg = "rgba(239,68,68,.82)"; color = "#fff"; border = "1px solid rgba(255,255,255,.55)"; }
         else if (shots[i] === "3") { label = "🔥"; bg = "rgba(127,29,29,.96)"; color = "#fff"; border = "1px solid rgba(255,255,255,.55)"; }
@@ -2253,6 +2258,7 @@
           color = "#fff";
         }
         else if (ownDefense) { label = '<img src="images/battleship-aa.svg" alt="ПВО" style="width:90%;height:90%;object-fit:contain;">'; bg = "linear-gradient(145deg,#fbbf24,#92400e)"; }
+        else if (aaZone) { bg = "linear-gradient(145deg,rgba(245,158,11,.42),rgba(120,53,15,.34)),radial-gradient(ellipse at 30% 25%,rgba(125,211,252,.3),transparent 42%),linear-gradient(145deg,#075985,#0e7490 45%,#164e63)"; }
         else if (radarVisible) { label = "📡"; bg = "rgba(34,197,94,.82)"; color = "#052e16"; border = "2px solid #bbf7d0"; }
         else { bg = "radial-gradient(ellipse at 30% 25%,rgba(125,211,252,.42),transparent 42%),linear-gradient(145deg,#075985,#0e7490 45%,#164e63)"; }
         const clickable = bsViewEnemy && shots[i] === "0" && bsState.status === "active" && bsState.turn === "player";
@@ -2328,6 +2334,7 @@
       const res = await apiPost("/api/battleship/special", payload);
       bsState = res;
       if (action === "buy_plane") { bsActionMode = "plane"; toast("✈️ Самолёт готов к вылету!", false); }
+      else if (action === "place_defense") { bsActionMode = "fire"; toast("🛡️ ПВО установлено: защита зоны 2×10", false); }
       else if (action === "radar") {
         bsActionMode = "fire";
         toast(res.radar_cells?.length ? "📡 Радар обнаружил корабли!" : "📡 В зоне радара кораблей нет", false);
