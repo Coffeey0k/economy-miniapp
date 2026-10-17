@@ -78,7 +78,7 @@ async def ms_start(message: Message):
     text = (
         f"💣 Сапёр\n\n"
         f"💰 Ставка: {bet} 🪙\n"
-        f"🎁 Награда: {db.MS_REWARD} 🪙\n\n"
+        f"🎁 Выплата при победе: {bet * 2:,} 🪙 (чистая прибыль {bet:,} 🪙)\n\n"
         f"Открывай клетки. Не попади на мину!"
     )
     kb = ms_keyboard(game_id, game["board"], game["revealed"], game["field_size"]).as_markup()
@@ -117,11 +117,11 @@ async def ms_open(callback: CallbackQuery):
 
     # === Победа ===
     if game["status"] == "win":
-        db.update_game_stats(user_id, True, db.MS_REWARD)
+        db.update_game_stats(user_id, True, game["bet"])
         kb = ms_keyboard(game_id, game["board"], game["revealed"], game["field_size"]).as_markup()
         await callback.message.edit_text(
             f"🏆 Победа!\n\n"
-            f"💰 Выигрыш: {db.MS_REWARD} 🪙\n"
+            f"💰 Выплата: {game['bet'] * 2:,} 🪙 (чистая прибыль {game['bet']:,} 🪙)\n"
             f"📊 Баланс: {db.get_balance(user_id)} 🪙",
             reply_markup=kb
         )
