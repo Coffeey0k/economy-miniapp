@@ -1116,6 +1116,10 @@
         <span>🧹 Очистить забаненных</span>
         <button class="btn btn-small" style="background:#ef4444;" onclick="usersClearBanned()">Удалить</button>
       </div>
+      <div class="item-row" id="users-clear-blocked-btn" style="display:none;">
+        <span>🧹 Очистить заблокировавших бота</span>
+        <button class="btn btn-small" style="background:#ef4444;" onclick="usersClearBlocked()">Удалить</button>
+      </div>
     </div>
 
     <div class="card" id="users-list-card">
@@ -2289,6 +2293,10 @@
       document.getElementById("users-clear-btn").style.display = 
         usersFilterValue === "banned" && counts.banned > 0 ? "flex" : "none";
 
+      // Кнопка очистки заблокировавших бота — только на соответствующей вкладке.
+      document.getElementById("users-clear-blocked-btn").style.display =
+        usersFilterValue === "blocked_bot" && counts.blocked_bot > 0 ? "flex" : "none";
+
       if (data.users.length === 0) {
         document.getElementById("users-list").innerHTML = `<div class="label">Список пуст</div>`;
         return;
@@ -2324,6 +2332,15 @@
     if (!confirm("Удалить ВСЕХ забаненных ПОЛНОСТЬЮ из БД?\n\nДействие необратимо.")) return;
     try {
       const res = await apiPost("/api/admin/users/clear_banned", {});
+      toast(res.message, false);
+      loadUsers();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function usersClearBlocked() {
+    if (!confirm("Удалить ВСЕХ игроков, заблокировавших бота, ПОЛНОСТЬЮ из БД?\n\nБудут удалены их игровые данные, баланс, питомцы, кланы и прочие данные. Действие необратимо.")) return;
+    try {
+      const res = await apiPost("/api/admin/users/clear_blocked", {});
       toast(res.message, false);
       loadUsers();
     } catch (e) { toast(e.message, true); }
