@@ -1664,7 +1664,7 @@ def _bs_ensure_special_schema(conn):
         user_id INTEGER PRIMARY KEY, sea_points INTEGER NOT NULL DEFAULT 0)""")
     for column, definition in (
         ("player_defenses", "TEXT DEFAULT NULL"), ("bot_defenses", "TEXT DEFAULT NULL"),
-        ("plane_available", "INTEGER NOT NULL DEFAULT 0"), ("plane_buys", "INTEGER NOT NULL DEFAULT 0"), ("radar_cells", "TEXT DEFAULT NULL"),
+        ("plane_available", "INTEGER NOT NULL DEFAULT 0"), ("plane_buys", "INTEGER NOT NULL DEFAULT 0"), ("defenses_bought", "INTEGER NOT NULL DEFAULT 0"), ("radar_cells", "TEXT DEFAULT NULL"),
         ("radar_until", "INTEGER NOT NULL DEFAULT 0"), ("sea_reward_paid", "INTEGER NOT NULL DEFAULT 0"),
     ):
         try:
@@ -2012,7 +2012,7 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
     cur = conn.cursor()
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots,
-               bet, status, turn, player_defenses, bot_defenses, plane_available, plane_buys,
+               bet, status, turn, player_defenses, bot_defenses, plane_available, plane_buys, defenses_bought,
                radar_cells, radar_until
         FROM battleship_games WHERE id = ?
     """, (game_id,))
@@ -2041,6 +2041,7 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
         "player_defenses": row["player_defenses"],
         "plane_available": bool(row["plane_available"]),
         "plane_buys": int(row["plane_buys"] or 0),
+        "defenses_bought": int(row["defenses_bought"] or 0),
         "radar_cells": [i for i in range(100) if row["radar_cells"] and row["radar_cells"][i] == "1"] if int(row["radar_until"] or 0) >= int(time.time()) else [],
         "radar_until": int(row["radar_until"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
@@ -2188,7 +2189,7 @@ def bs_fire(payload: dict = Body(...)):
     # Финальное состояние
     cur.execute("""
         SELECT player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, plane_available, plane_buys, radar_cells, radar_until
+               player_defenses, plane_available, plane_buys, defenses_bought, radar_cells, radar_until
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     final = cur.fetchone()
@@ -2248,6 +2249,7 @@ def bs_fire(payload: dict = Body(...)):
         "player_defenses": final["player_defenses"],
         "plane_available": bool(final["plane_available"]),
         "plane_buys": int(final["plane_buys"] or 0),
+        "defenses_bought": int(final["defenses_bought"] or 0),
         "radar_cells": [i for i in range(100) if final["radar_cells"] and final["radar_cells"][i] == "1"] if int(final["radar_until"] or 0) >= int(time.time()) else [],
         "radar_until": int(final["radar_until"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
@@ -2268,7 +2270,7 @@ def bs_special(payload: dict = Body(...)):
     cur = conn.cursor()
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, bot_defenses, plane_available, plane_buys, sea_reward_paid
+               player_defenses, bot_defenses, plane_available, plane_buys, defenses_bought, sea_reward_paid
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     g = cur.fetchone()
@@ -2314,7 +2316,7 @@ def bs_special(payload: dict = Body(...)):
         if g["player_field"][idx] == "S" or defenses[idx] == "D":
             conn.close()
             raise HTTPException(status_code=400, detail="ПВО нельзя ставить на корабль или поверх другой установки")
-        if defenses.count("D") >= BS_DEFENSE_MAX:
+        if int(g["defenses_bought"] or 0) >= BS_DEFENSE_MAX:
             conn.close()
             raise HTTPException(status_code=400, detail="Максимум 3 установки ПВО за игру")
         try:
@@ -2324,7 +2326,7 @@ def bs_special(payload: dict = Body(...)):
             conn.close()
             raise
         defenses[idx] = "D"
-        cur.execute("UPDATE battleship_games SET player_defenses = ? WHERE id = ?", ("".join(defenses), game_id))
+        cur.execute("UPDATE battleship_games SET player_defenses = ?, defenses_bought = defenses_bought + 1 WHERE id = ?", ("".join(defenses), game_id))
         result = "defense_placed"
     elif action == "radar":
         try:
