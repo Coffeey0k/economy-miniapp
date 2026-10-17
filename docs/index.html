@@ -822,6 +822,9 @@
   .bs-combat-cell:not(:disabled):active { transform:scale(.93);filter:brightness(1.25); }
   .bs-explosion { animation:bsExplosion .55s ease-out; }
   .bs-special-panel { margin:12px 0;padding:12px;border:1px solid rgba(125,211,252,.3);border-radius:14px;background:linear-gradient(135deg,rgba(3,37,65,.85),rgba(14,116,144,.35)); }
+  .bs-plane-flight { position:absolute;z-index:20;font-size:28px;pointer-events:none;filter:drop-shadow(0 0 8px rgba(255,255,255,.85));transition:transform .68s cubic-bezier(.2,.8,.2,1),opacity .68s; }
+  .bs-radar-wave { position:absolute;z-index:18;left:50%;top:50%;width:18px;height:18px;border:3px solid #86efac;border-radius:50%;pointer-events:none;animation:bsRadarPulse .7s ease-out forwards;box-shadow:0 0 20px rgba(34,197,94,.8); }
+  @keyframes bsRadarPulse { from{transform:translate(-50%,-50%) scale(.2);opacity:1} to{transform:translate(-50%,-50%) scale(22);opacity:0} }
   .bs-points { color:#bae6fd;font-weight:700;text-align:center;margin-bottom:10px; }
   .bs-special-actions { display:flex;gap:7px;justify-content:center;flex-wrap:wrap;margin:7px 0; }
   .bs-special-actions .btn { flex:1 1 130px; }
@@ -2233,7 +2236,7 @@
     const shots = bsViewEnemy ? bsState.player_shots : bsState.bot_shots;
     const size = 10;
     const heading = bsViewEnemy ? "🎯 Поле противника" : "🛡️ Твой флот";
-    let board = `<div style="display:grid;grid-template-columns:22px repeat(10,minmax(0,1fr));gap:3px;max-width:520px;margin:0 auto 12px auto;align-items:center;">`;
+    let board = `<div class="bs-grid-wrap" style="position:relative;display:grid;grid-template-columns:22px repeat(10,minmax(0,1fr));gap:3px;max-width:520px;margin:0 auto 12px auto;align-items:center;">`;
     board += `<div></div>`;
     for (let c = 0; c < size; c++) board += `<div style="text-align:center;font-size:11px;color:var(--hint);font-weight:700;">${String.fromCharCode(65+c)}</div>`;
     for (let r = 0; r < size; r++) {
@@ -2278,9 +2281,42 @@
     area.innerHTML = `<div class="card bs-sea-card"><div class="bs-ocean-header"><h2 style="margin:0;">⚓ Морской бой</h2><span class="label">10×10 · Глубокое море</span></div><div class="label" style="margin-top:8px;">${heading} · Ставка: ${Number(bsState.bet).toLocaleString()} 🪙 · Выплата: ${Number(bsState.reward).toLocaleString()} 🪙</div>${status}${specialBar}${tabs}${board}${legend}</div>`;
   }
   function bsSetMode(mode) { bsActionMode = mode; renderBattleship(); }
+  async function bsAnimatePlane(row, col, orientation) {
+    const area = document.getElementById("battleship-area");
+    const cells = area ? area.querySelectorAll(".bs-combat-cell") : [];
+    if (cells.length !== 100) return;
+    const first = cells[row * 10 + col];
+    const last = orientation === "horizontal" ? cells[row * 10 + col + 4] : cells[(row + 4) * 10 + col];
+    const grid = first.parentElement;
+    const a = first.getBoundingClientRect(), b = last.getBoundingClientRect(), g = grid.getBoundingClientRect();
+    const plane = document.createElement("div");
+    plane.className = "bs-plane-flight";
+    plane.textContent = "✈️";
+    plane.style.left = (a.left - g.left + a.width / 2 - 16) + "px";
+    plane.style.top = (a.top - g.top + a.height / 2 - 16) + "px";
+    plane.style.transform = orientation === "vertical" ? "rotate(90deg)" : "none";
+    grid.appendChild(plane);
+    requestAnimationFrame(() => {
+      plane.style.transform = (orientation === "vertical" ? "rotate(90deg) " : "") + "translate(" + (b.left - a.left) + "px," + (b.top - a.top) + "px) scale(1.2)";
+      plane.style.opacity = ".25";
+    });
+    await new Promise(resolve => setTimeout(resolve, 700));
+    plane.remove();
+  }
+  function bsAnimateRadar() {
+    const area = document.getElementById("battleship-area");
+    const grid = area?.querySelector(".bs-grid-wrap");
+    if (!grid) return;
+    const wave = document.createElement("div");
+    wave.className = "bs-radar-wave";
+    grid.appendChild(wave);
+    setTimeout(() => wave.remove(), 750);
+  }
   async function bsSpecial(action, row, col) {
     if (!bsState) return;
     try {
+      if (action === "plane" && row !== undefined) await bsAnimatePlane(row, col, bsPlaneOrientation);
+      if (action === "radar" && row !== undefined) bsAnimateRadar();
       const payload = {game_id: bsState.game_id, action};
       if (row !== undefined) { payload.row = row; payload.col = col; }
       if (action === "plane") payload.orientation = bsPlaneOrientation;
