@@ -1647,6 +1647,140 @@ BS_BET_MIN = 500
 BS_SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
 
 
+BS_SEA_WIN_REWARD = 20
+BS_PLANE_COST = 40
+BS_RADAR_COST = 10
+BS_RADAR_SECONDS = 8
+BS_DEFENSE_COUNT = 2
+
+
+def _bs_ensure_special_schema(conn):
+    """Additive migration for special weapons; existing games are preserved."""
+    cur = conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS battleship_economy (
+        user_id INTEGER PRIMARY KEY, sea_points INTEGER NOT NULL DEFAULT 0)""")
+    for column, definition in (
+        ("player_defenses", "TEXT DEFAULT NULL"), ("bot_defenses", "TEXT DEFAULT NULL"),
+        ("plane_available", "INTEGER NOT NULL DEFAULT 0"), ("radar_cells", "TEXT DEFAULT NULL"),
+        ("radar_until", "INTEGER NOT NULL DEFAULT 0"), ("sea_reward_paid", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        try:
+            cur.execute(f"ALTER TABLE battleship_games ADD COLUMN {column} {definition}")
+        except Exception:
+            pass
+    conn.commit()
+
+
+def _bs_points(cur, user_id: int) -> int:
+    cur.execute("INSERT OR IGNORE INTO battleship_economy (user_id, sea_points) VALUES (?, 0)", (user_id,))
+    cur.execute("SELECT sea_points FROM battleship_economy WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    return int(row["sea_points"] if row else 0)
+
+
+def _bs_change_points(cur, user_id: int, delta: int) -> int:
+    current = _bs_points(cur, user_id)
+    if delta < 0 and current < -delta:
+        raise HTTPException(status_code=400, detail="Недостаточно морских очков")
+    cur.execute("UPDATE battleship_economy SET sea_points = sea_points + ? WHERE user_id = ?", (delta, user_id))
+    return current + delta
+
+
+def _bs_validate_defenses(defenses, field: str) -> bool:
+    if not isinstance(defenses, str) or len(defenses) != BS_SIZE * BS_SIZE or any(c not in {".", "D"} for c in defenses):
+        return False
+    positions = [i for i, cell in enumerate(defenses) if cell == "D"]
+    if len(positions) != BS_DEFENSE_COUNT:
+        return False
+    for idx in positions:
+        if field[idx] == "S":
+            return False
+        r, c = divmod(idx, BS_SIZE)
+        for other, cell in enumerate(field):
+            if cell == "S":
+                rr, cc = divmod(other, BS_SIZE)
+                if abs(r - rr) <= 1 and abs(c - cc) <= 1:
+                    return False
+    ar, ac = divmod(positions[0], BS_SIZE)
+    br, bc = divmod(positions[1], BS_SIZE)
+    return max(abs(ar - br), abs(ac - bc)) > 1
+
+
+def _bs_generate_defenses(field: str) -> str:
+    candidates = []
+    for idx, cell in enumerate(field):
+        if cell != ".":
+            continue
+        r, c = divmod(idx, BS_SIZE)
+        near_ship = any(field[_bs_cell_index(rr, cc)] == "S"
+            for rr in range(max(0, r - 1), min(BS_SIZE, r + 2))
+            for cc in range(max(0, c - 1), min(BS_SIZE, c + 2)))
+        if not near_ship:
+            candidates.append(idx)
+    random.shuffle(candidates)
+    selected = []
+    for idx in candidates:
+        r, c = divmod(idx, BS_SIZE)
+        if all(max(abs(r - divmod(o, BS_SIZE)[0]), abs(c - divmod(o, BS_SIZE)[1])) > 1 for o in selected):
+            selected.append(idx)
+            if len(selected) == BS_DEFENSE_COUNT:
+                break
+    if len(selected) < BS_DEFENSE_COUNT:
+        selected = random.sample([i for i, cell in enumerate(field) if cell == "."], BS_DEFENSE_COUNT)
+    out = ["."] * 100
+    for idx in selected:
+        out[idx] = "D"
+    return "".join(out)
+
+
+def _bs_run_bot_turn(cur, game_id: int) -> str:
+    """Resolve the bot's turn server-side, continuing after hits as in normal play."""
+    bot_msg = ""
+    cur.execute("SELECT status, turn, player_field, bot_shots FROM battleship_games WHERE id = ?", (game_id,))
+    state = cur.fetchone()
+    while state and state["status"] == "active" and state["turn"] == "bot":
+        field, shots = state["player_field"], list(state["bot_shots"])
+        candidates = []
+        for i, value in enumerate(shots):
+            if value == "2":
+                r, c = divmod(i, BS_SIZE)
+                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE and shots[_bs_cell_index(nr, nc)] == "0":
+                        candidates.append((nr, nc))
+        if candidates:
+            br, bc = random.choice(candidates)
+        else:
+            remaining = [i for i, value in enumerate(shots) if value == "0"]
+            if not remaining:
+                break
+            br, bc = divmod(random.choice(remaining), BS_SIZE)
+        idx = _bs_cell_index(br, bc)
+        if field[idx] == "S":
+            shots[idx] = "2"
+            if _bs_check_sunk(field, "".join(shots), br, bc):
+                _bs_mark_sunk(field, shots, br, bc)
+                result = "sunk"
+            else:
+                result = "hit"
+        else:
+            shots[idx] = "1"
+            result = "miss"
+        encoded = "".join(shots)
+        lose = all(field[i] != "S" or encoded[i] == "3" for i in range(100))
+        if lose:
+            cur.execute("UPDATE battleship_games SET bot_shots = ?, status = 'lose' WHERE id = ?", (encoded, game_id))
+            bot_msg = f"Бот попал в ({br + 1}, {bc + 1}) и уничтожил твой флот!"
+        else:
+            cur.execute("UPDATE battleship_games SET bot_shots = ?, turn = ? WHERE id = ?", (encoded, "bot" if result in ("hit", "sunk") else "player", game_id))
+            bot_msg = f"Бот стреляет в ({br + 1}, {bc + 1}): {result}"
+        cur.execute("SELECT status, turn, player_field, bot_shots FROM battleship_games WHERE id = ?", (game_id,))
+        state = cur.fetchone()
+        if result == "miss" or (state and state["status"] != "active"):
+            break
+    return bot_msg
+
+
 def _bs_generate_field() -> str:
     grid = [["." for _ in range(BS_SIZE)] for _ in range(BS_SIZE)]
     ships = list(BS_SHIPS)
@@ -1824,24 +1958,33 @@ def bs_start(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Некорректная расстановка кораблей")
 
     player_field = requested_field if requested_field is not None else _bs_generate_field()
+    requested_defenses = payload.get("player_defenses")
+    if requested_defenses is not None and not _bs_validate_defenses(requested_defenses, player_field):
+        raise HTTPException(status_code=400, detail="Размести ровно две ПВО вне кораблей и не рядом друг с другом")
+    player_defenses = requested_defenses if requested_defenses is not None else _bs_generate_defenses(player_field)
+    bot_field = _bs_generate_field()
+    bot_defenses = _bs_generate_defenses(bot_field)
     conn = db()
+    _bs_ensure_special_schema(conn)
     cur = conn.cursor()
     if not change_balance(cur, user_id, -bet):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
 
-    bot_field = _bs_generate_field()
     empty = "0" * (BS_SIZE * BS_SIZE)
 
     cur.execute("""
         INSERT INTO battleship_games
-        (user_id, player_field, bot_field, player_shots, bot_shots, bet, turn, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'player', 'active')
-    """, (user_id, player_field, bot_field, empty, empty, bet))
+        (user_id, player_field, bot_field, player_shots, bot_shots, bet, turn, status,
+         player_defenses, bot_defenses, plane_available, radar_cells, radar_until, sea_reward_paid)
+        VALUES (?, ?, ?, ?, ?, ?, 'player', 'active', ?, ?, 0, NULL, 0, 0)
+    """, (user_id, player_field, bot_field, empty, empty, bet, player_defenses, bot_defenses))
     game_id = cur.lastrowid
     conn.commit()
 
     balance = require_balance(cur, user_id)
+    sea_points = _bs_points(cur, user_id)
+    conn.commit()
     conn.close()
 
     return {
@@ -1855,6 +1998,10 @@ def bs_start(payload: dict = Body(...)):
         "turn": "player",
         "status": "active",
         "balance": balance,
+        "sea_points": sea_points,
+        "player_defenses": player_defenses,
+        "plane_available": False,
+        "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST},
     }
 
 
@@ -1862,10 +2009,12 @@ def bs_start(payload: dict = Body(...)):
 def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query(...)):
     user_id = get_telegram_user_id(init_data)
     conn = db()
+    _bs_ensure_special_schema(conn)
     cur = conn.cursor()
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots,
-               bet, status, turn
+               bet, status, turn, player_defenses, bot_defenses, plane_available,
+               radar_cells, radar_until
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     row = cur.fetchone()
@@ -1874,6 +2023,8 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
         raise HTTPException(status_code=404, detail="Игра не найдена")
 
     balance = require_balance(cur, user_id)
+    sea_points = _bs_points(cur, user_id)
+    conn.commit()
     conn.close()
 
     return {
@@ -1887,6 +2038,12 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
         "turn": row["turn"],
         "status": row["status"],
         "balance": balance,
+        "sea_points": sea_points,
+        "player_defenses": row["player_defenses"],
+        "plane_available": bool(row["plane_available"]),
+        "radar_cells": [i for i in range(100) if row["radar_cells"] and row["radar_cells"][i] == "1"] if int(row["radar_until"] or 0) >= int(time.time()) else [],
+        "radar_until": int(row["radar_until"] or 0),
+        "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST},
     }
 
 
@@ -1904,10 +2061,11 @@ def bs_fire(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Координаты вне поля")
 
     conn = db()
+    _bs_ensure_special_schema(conn)
     cur = conn.cursor()
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots,
-               bet, status, turn
+               bet, status, turn, sea_reward_paid
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     g = cur.fetchone()
@@ -1948,8 +2106,10 @@ def bs_fire(payload: dict = Body(...)):
 
     if win:
         change_balance(cur, user_id, g["bet"] * 2)
+        if not g["sea_reward_paid"]:
+            _bs_change_points(cur, user_id, BS_SEA_WIN_REWARD)
         cur.execute("""
-            UPDATE battleship_games SET player_shots = ?, status = 'win' WHERE id = ?
+            UPDATE battleship_games SET player_shots = ?, status = 'win', sea_reward_paid = 1 WHERE id = ?
         """, (shots_str, game_id))
     else:
         next_turn = "bot" if result == "miss" else "player"
@@ -2053,6 +2213,8 @@ def bs_fire(payload: dict = Body(...)):
         conn.commit()
 
     balance = require_balance(cur, user_id)
+    sea_points = _bs_points(cur, user_id)
+    conn.commit()
     conn.close()
 
     if completed_status in {"win", "lose"}:
@@ -2080,6 +2242,143 @@ def bs_fire(payload: dict = Body(...)):
         "turn": final["turn"],
         "status": final["status"],
         "balance": balance,
+        "sea_points": sea_points,
+        "sea_reward": BS_SEA_WIN_REWARD if completed_status == "win" else 0,
+        "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST},
+    }
+
+
+@app.post("/api/battleship/special")
+def bs_special(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        game_id = int(payload.get("game_id"))
+        action = str(payload.get("action") or "")
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный запрос")
+
+    conn = db()
+    _bs_ensure_special_schema(conn)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id, player_field, bot_field, player_shots, bot_shots, bet, status, turn,
+               player_defenses, bot_defenses, plane_available, sea_reward_paid
+        FROM battleship_games WHERE id = ?
+    """, (game_id,))
+    g = cur.fetchone()
+    if not g or g["user_id"] != user_id:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    if g["status"] != "active":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Игра завершена")
+    if g["turn"] != "player":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Не твой ход")
+
+    result = action
+    bot_msg = ""
+    if action == "buy_plane":
+        if g["plane_available"]:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Самолёт уже готов к вылету")
+        _bs_change_points(cur, user_id, -BS_PLANE_COST)
+        cur.execute("UPDATE battleship_games SET plane_available = 1 WHERE id = ?", (game_id,))
+    elif action == "radar":
+        try:
+            row, col = int(payload.get("row")), int(payload.get("col"))
+        except (TypeError, ValueError):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Выбери центр радара")
+        if not (0 <= row < 10 and 0 <= col < 10):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Координаты вне поля")
+        _bs_change_points(cur, user_id, -BS_RADAR_COST)
+        mask = ["."] * 100
+        for rr in range(max(0, row - 1), min(10, row + 2)):
+            for cc in range(max(0, col - 1), min(10, col + 2)):
+                idx = _bs_cell_index(rr, cc)
+                if g["bot_field"][idx] == "S":
+                    mask[idx] = "1"
+        until = int(time.time()) + BS_RADAR_SECONDS
+        cur.execute("UPDATE battleship_games SET radar_cells = ?, radar_until = ? WHERE id = ?", ("".join(mask), until, game_id))
+    elif action == "plane":
+        if not g["plane_available"]:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Сначала купи самолёт")
+        orientation = payload.get("orientation")
+        try:
+            row, col = int(payload.get("row")), int(payload.get("col"))
+        except (TypeError, ValueError):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Выбери клетку начала линии")
+        if orientation not in ("horizontal", "vertical") or not (0 <= row < 10 and 0 <= col < 10):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Некорректная линия атаки")
+        if (orientation == "horizontal" and col + 5 > 10) or (orientation == "vertical" and row + 5 > 10):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Линия из 5 клеток выходит за границы поля")
+        line = [_bs_cell_index(row, col + n) if orientation == "horizontal" else _bs_cell_index(row + n, col) for n in range(5)]
+        shots = list(g["player_shots"])
+        defenses = list(g["bot_defenses"] or "." * 100)
+        intercepted = next((idx for idx in line if defenses[idx] == "D"), None)
+        hit_any = False
+        if intercepted is not None:
+            defenses[intercepted] = "."
+            result = "intercepted"
+            cur.execute("UPDATE battleship_games SET bot_defenses = ?, plane_available = 0, turn = 'bot' WHERE id = ?", ("".join(defenses), game_id))
+        else:
+            for idx in line:
+                if shots[idx] in ("1", "2", "3"):
+                    continue
+                if g["bot_field"][idx] == "S":
+                    hit_any = True
+                    shots[idx] = "2"
+                    rr, cc = divmod(idx, 10)
+                    if _bs_check_sunk(g["bot_field"], "".join(shots), rr, cc):
+                        _bs_mark_sunk(g["bot_field"], shots, rr, cc)
+                else:
+                    shots[idx] = "1"
+            shots_str = "".join(shots)
+            won = all(g["bot_field"][i] != "S" or shots_str[i] == "3" for i in range(100))
+            if won:
+                change_balance(cur, user_id, int(g["bet"]) * 2)
+                if not g["sea_reward_paid"]:
+                    _bs_change_points(cur, user_id, BS_SEA_WIN_REWARD)
+                cur.execute("UPDATE battleship_games SET player_shots = ?, plane_available = 0, status = 'win', turn = 'player', sea_reward_paid = 1 WHERE id = ?", (shots_str, game_id))
+                result = "win"
+            else:
+                cur.execute("UPDATE battleship_games SET player_shots = ?, plane_available = 0, turn = ? WHERE id = ?", (shots_str, "player" if hit_any else "bot", game_id))
+                result = "hit" if hit_any else "miss"
+        conn.commit()
+        if result in ("intercepted", "miss"):
+            bot_msg = _bs_run_bot_turn(cur, game_id)
+    else:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Неизвестное спецдействие")
+
+    cur.execute("""
+        SELECT player_field, bot_field, player_shots, bot_shots, bet, status, turn,
+               player_defenses, plane_available, radar_cells, radar_until
+        FROM battleship_games WHERE id = ?
+    """, (game_id,))
+    final = cur.fetchone()
+    balance = require_balance(cur, user_id)
+    sea_points = _bs_points(cur, user_id)
+    radar_visible = [i for i in range(100) if final["radar_cells"] and final["radar_cells"][i] == "1"] if int(final["radar_until"] or 0) >= int(time.time()) else []
+    conn.commit()
+    conn.close()
+    return {
+        "ok": True, "result": result, "bot_msg": bot_msg, "game_id": game_id,
+        "bet": final["bet"], "reward": int(final["bet"]) * 2,
+        "player_field": final["player_field"],
+        **({"bot_field": final["bot_field"]} if final["status"] in {"win", "lose"} else {}),
+        "player_shots": final["player_shots"], "bot_shots": final["bot_shots"],
+        "turn": final["turn"], "status": final["status"], "balance": balance,
+        "sea_points": sea_points, "sea_reward": BS_SEA_WIN_REWARD if final["status"] == "win" else 0,
+        "player_defenses": final["player_defenses"], "plane_available": bool(final["plane_available"]),
+        "radar_cells": radar_visible, "radar_until": int(final["radar_until"] or 0),
+        "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST},
     }
 
 # ========== API: ДРУЗЬЯ ==========
