@@ -1648,10 +1648,13 @@ BS_SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
 
 
 BS_SEA_WIN_REWARD = 20
-BS_PLANE_COST = 40
+BS_PLANE_COST = 25
 BS_RADAR_COST = 10
+BS_DEFENSE_COST = 15
 BS_RADAR_SECONDS = 8
-BS_DEFENSE_COUNT = 2
+BS_DEFENSE_MAX = 3
+BS_PLANE_MAX = 2
+BS_BOT_DEFENSE_COUNT = 2
 
 
 def _bs_ensure_special_schema(conn):
@@ -1661,7 +1664,7 @@ def _bs_ensure_special_schema(conn):
         user_id INTEGER PRIMARY KEY, sea_points INTEGER NOT NULL DEFAULT 0)""")
     for column, definition in (
         ("player_defenses", "TEXT DEFAULT NULL"), ("bot_defenses", "TEXT DEFAULT NULL"),
-        ("plane_available", "INTEGER NOT NULL DEFAULT 0"), ("radar_cells", "TEXT DEFAULT NULL"),
+        ("plane_available", "INTEGER NOT NULL DEFAULT 0"), ("plane_buys", "INTEGER NOT NULL DEFAULT 0"), ("radar_cells", "TEXT DEFAULT NULL"),
         ("radar_until", "INTEGER NOT NULL DEFAULT 0"), ("sea_reward_paid", "INTEGER NOT NULL DEFAULT 0"),
     ):
         try:
@@ -1698,14 +1701,10 @@ def _bs_validate_defenses(defenses, field: str) -> bool:
     if not isinstance(defenses, str) or len(defenses) != BS_SIZE * BS_SIZE or any(c not in {".", "D"} for c in defenses):
         return False
     positions = [i for i, cell in enumerate(defenses) if cell == "D"]
-    if len(positions) != BS_DEFENSE_COUNT or any(field[idx] == "S" for idx in positions):
-        return False
-    ar, ac = divmod(positions[0], BS_SIZE)
-    br, bc = divmod(positions[1], BS_SIZE)
-    return max(abs(ar - br), abs(ac - bc)) > 1
+    return len(positions) <= BS_DEFENSE_MAX and all(field[idx] != "S" for idx in positions)
 
 
-def _bs_generate_defenses(field: str) -> str:
+def _bs_generate_defenses(field: str, count: int = BS_BOT_DEFENSE_COUNT) -> str:
     candidates = [i for i, cell in enumerate(field) if cell == "."]
     random.shuffle(candidates)
     selected = []
@@ -1713,12 +1712,24 @@ def _bs_generate_defenses(field: str) -> str:
         r, c = divmod(idx, BS_SIZE)
         if all(max(abs(r - divmod(o, BS_SIZE)[0]), abs(c - divmod(o, BS_SIZE)[1])) > 1 for o in selected):
             selected.append(idx)
-            if len(selected) == BS_DEFENSE_COUNT:
+            if len(selected) == count:
                 break
     out = ["."] * 100
     for idx in selected:
         out[idx] = "D"
     return "".join(out)
+
+
+def _bs_defense_covers(defenses: str, idx: int) -> bool:
+    """Each AA battery protects a 2x10 strip: two adjacent full rows."""
+    row, _ = divmod(idx, BS_SIZE)
+    for pos, value in enumerate(defenses or "." * 100):
+        if value == "D":
+            base_row, _ = divmod(pos, BS_SIZE)
+            protected_rows = {base_row, base_row + 1} if base_row < BS_SIZE - 1 else {base_row - 1, base_row}
+            if row in protected_rows:
+                return True
+    return False
 
 
 def _bs_run_bot_turn(cur, game_id: int) -> str:
@@ -1989,7 +2000,7 @@ def bs_start(payload: dict = Body(...)):
         "sea_points": sea_points,
         "player_defenses": player_defenses,
         "plane_available": False,
-        "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST},
+        "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
     }
 
 
@@ -2029,6 +2040,7 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
         "sea_points": sea_points,
         "player_defenses": row["player_defenses"],
         "plane_available": bool(row["plane_available"]),
+        "plane_buys": int(row["plane_buys"] or 0),
         "radar_cells": [i for i in range(100) if row["radar_cells"] and row["radar_cells"][i] == "1"] if int(row["radar_until"] or 0) >= int(time.time()) else [],
         "radar_until": int(row["radar_until"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST},
@@ -2176,7 +2188,7 @@ def bs_fire(payload: dict = Body(...)):
     # Финальное состояние
     cur.execute("""
         SELECT player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, plane_available, radar_cells, radar_until
+               player_defenses, plane_available, plane_buys, radar_cells, radar_until
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     final = cur.fetchone()
@@ -2255,7 +2267,7 @@ def bs_special(payload: dict = Body(...)):
     cur = conn.cursor()
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, bot_defenses, plane_available, sea_reward_paid
+               player_defenses, bot_defenses, plane_available, plane_buys, sea_reward_paid
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     g = cur.fetchone()
@@ -2272,21 +2284,47 @@ def bs_special(payload: dict = Body(...)):
     result = action
     bot_msg = ""
     if action == "buy_plane":
-        if g["plane_available"]:
+        if g["plane_available"] or int(g["plane_buys"] or 0) >= BS_PLANE_MAX:
             conn.close()
-            raise HTTPException(status_code=400, detail="Самолёт уже готов к вылету")
+            raise HTTPException(status_code=400, detail="Лимит самолётов за игру — 2")
         try:
             _bs_change_points(cur, user_id, -BS_PLANE_COST)
         except HTTPException:
             conn.rollback()
             conn.close()
             raise
-        cur.execute("UPDATE battleship_games SET plane_available = 1 WHERE id = ? AND plane_available = 0 AND status = 'active' AND turn = 'player'", (game_id,))
+        cur.execute("UPDATE battleship_games SET plane_available = 1, plane_buys = plane_buys + 1 WHERE id = ? AND plane_available = 0 AND plane_buys < ? AND status = 'active' AND turn = 'player'", (game_id, BS_PLANE_MAX))
         if cur.rowcount != 1:
             _bs_change_points(cur, user_id, BS_PLANE_COST)
             conn.commit()
             conn.close()
             raise HTTPException(status_code=400, detail="Самолёт уже куплен или сейчас нельзя его использовать")
+    elif action == "place_defense":
+        try:
+            row, col = int(payload.get("row")), int(payload.get("col"))
+        except (TypeError, ValueError):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Выбери клетку для ПВО")
+        if not (0 <= row < BS_SIZE and 0 <= col < BS_SIZE):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Координаты вне поля")
+        idx = _bs_cell_index(row, col)
+        defenses = list(g["player_defenses"] or "." * 100)
+        if g["player_field"][idx] == "S" or defenses[idx] == "D":
+            conn.close()
+            raise HTTPException(status_code=400, detail="ПВО нельзя ставить на корабль или поверх другой установки")
+        if defenses.count("D") >= BS_DEFENSE_MAX:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Максимум 3 установки ПВО за игру")
+        try:
+            _bs_change_points(cur, user_id, -BS_DEFENSE_COST)
+        except HTTPException:
+            conn.rollback()
+            conn.close()
+            raise
+        defenses[idx] = "D"
+        cur.execute("UPDATE battleship_games SET player_defenses = ? WHERE id = ?", ("".join(defenses), game_id))
+        result = "defense_placed"
     elif action == "radar":
         try:
             row, col = int(payload.get("row")), int(payload.get("col"))
@@ -2333,7 +2371,7 @@ def bs_special(payload: dict = Body(...)):
         line = [_bs_cell_index(row, col + n) if orientation == "horizontal" else _bs_cell_index(row + n, col) for n in range(5)]
         shots = list(g["player_shots"])
         defenses = list(g["bot_defenses"] or "." * 100)
-        intercepted = next((idx for idx in line if defenses[idx] == "D"), None)
+        intercepted = next((idx for idx in line if _bs_defense_covers("".join(defenses), idx)), None)
         hit_any = False
         if intercepted is not None:
             defenses[intercepted] = "."
@@ -2389,6 +2427,7 @@ def bs_special(payload: dict = Body(...)):
         "turn": final["turn"], "status": final["status"], "balance": balance,
         "sea_points": sea_points, "sea_reward": BS_SEA_WIN_REWARD if final["status"] == "win" else 0,
         "player_defenses": final["player_defenses"], "plane_available": bool(final["plane_available"]),
+        "plane_buys": int(final["plane_buys"] or 0),
         "radar_cells": radar_visible, "radar_until": int(final["radar_until"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST},
     }
