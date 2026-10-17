@@ -1013,7 +1013,7 @@ def play_game(payload: dict = Body(...)):
     conn = db()
     cur = conn.cursor()
     test_mode = bool(bot_db.is_test_mode(user_id))
-    if not change_balance(cur, user_id, -bet):
+    if not test_mode and not change_balance(cur, user_id, -bet):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
 
@@ -1032,7 +1032,7 @@ def play_game(payload: dict = Body(...)):
         roll = random.randint(1, 6)
         text = f"🎲 Выпало: {roll}"
         if str(roll) == str(choice):
-            win = bet * 6
+            win = bet * 5
     elif game == "coin":
         result = random.choice(["Орел", "Решка"])
         text = f"🪙 Выпало: {result}"
@@ -1042,31 +1042,30 @@ def play_game(payload: dict = Body(...)):
         score = random.randint(0, 15)
         text = f"🎯 Очков: {score}"
         if score == 15: win = bet * 5
-        elif score >= 12: win = bet * 3
-        elif score >= 8: win = bet * 1
+        elif score >= 12: win = bet * 2
+        elif score >= 8: win = bet
     elif game == "number":
         num = random.randint(1, 10)
         text = f"🃏 Число: {num}"
-        try:
-            guess = int(choice)
-            if guess == num:
-                win = bet * 10
-            elif abs(guess - num) <= 2:
-                win = bet * 2
-        except (ValueError, TypeError):
-            pass
+        if int(choice) == num:
+            win = bet * 5
+        elif abs(int(choice) - num) <= 2:
+            win = bet
     else:
         conn.close()
         raise HTTPException(status_code=400, detail="Неизвестная игра")
 
+    net_profit = max(0, win - bet)
     if test_mode:
-        # Тестовые ставки не должны создавать реальные монеты даже при выигрыше.
-        text += f"\n🧪 Тест-режим: баланс не изменён."
-    elif win > 0:
-        change_balance(cur, user_id, bet + win)
-        text += f"\n✅ Выигрыш: {win} 🪙"
+        text += "\n🧪 Тест-режим: баланс не изменён."
+    elif win > bet:
+        change_balance(cur, user_id, win)
+        text += f"\n✅ Валовая выплата: {win:,} 🪙 • Чистая прибыль: {net_profit:,} 🪙"
+    elif win == bet:
+        change_balance(cur, user_id, bet)
+        text += f"\n↩️ Ставка возвращена: {bet:,} 🪙"
     else:
-        text += f"\n❌ Проигрыш: {bet} 🪙"
+        text += f"\n❌ Проигрыш: {bet:,} 🪙"
 
     # Обновляем ту же таблицу статистики, которую читает профиль бота и Mini App.
     cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
@@ -1079,7 +1078,7 @@ def play_game(payload: dict = Body(...)):
             total_lost = COALESCE(total_lost, 0) + ?
         WHERE user_id = ?
         """,
-        (1 if win > 0 else 0, win if win > 0 else 0, bet if win <= 0 else 0, user_id),
+        (1 if win > bet else 0, net_profit if win > bet else 0, bet if win == 0 else 0, user_id),
     )
 
     conn.commit()
@@ -1088,7 +1087,7 @@ def play_game(payload: dict = Body(...)):
         bot_db.log_action(
             user_id, "game",
             f"Игра Mini App: {game}; ставка={bet}; выигрыш={win}; результат={text}",
-            amount=(win if win > 0 else -bet),
+            amount=(net_profit if win > bet else (-bet if win == 0 else 0)),
         )
     except Exception:
         logger.exception("Не удалось выполнить необязательную операцию")
@@ -1442,8 +1441,8 @@ def ms_start_api(payload: dict = Body(...)):
         bet = int(payload.get("bet") or MS_BET)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Некорректная ставка")
-    if bet != MS_BET:
-        raise HTTPException(status_code=400, detail=f"Ставка в сапёре фиксированная: {MS_BET} 🪙")
+    if not 1 <= bet <= 1000000:
+        raise HTTPException(status_code=400, detail="Ставка должна быть от 1 до 1 000 000 🪙")
 
     conn = db()
     cur = conn.cursor()
@@ -1492,7 +1491,7 @@ def ms_start_api(payload: dict = Body(...)):
         "size": size,
         "mines": MS_MINES,
         "bet": bet,
-        "reward": MS_REWARD,
+        "reward": bet * 2,
     }
 
 
@@ -1583,7 +1582,7 @@ def ms_open_api(payload: dict = Body(...)):
     win = all(board[i] == "M" or revealed[i] == "1" for i in range(size * size))
 
     if win:
-        change_balance(cur, user_id, MS_REWARD)
+        change_balance(cur, user_id, int(row["bet"]) * 2)
         cur.execute("UPDATE minesweeper_games SET revealed = ?, status = 'win' WHERE id = ?",
                     (revealed_str, game_id))
         cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
@@ -1591,7 +1590,7 @@ def ms_open_api(payload: dict = Body(...)):
             "UPDATE game_stats SET games_played = COALESCE(games_played, 0) + 1, "
             "games_won = COALESCE(games_won, 0) + 1, "
             "total_earned = COALESCE(total_earned, 0) + ? WHERE user_id = ?",
-            (max(0, MS_REWARD - int(row["bet"])), user_id),
+            (int(row["bet"]), user_id),
         )
     else:
         cur.execute("UPDATE minesweeper_games SET revealed = ? WHERE id = ?",
@@ -1617,7 +1616,7 @@ def ms_open_api(payload: dict = Body(...)):
         ),
         "revealed": revealed_str,
         "balance": balance,
-        "reward": MS_REWARD if win else 0,
+        "reward": int(row["bet"]) * 2 if win else 0,
     }
 
 # ========== API: МОРСКОЙ БОЙ ==========
