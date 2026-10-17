@@ -1535,8 +1535,14 @@ def ms_open_api(payload: dict = Body(...)):
             if board[i] == "M":
                 revealed[i] = "1"
         revealed_str = "".join(revealed)
-        cur.execute("UPDATE minesweeper_games SET revealed = ?, status = 'lose' WHERE id = ?",
-                    (revealed_str, game_id))
+        cur.execute("""
+            UPDATE minesweeper_games SET revealed = ?, status = 'lose'
+            WHERE id = ? AND status = 'active' AND revealed = ?
+        """, (revealed_str, game_id, row["revealed"]))
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            raise HTTPException(status_code=409, detail="Партия уже обновилась. Обнови поле.")
         cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
         cur.execute(
             "UPDATE game_stats SET games_played = COALESCE(games_played, 0) + 1, "
@@ -1582,9 +1588,18 @@ def ms_open_api(payload: dict = Body(...)):
     win = all(board[i] == "M" or revealed[i] == "1" for i in range(size * size))
 
     if win:
-        change_balance(cur, user_id, int(row["bet"]) * 2)
-        cur.execute("UPDATE minesweeper_games SET revealed = ?, status = 'win' WHERE id = ?",
-                    (revealed_str, game_id))
+        cur.execute("""
+            UPDATE minesweeper_games SET revealed = ?, status = 'win'
+            WHERE id = ? AND status = 'active' AND revealed = ?
+        """, (revealed_str, game_id, row["revealed"]))
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            raise HTTPException(status_code=409, detail="Партия уже обновилась. Обнови поле.")
+        if not change_balance(cur, user_id, int(row["bet"]) * 2):
+            conn.rollback()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Не удалось начислить выплату.")
         cur.execute("INSERT OR IGNORE INTO game_stats (user_id) VALUES (?)", (user_id,))
         cur.execute(
             "UPDATE game_stats SET games_played = COALESCE(games_played, 0) + 1, "
@@ -1593,8 +1608,14 @@ def ms_open_api(payload: dict = Body(...)):
             (int(row["bet"]), user_id),
         )
     else:
-        cur.execute("UPDATE minesweeper_games SET revealed = ? WHERE id = ?",
-                    (revealed_str, game_id))
+        cur.execute("""
+            UPDATE minesweeper_games SET revealed = ?
+            WHERE id = ? AND status = 'active' AND revealed = ?
+        """, (revealed_str, game_id, row["revealed"]))
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            raise HTTPException(status_code=409, detail="Партия уже обновилась. Обнови поле.")
 
     cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
     balance = cur.fetchone()["balance"]
@@ -1603,7 +1624,7 @@ def ms_open_api(payload: dict = Body(...)):
 
     if win:
         try:
-            bot_db.log_action(user_id, "game", f"Сапёр: победа; ставка={row['bet']}", amount=max(0, MS_REWARD - int(row["bet"])))
+            bot_db.log_action(user_id, "game", f"Сапёр: победа; ставка={row['bet']}", amount=int(row["bet"]))
         except Exception:
             logger.exception("Не удалось выполнить необязательную операцию")
 
