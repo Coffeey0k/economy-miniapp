@@ -1692,6 +1692,61 @@ def _bs_generate_field() -> str:
     return "".join("".join(row) for row in grid)
 
 
+def _bs_validate_field(field) -> bool:
+    """Проверяет пользовательскую расстановку флота: 1×4, 2×3, 3×2, 4×1."""
+    if not isinstance(field, str) or len(field) != BS_SIZE * BS_SIZE:
+        return False
+    if any(cell not in {".", "S"} for cell in field):
+        return False
+
+    visited = set()
+    lengths = []
+    for idx, cell in enumerate(field):
+        if cell != "S" or idx in visited:
+            continue
+        stack = [idx]
+        component = []
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            component.append(current)
+            row, col = divmod(current, BS_SIZE)
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = row + dr, col + dc
+                ni = nr * BS_SIZE + nc
+                if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE and field[ni] == "S" and ni not in visited:
+                    stack.append(ni)
+
+        rows = {i // BS_SIZE for i in component}
+        cols = {i % BS_SIZE for i in component}
+        if len(rows) > 1 and len(cols) > 1:
+            return False
+        ordered = sorted(component)
+        if len(rows) == 1:
+            if ordered != list(range(ordered[0], ordered[0] + len(ordered))):
+                return False
+        elif len(cols) == 1:
+            if ordered != [ordered[0] + n * BS_SIZE for n in range(len(ordered))]:
+                return False
+        lengths.append(len(component))
+
+    if sorted(lengths) != sorted(BS_SHIPS):
+        return False
+
+    # Запрещаем соприкосновение разных кораблей по диагонали.
+    for idx, cell in enumerate(field):
+        if cell != "S":
+            continue
+        row, col = divmod(idx, BS_SIZE)
+        for dr, dc in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+            nr, nc = row + dr, col + dc
+            if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE and field[nr * BS_SIZE + nc] == "S":
+                return False
+    return True
+
+
 def _bs_cell_index(r: int, c: int) -> int:
     return r * BS_SIZE + c
 
@@ -1770,7 +1825,12 @@ def bs_start(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
 
-    player_field = _bs_generate_field()
+    requested_field = payload.get("player_field")
+    if requested_field is not None and not _bs_validate_field(requested_field):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Некорректная расстановка кораблей")
+
+    player_field = requested_field if requested_field is not None else _bs_generate_field()
     bot_field = _bs_generate_field()
     empty = "0" * (BS_SIZE * BS_SIZE)
 
