@@ -2275,7 +2275,12 @@ def bs_special(payload: dict = Body(...)):
         if g["plane_available"]:
             conn.close()
             raise HTTPException(status_code=400, detail="Самолёт уже готов к вылету")
-        _bs_change_points(cur, user_id, -BS_PLANE_COST)
+        try:
+            _bs_change_points(cur, user_id, -BS_PLANE_COST)
+        except HTTPException:
+            conn.rollback()
+            conn.close()
+            raise
         cur.execute("UPDATE battleship_games SET plane_available = 1 WHERE id = ? AND plane_available = 0 AND status = 'active' AND turn = 'player'", (game_id,))
         if cur.rowcount != 1:
             _bs_change_points(cur, user_id, BS_PLANE_COST)
@@ -2291,7 +2296,12 @@ def bs_special(payload: dict = Body(...)):
         if not (0 <= row < 10 and 0 <= col < 10):
             conn.close()
             raise HTTPException(status_code=400, detail="Координаты вне поля")
-        _bs_change_points(cur, user_id, -BS_RADAR_COST)
+        try:
+            _bs_change_points(cur, user_id, -BS_RADAR_COST)
+        except HTTPException:
+            conn.rollback()
+            conn.close()
+            raise
         mask = ["."] * 100
         for rr in range(max(0, row - 1), min(10, row + 2)):
             for cc in range(max(0, col - 1), min(10, col + 2)):
