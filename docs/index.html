@@ -2017,24 +2017,149 @@
 
   let bsState = null;
   let bsViewEnemy = true;
+  const BS_FLEET = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+  let bsPlacement = [];
+  let bsDrag = null;
+  let bsPreview = null;
+  let bsSelectedShip = null;
+
+  function bsPlacementCells(ship, start = ship.start, horizontal = ship.horizontal) {
+    const cells = [];
+    for (let n = 0; n < ship.size; n++) {
+      const idx = horizontal ? start + n : start + n * 10;
+      const row = Math.floor(idx / 10), col = idx % 10;
+      if (idx < 0 || idx >= 100 || (horizontal && col + ship.size > 10) || (!horizontal && row + ship.size > 10)) return null;
+      cells.push(idx);
+    }
+    return cells;
+  }
+  function bsCanPlace(ships, movingId, start, horizontal) {
+    const moving = ships.find(s => s.id === movingId);
+    const cells = bsPlacementCells(moving, start, horizontal);
+    if (!cells) return false;
+    const occupied = new Set();
+    for (const ship of ships) {
+      if (ship.id === movingId) continue;
+      const other = bsPlacementCells(ship);
+      if (other) other.forEach(i => occupied.add(i));
+    }
+    for (const idx of cells) {
+      if (occupied.has(idx)) return false;
+      const row = Math.floor(idx / 10), col = idx % 10;
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+        const nr = row + dr, nc = col + dc;
+        if (nr < 0 || nr >= 10 || nc < 0 || nc >= 10) continue;
+        if (occupied.has(nr * 10 + nc)) return false;
+      }
+    }
+    return true;
+  }
+  function bsRandomPlacement() {
+    const ships = BS_FLEET.map((size, id) => ({id, size, start: 0, horizontal: true}));
+    for (const ship of ships) {
+      let placed = false;
+      for (let tries = 0; tries < 2000 && !placed; tries++) {
+        ship.horizontal = Math.random() < 0.5;
+        const row = Math.floor(Math.random() * (ship.horizontal ? 10 : 11 - ship.size));
+        const col = Math.floor(Math.random() * (ship.horizontal ? 11 - ship.size : 10));
+        ship.start = row * 10 + col;
+        if (bsCanPlace(ships, ship.id, ship.start, ship.horizontal)) placed = true;
+      }
+      if (!placed) return bsRandomPlacement();
+    }
+    return ships;
+  }
+  function bsPlacementField(ships = bsPlacement) {
+    const field = Array(100).fill(".");
+    ships.forEach(ship => (bsPlacementCells(ship) || []).forEach(i => field[i] = "S"));
+    return field.join("");
+  }
+  function bsRotateSelected() {
+    const ship = bsPlacement.find(s => s.id === bsSelectedShip);
+    if (!ship) { toast("Сначала выбери корабль", true); return; }
+    const horizontal = !ship.horizontal;
+    if (!bsCanPlace(bsPlacement, ship.id, ship.start, horizontal)) {
+      toast("Здесь корабль не помещается", true); return;
+    }
+    ship.horizontal = horizontal;
+    bsPreview = null;
+    renderBattleshipStart();
+  }
+  function bsPointerDown(event, idx) {
+    const ship = bsPlacement.find(s => (bsPlacementCells(s) || []).includes(idx));
+    if (!ship) return;
+    event.preventDefault();
+    bsSelectedShip = ship.id;
+    const offset = ship.horizontal ? idx - ship.start : Math.floor((idx - ship.start) / 10);
+    bsDrag = {id: ship.id, offset, horizontal: ship.horizontal, pointerId: event.pointerId};
+    bsPreview = {start: ship.start, horizontal: ship.horizontal, valid: true};
+    renderBattleshipStart();
+  }
+  function bsPointerEnter(idx) {
+    if (!bsDrag) return;
+    const row = Math.floor(idx / 10), col = idx % 10;
+    const start = bsDrag.horizontal ? row * 10 + col - bsDrag.offset : (row - bsDrag.offset) * 10 + col;
+    bsPreview = {start, horizontal: bsDrag.horizontal, valid: bsCanPlace(bsPlacement, bsDrag.id, start, bsDrag.horizontal)};
+    const cells = bsPlacementCells(bsPlacement.find(s => s.id === bsDrag.id), start, bsDrag.horizontal) || [];
+    document.querySelectorAll("[data-bs-cell]").forEach(el => {
+      const cell = Number(el.dataset.bsCell);
+      const ship = bsPlacement.find(s => (bsPlacementCells(s) || []).includes(cell));
+      if (cells.includes(cell)) {
+        el.style.background = bsPreview.valid ? "#22c55e" : "#ef4444";
+      } else if (ship) el.style.background = "#64748b";
+    });
+  }
+  function bsPointerUp() {
+    if (!bsDrag) return;
+    if (bsPreview && bsPreview.valid) {
+      const ship = bsPlacement.find(s => s.id === bsDrag.id);
+      ship.start = bsPreview.start;
+      ship.horizontal = bsPreview.horizontal;
+    }
+    bsDrag = null;
+    bsPreview = null;
+    renderBattleshipStart();
+  }
+  function bsResetPlacement() { bsPlacement = bsRandomPlacement(); bsSelectedShip = null; bsPreview = null; renderBattleshipStart(); }
   function renderBattleshipStart() {
+    if (!bsPlacement.length) bsPlacement = bsRandomPlacement();
+    let board = '<div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:3px;max-width:480px;margin:12px auto;touch-action:none;user-select:none;" onpointerup="bsPointerUp()" onpointercancel="bsPointerUp()">';
+    for (let i = 0; i < 100; i++) {
+      const ship = bsPlacement.find(s => (bsPlacementCells(s) || []).includes(i));
+      const previewShip = bsDrag && bsPlacement.find(s => s.id === bsDrag.id);
+      const previewCells = bsPreview && previewShip ? (bsPlacementCells(previewShip, bsPreview.start, bsPreview.horizontal) || []) : [];
+      const preview = previewCells.includes(i);
+      const bg = preview ? (bsPreview.valid ? "#22c55e" : "#ef4444") : ship ? "#64748b" : "#075985";
+      const selected = ship && ship.id === bsSelectedShip;
+      board += '<button type="button" data-bs-cell="'+i+'" onpointerdown="bsPointerDown(event,'+i+')" onpointerenter="bsPointerEnter('+i+')" style="aspect-ratio:1;min-width:0;padding:0;border-radius:4px;border:'+(selected?'2px solid #fbbf24':'1px solid rgba(125,211,252,.3)')+';background:'+bg+';color:#f8fafc;touch-action:none;display:flex;align-items:center;justify-content:center;font-size:clamp(10px,2.5vw,15px);">'+(ship?'▰':'·')+'</button>';
+    }
+    board += '</div>';
+    const selected = bsPlacement.find(s => s.id === bsSelectedShip);
+    const valid = bsPlacement.length === BS_FLEET.length && bsPlacement.every(s => bsCanPlace(bsPlacement, s.id, s.start, s.horizontal));
     document.getElementById("battleship-area").innerHTML = `
       <div class="card">
-        <h2>⚓ Морской бой 10×10</h2>
-        <p class="label">Стандартный флот: 1×4, 2×3, 3×2, 4×1</p>
-        <p class="label">Минимальная ставка: 500 🪙. Победа = x2</p>
-        <div style="display:flex;gap:8px;margin-top:10px;">
-          <input type="number" id="bs-bet" value="500" min="500" style="flex:1;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);">
-          <button class="btn" onclick="startBattleship()">Начать</button>
+        <h2>⚓ Морской бой — подготовка флота</h2>
+        <p class="label">Перетаскивай корабли пальцем или мышью. Выбери корабль и нажми «Повернуть».</p>
+        <p class="label">Флот: линкор 4 клетки, крейсеры 3, эсминцы 2 и катера 1.</p>
+        ${board}
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="btn" onclick="bsRotateSelected()" ${selected ? "" : "disabled"}>↻ Повернуть ${selected ? "корабль ("+selected.size+")" : ""}</button>
+          <button class="btn" onclick="bsResetPlacement()">🎲 Случайно</button>
         </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="number" id="bs-bet" value="500" min="500" style="flex:1;min-width:0;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);">
+          <button class="btn" onclick="startBattleship()" ${valid ? "" : "disabled"}>Начать бой</button>
+        </div>
+        <p class="label" style="margin-top:8px;">Минимальная ставка: 500 🪙. Победа = x2</p>
       </div>
     `;
   }
   async function startBattleship() {
     const bet = parseInt(document.getElementById("bs-bet").value, 10);
     if (!bet || bet < 500) { toast("Ставка минимум 500 🪙", true); return; }
+    const player_field = bsPlacementField();
     try {
-      const res = await apiPost("/api/battleship/start", { bet });
+      const res = await apiPost("/api/battleship/start", { bet, player_field });
       bsState = res; bsViewEnemy = true; renderBattleship();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
