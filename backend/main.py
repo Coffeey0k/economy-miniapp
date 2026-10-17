@@ -1720,16 +1720,16 @@ def _bs_generate_defenses(field: str, count: int = BS_BOT_DEFENSE_COUNT) -> str:
     return "".join(out)
 
 
-def _bs_defense_covers(defenses: str, idx: int) -> bool:
-    """Each AA battery protects a 2x10 strip: two adjacent full rows."""
+def _bs_defense_at(defenses: str, idx: int):
+    """Return the battery index if idx lies inside its 2x10 protected strip."""
     row, _ = divmod(idx, BS_SIZE)
     for pos, value in enumerate(defenses or "." * 100):
         if value == "D":
             base_row, _ = divmod(pos, BS_SIZE)
             protected_rows = {base_row, base_row + 1} if base_row < BS_SIZE - 1 else {base_row - 1, base_row}
             if row in protected_rows:
-                return True
-    return False
+                return pos
+    return None
 
 
 def _bs_run_bot_turn(cur, game_id: int) -> str:
@@ -2372,7 +2372,7 @@ def bs_special(payload: dict = Body(...)):
         line = [_bs_cell_index(row, col + n) if orientation == "horizontal" else _bs_cell_index(row + n, col) for n in range(5)]
         shots = list(g["player_shots"])
         defenses = list(g["bot_defenses"] or "." * 100)
-        intercepted = next((idx for idx in line if _bs_defense_covers("".join(defenses), idx)), None)
+        intercepted = next((battery for idx in line if (battery := _bs_defense_at("".join(defenses), idx)) is not None), None)
         hit_any = False
         if intercepted is not None:
             defenses[intercepted] = "."
