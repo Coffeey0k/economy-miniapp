@@ -994,8 +994,8 @@ def play_game(payload: dict = Body(...)):
 
     if game not in {"slot", "dice", "coin", "dart", "number"}:
         raise HTTPException(status_code=400, detail="Неизвестная игра")
-    if bet <= 0:
-        raise HTTPException(status_code=400, detail="Ставка должна быть больше нуля")
+    if not 1 <= bet <= 1000000:
+        raise HTTPException(status_code=400, detail="Ставка должна быть от 1 до 1 000 000 🪙")
     if game in {"dice", "number"}:
         try:
             choice = int(choice)
