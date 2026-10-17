@@ -4427,6 +4427,20 @@ def clear_banned_users() -> int:
     conn.close()
     return len(ids)
 
+def clear_blocked_users() -> int:
+    """Удаляет всех игроков, заблокировавших бота (is_banned = 2), полностью из БД."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE is_banned = 2")
+    ids = [r[0] for r in cur.fetchall()]
+
+    for uid in ids:
+        _delete_user_full(cur, uid)
+
+    conn.commit()
+    conn.close()
+    return len(ids)
+
 
 def delete_user_full(user_id: int) -> bool:
     """Удаляет пользователя полностью из всех таблиц."""
