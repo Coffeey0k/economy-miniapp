@@ -1660,6 +1660,21 @@ BS_BOT_DEFENSE_COUNT = 2
 def _bs_ensure_special_schema(conn):
     """Additive migration for special weapons; existing games are preserved."""
     cur = conn.cursor()
+    # Keep game startup self-contained: on a fresh or partially migrated database,
+    # the base table must exist before the additive column migrations run.
+    cur.execute("""CREATE TABLE IF NOT EXISTS battleship_games (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
+        player_field TEXT,
+        bot_field TEXT,
+        player_shots TEXT,
+        bot_shots TEXT,
+        bet BIGINT,
+        status TEXT DEFAULT 'active',
+        turn TEXT DEFAULT 'player',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
     cur.execute("""CREATE TABLE IF NOT EXISTS battleship_economy (
         user_id INTEGER PRIMARY KEY, sea_points INTEGER NOT NULL DEFAULT 0)""")
     for column, definition in (
