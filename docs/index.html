@@ -2055,7 +2055,7 @@
     return true;
   }
   function bsRandomPlacement() {
-    const ships = BS_FLEET.map((size, id) => ({id, size, start: 0, horizontal: true}));
+    const ships = BS_FLEET.map((size, id) => ({id, size, start: 0, horizontal: true, placed: false}));
     for (const ship of ships) {
       let placed = false;
       for (let tries = 0; tries < 2000 && !placed; tries++) {
@@ -2063,9 +2063,10 @@
         const row = Math.floor(Math.random() * (ship.horizontal ? 10 : 11 - ship.size));
         const col = Math.floor(Math.random() * (ship.horizontal ? 11 - ship.size : 10));
         ship.start = row * 10 + col;
-        if (bsCanPlace(ships, ship.id, ship.start, ship.horizontal)) placed = true;
+        if (bsCanPlace(ships.filter(s => s.placed), ship.id, ship.start, ship.horizontal)) placed = true;
       }
       if (!placed) return bsRandomPlacement();
+      ship.placed = true;
     }
     return ships;
   }
@@ -2093,7 +2094,11 @@
     const offset = ship.horizontal ? idx - ship.start : Math.floor((idx - ship.start) / 10);
     bsDrag = {id: ship.id, offset, horizontal: ship.horizontal, pointerId: event.pointerId};
     bsPreview = {start: ship.start, horizontal: ship.horizontal, valid: true};
-    renderBattleshipStart();
+    document.querySelectorAll("[data-bs-cell]").forEach(el => {
+      const cell = Number(el.dataset.bsCell);
+      const current = bsPlacement.find(s => (bsPlacementCells(s) || []).includes(cell));
+      el.style.border = current && current.id === ship.id ? "2px solid #fbbf24" : "1px solid rgba(125,211,252,.3)";
+    });
   }
   function bsPointerEnter(idx) {
     if (!bsDrag) return;
