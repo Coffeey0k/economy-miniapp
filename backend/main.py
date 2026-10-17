@@ -2431,6 +2431,7 @@ def bs_special(payload: dict = Body(...)):
         "sea_points": sea_points, "sea_reward": BS_SEA_WIN_REWARD if final["status"] == "win" else 0,
         "player_defenses": final["player_defenses"], "plane_available": bool(final["plane_available"]),
         "plane_buys": int(final["plane_buys"] or 0),
+        "defenses_bought": int(final["defenses_bought"] or 0),
         "radar_cells": radar_visible, "radar_until": int(final["radar_until"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
     }
