@@ -1819,18 +1819,17 @@ def bs_start(payload: dict = Body(...)):
     if bet < BS_BET_MIN:
         raise HTTPException(status_code=400, detail=f"Минимальная ставка: {BS_BET_MIN}")
 
+    requested_field = payload.get("player_field")
+    if requested_field is not None and not _bs_validate_field(requested_field):
+        raise HTTPException(status_code=400, detail="Некорректная расстановка кораблей")
+
+    player_field = requested_field if requested_field is not None else _bs_generate_field()
     conn = db()
     cur = conn.cursor()
     if not change_balance(cur, user_id, -bet):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
 
-    requested_field = payload.get("player_field")
-    if requested_field is not None and not _bs_validate_field(requested_field):
-        conn.close()
-        raise HTTPException(status_code=400, detail="Некорректная расстановка кораблей")
-
-    player_field = requested_field if requested_field is not None else _bs_generate_field()
     bot_field = _bs_generate_field()
     empty = "0" * (BS_SIZE * BS_SIZE)
 
