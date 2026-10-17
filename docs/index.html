@@ -1966,15 +1966,20 @@
     document.getElementById("minesweeper-area").innerHTML = `
       <div class="card">
         <h2>💣 Сапёр 8×8</h2>
-        <p class="label">6 мин. Открой все безопасные клетки — получишь 400 🪙</p>
-        <button class="btn" onclick="startMinesweeper()">Начать (200 🪙)</button>
+        <p class="label">6 мин. Открой все безопасные клетки. Победа возвращает 2× ставку.</p>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <input type="number" id="ms-bet" value="200" min="1" max="1000000" step="1" aria-label="Ставка в сапёре" style="flex:1;min-width:0;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);">
+          <button class="btn" onclick="startMinesweeper()">Начать</button>
+        </div>
       </div>
     `;
   }
   async function startMinesweeper() {
+    const bet = Number.parseInt(document.getElementById("ms-bet")?.value || "200", 10);
+    if (!Number.isSafeInteger(bet) || bet < 1 || bet > 1000000) { toast("Ставка должна быть от 1 до 1 000 000 🪙", true); return; }
     try {
-      const res = await apiPost("/api/minesweeper/start", {});
-      msState = { game_id: res.game_id, board: res.board, revealed: res.revealed, size: res.size };
+      const res = await apiPost("/api/minesweeper/start", { bet });
+      msState = { game_id: res.game_id, board: res.board, revealed: res.revealed, size: res.size, bet: res.bet, reward: res.reward, status: "active" };
       renderMinesweeperBoard();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
@@ -1983,7 +1988,7 @@
     if (!msState) return;
     const { board, revealed, size } = msState;
     const numEmoji = {"0":"⬜","1":"1️⃣","2":"2️⃣","3":"3️⃣","4":"4️⃣","5":"5️⃣","6":"6️⃣","7":"7️⃣","8":"8️⃣"};
-    let html = `<div style="display:grid;grid-template-columns:repeat(${size},1fr);gap:4px;max-width:400px;margin:0 auto;">`;
+    let html = `<div class="card" style="margin-bottom:10px;text-align:center;"><strong>💰 Ставка: ${msState.bet.toLocaleString()} 🪙</strong><div class="label">Выплата при победе: ${msState.reward.toLocaleString()} 🪙</div></div><div style="display:grid;grid-template-columns:repeat(${size},minmax(0,1fr));gap:4px;max-width:440px;margin:0 auto;">`;
     for (let i = 0; i < size * size; i++) {
       let content = "⬛";
       if (revealed[i] === "1") content = board[i] === "M" ? "💥" : (numEmoji[board[i]] || "⬜");
@@ -2033,33 +2038,36 @@
   function renderBattleship() {
     if (!bsState) return;
     const area = document.getElementById("battleship-area");
-    const field = bsViewEnemy ? bsState.bot_field : bsState.player_field;
+    const field = bsViewEnemy ? (bsState.bot_field || "?".repeat(100)) : bsState.player_field;
     const shots = bsViewEnemy ? bsState.player_shots : bsState.bot_shots;
     const size = 10;
-    let board = `<div style="display:grid;grid-template-columns:repeat(${size},1fr);gap:3px;max-width:420px;margin:0 auto 12px auto;">`;
-    for (let i = 0; i < size * size; i++) {
-      let text = "·";
-      let bg = "var(--hover-bg)";
-      let color = "var(--hint)";
-      if (shots[i] === "1") { text = "•"; bg = "rgba(150,145,196,0.35)"; color = "#fff"; }
-      else if (shots[i] === "2") { text = "✕"; bg = "rgba(239,68,68,0.7)"; color = "#fff"; }
-      else if (shots[i] === "3") { text = "☠"; bg = "rgba(100,0,0,0.8)"; color = "#fff"; }
-      else if (!bsViewEnemy && field[i] === "S") { text = ""; bg = "rgba(74,222,128,0.5)"; }
-      const clickable = bsViewEnemy && shots[i] === "0" && bsState.status === "active" && bsState.turn === "player";
-      const onclick = clickable ? `onclick="fireBattleship(${Math.floor(i / size)}, ${i % size})"` : "";
-      board += `<button ${onclick} style="aspect-ratio:1;background:${bg};border:none;border-radius:6px;font-size:14px;color:${color};cursor:${clickable ? 'pointer' : 'default'};padding:0;">${text}</button>`;
+    const heading = bsViewEnemy ? "🎯 Поле противника" : "🛡️ Твой флот";
+    let board = `<div style="display:grid;grid-template-columns:22px repeat(10,minmax(0,1fr));gap:3px;max-width:520px;margin:0 auto 12px auto;align-items:center;">`;
+    board += `<div></div>`;
+    for (let c = 0; c < size; c++) board += `<div style="text-align:center;font-size:11px;color:var(--hint);font-weight:700;">${String.fromCharCode(65+c)}</div>`;
+    for (let r = 0; r < size; r++) {
+      board += `<div style="text-align:center;font-size:11px;color:var(--hint);font-weight:700;">${r+1}</div>`;
+      for (let c = 0; c < size; c++) {
+        const i = r * size + c;
+        let label = "·", bg = "rgba(70,145,190,.14)", color = "var(--text)", border = "1px solid rgba(70,145,190,.22)";
+        if (shots[i] === "1") { label = "•"; bg = "rgba(148,163,184,.35)"; }
+        else if (shots[i] === "2") { label = "✕"; bg = "rgba(239,68,68,.72)"; color = "#fff"; border = "1px solid rgba(255,255,255,.35)"; }
+        else if (shots[i] === "3") { label = "☠"; bg = "rgba(127,29,29,.95)"; color = "#fff"; border = "1px solid rgba(255,255,255,.35)"; }
+        else if (!bsViewEnemy && field[i] === "S") { label = "▰"; bg = "rgba(74,222,128,.68)"; color = "#064e3b"; }
+        const clickable = bsViewEnemy && shots[i] === "0" && bsState.status === "active" && bsState.turn === "player";
+        const onclick = clickable ? `onclick="fireBattleship(${r}, ${c})"` : "";
+        const disabled = clickable ? "" : "disabled";
+        board += `<button ${onclick} ${disabled} aria-label="Клетка ${String.fromCharCode(65+c)}${r+1}" style="aspect-ratio:1;min-width:0;background:${bg};border:${border};border-radius:5px;font-size:clamp(10px,2.6vw,16px);font-weight:700;color:${color};cursor:${clickable ? "crosshair" : "default"};padding:0;transition:transform .12s,filter .12s;">${label}</button>`;
+      }
     }
     board += `</div>`;
-    let info = `<div style="text-align:center;margin-bottom:12px;">`;
-    info += `<div class="label">💰 Ставка: ${bsState.bet} 🪙 • Победа: ${bsState.reward} 🪙</div>`;
-    if (bsState.status === "active") info += `<div class="label">Ход: ${bsState.turn === "player" ? "🎯 Твой" : "🤖 Бота"}</div>`;
-    else if (bsState.status === "win") info += `<div style="color:var(--link);font-weight:700;">🏆 Победа!</div>`;
-    else if (bsState.status === "lose") info += `<div style="color:#ef4444;font-weight:700;">💀 Поражение</div>`;
-    info += `</div>`;
-    const toggleBtn = bsViewEnemy
-      ? `<button class="btn" onclick="switchBsView()">👁️ Моё поле</button>`
-      : `<button class="btn" onclick="switchBsView()">🎯 Поле врага</button>`;
-    area.innerHTML = info + board + `<div style="text-align:center;margin-top:12px;">${toggleBtn}</div>`;
+    let status = "";
+    if (bsState.status === "active") status = `<div class="label">${bsState.turn === "player" ? "🎯 Твой ход — выбери клетку" : "🤖 Ход противника"}</div>`;
+    else if (bsState.status === "win") status = `<div style="color:var(--link);font-weight:800;">🏆 Победа! Чистая прибыль: ${Number(bsState.bet).toLocaleString()} 🪙</div>`;
+    else if (bsState.status === "lose") status = `<div style="color:#ef4444;font-weight:800;">💀 Поражение — ставка потеряна</div>`;
+    const tabs = `<div style="display:flex;gap:8px;margin:10px 0 14px;justify-content:center;flex-wrap:wrap;"><button class="btn" aria-pressed="${bsViewEnemy}" onclick="bsViewEnemy=true;renderBattleship()">🎯 Противник</button><button class="btn" aria-pressed="${!bsViewEnemy}" onclick="bsViewEnemy=false;renderBattleship()">🛡️ Моё поле</button></div>`;
+    const legend = `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:8px 0 14px;font-size:12px;color:var(--hint);"><span>· вода</span><span>• промах</span><span style="color:#ef4444">✕ попадание</span><span>☠ уничтожен</span><span style="color:#16a34a">▰ твой корабль</span></div>`;
+    area.innerHTML = `<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><h2 style="margin:0;">⚓ Морской бой</h2><span class="label">10×10</span></div><div class="label" style="margin-top:8px;">${heading} · Ставка: ${Number(bsState.bet).toLocaleString()} 🪙 · Выплата: ${Number(bsState.reward).toLocaleString()} 🪙</div>${status}${tabs}${board}${legend}</div>`;
   }
   function switchBsView() { bsViewEnemy = !bsViewEnemy; renderBattleship(); }
   async function fireBattleship(row, col) {
