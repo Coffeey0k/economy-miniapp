@@ -2276,7 +2276,7 @@
     const tabs = `<div style="display:flex;gap:8px;margin:10px 0 14px;justify-content:center;flex-wrap:wrap;"><button class="btn" aria-pressed="${bsViewEnemy}" onclick="bsViewEnemy=true;renderBattleship()">🎯 Противник</button><button class="btn" aria-pressed="${!bsViewEnemy}" onclick="bsViewEnemy=false;renderBattleship()">🛡️ Моё поле</button></div>`;
     const legend = `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:8px 0 14px;font-size:12px;color:var(--hint);"><span>🌊 вода</span><span>💦 промах</span><span>💥 попадание</span><span>🔥 уничтожен</span><span>🚢 корабль</span><span>🛡️ ПВО</span></div>`;
     const costs = bsState.special_costs || {plane:25,radar:10,defense:15};
-    const defensesCount = (bsState.player_defenses || "").split("").filter(v => v === "D").length;
+    const defensesCount = Number(bsState.defenses_bought || 0);
     const planesBought = Number(bsState.plane_buys || 0);
     const specialBar = bsState.status === "active" && bsState.turn === "player" ? `
       <div class="bs-special-panel">
