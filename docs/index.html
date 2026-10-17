@@ -2100,6 +2100,11 @@
       el.style.border = current && current.id === ship.id ? "2px solid #fbbf24" : "1px solid rgba(125,211,252,.3)";
     });
   }
+  function bsPointerMove(event) {
+    if (!bsDrag) return;
+    const el = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-bs-cell]");
+    if (el) bsPointerEnter(Number(el.dataset.bsCell));
+  }
   function bsPointerEnter(idx) {
     if (!bsDrag) return;
     const row = Math.floor(idx / 10), col = idx % 10;
@@ -2128,7 +2133,7 @@
   function bsResetPlacement() { bsPlacement = bsRandomPlacement(); bsSelectedShip = null; bsPreview = null; renderBattleshipStart(); }
   function renderBattleshipStart() {
     if (!bsPlacement.length) bsPlacement = bsRandomPlacement();
-    let board = '<div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:3px;max-width:480px;margin:12px auto;touch-action:none;user-select:none;" onpointerup="bsPointerUp()" onpointercancel="bsPointerUp()">';
+    let board = '<div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:3px;max-width:480px;margin:12px auto;touch-action:none;user-select:none;" onpointermove="bsPointerMove(event)" onpointerup="bsPointerUp()" onpointercancel="bsPointerUp()">';
     for (let i = 0; i < 100; i++) {
       const ship = bsPlacement.find(s => (bsPlacementCells(s) || []).includes(i));
       const previewShip = bsDrag && bsPlacement.find(s => s.id === bsDrag.id);
