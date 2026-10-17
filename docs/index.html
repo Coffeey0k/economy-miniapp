@@ -819,6 +819,7 @@
   .bs-ocean-header { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap; }
   .bs-ocean-cell { background-color:#075985;background-image:radial-gradient(ellipse at 25% 20%,rgba(186,230,253,.38),transparent 34%),radial-gradient(ellipse at 75% 80%,rgba(6,182,212,.22),transparent 45%),repeating-linear-gradient(125deg,rgba(255,255,255,.025) 0 2px,transparent 2px 8px),linear-gradient(145deg,#075985,#0e7490 52%,#164e63); }
   .bs-combat-cell { position:relative;overflow:hidden;background-size:cover;box-shadow:inset 0 1px 0 rgba(255,255,255,.09); }
+  .bs-ship-segment { background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.13) 0 1px,transparent 1px 5px),linear-gradient(145deg,#aab7c4,#475569 38%,#1e293b 72%,#0f172a);box-shadow:inset 0 1px 2px rgba(255,255,255,.3),inset 0 -2px 3px rgba(0,0,0,.45); }
   .bs-combat-cell:not(:disabled):active { transform:scale(.93);filter:brightness(1.25); }
   .bs-explosion { animation:bsExplosion .55s ease-out; }
   .bs-special-panel { margin:12px 0;padding:12px;border:1px solid rgba(125,211,252,.3);border-radius:14px;background:linear-gradient(135deg,rgba(3,37,65,.85),rgba(14,116,144,.35)); }
@@ -2187,9 +2188,10 @@
       const previewShip = bsDrag && bsPlacement.find(s => s.id === bsDrag.id);
       const previewCells = bsPreview && previewShip ? (bsPlacementCells(previewShip, bsPreview.start, bsPreview.horizontal) || []) : [];
       const preview = previewCells.includes(i);
-      const bg = preview ? (bsPreview.valid ? "#22c55e" : "#ef4444") : defense ? "#f59e0b" : ship ? "#64748b" : "";
+      const bg = preview ? (bsPreview.valid ? "#22c55e" : "#ef4444") : defense ? "#f59e0b" : ship ? "linear-gradient(145deg,#aab7c4,#475569 38%,#1e293b 72%,#0f172a)" : "";
       const selected = ship && ship.id === bsSelectedShip;
-      board += '<button type="button" data-bs-cell="'+i+'" onpointerdown="bsPointerDown(event,'+i+')" onpointerenter="bsPointerEnter('+i+')" class="bs-ocean-cell" style="aspect-ratio:1;min-width:0;padding:0;border-radius:5px;border:'+(selected?'2px solid #fbbf24':'1px solid rgba(125,211,252,.38)')+';'+(bg?'background:'+bg+';':'')+'color:#f8fafc;touch-action:none;display:flex;align-items:center;justify-content:center;font-size:clamp(10px,2.5vw,15px);">'+(defense?'🛡️':ship?'🚢':'')+'</button>';
+      const shipHead = ship && i === ship.start;
+      board += '<button type="button" data-bs-cell="'+i+'" onpointerdown="bsPointerDown(event,'+i+')" onpointerenter="bsPointerEnter('+i+')" class="bs-ocean-cell '+(ship?'bs-ship-segment':'')+'" style="aspect-ratio:1;min-width:0;padding:0;border-radius:5px;border:'+(selected?'2px solid #fbbf24':'1px solid rgba(125,211,252,.38)')+';'+(bg?'background:'+bg+';':'')+'color:#f8fafc;touch-action:none;display:flex;align-items:center;justify-content:center;font-size:clamp(10px,2.5vw,15px);">'+(defense?'🛡️':shipHead?'🚢':'')+'</button>';
     }
     board += '</div>';
     const selected = bsPlacement.find(s => s.id === bsSelectedShip);
@@ -2245,7 +2247,12 @@
         if (shots[i] === "1") { label = "💦"; bg = "rgba(148,163,184,.28)"; }
         else if (shots[i] === "2") { label = "💥"; bg = "rgba(239,68,68,.82)"; color = "#fff"; border = "1px solid rgba(255,255,255,.55)"; }
         else if (shots[i] === "3") { label = "🔥"; bg = "rgba(127,29,29,.96)"; color = "#fff"; border = "1px solid rgba(255,255,255,.55)"; }
-        else if (!bsViewEnemy && field[i] === "S") { label = "🚢"; bg = "linear-gradient(145deg,#9aa6b2,#364152 48%,#111827)"; color = "#fff"; }
+        else if (!bsViewEnemy && field[i] === "S") {
+          const shipHead = (c === 0 || field[i - 1] !== "S") && (r === 0 || field[i - 10] !== "S");
+          label = shipHead ? "🚢" : "";
+          bg = "linear-gradient(145deg,#aab7c4,#475569 38%,#1e293b 72%,#0f172a)";
+          color = "#fff";
+        }
         else if (ownDefense) { label = "🛡️"; bg = "linear-gradient(145deg,#fbbf24,#92400e)"; }
         else if (radarVisible) { label = "📡"; bg = "rgba(34,197,94,.82)"; color = "#052e16"; border = "2px solid #bbf7d0"; }
         else { bg = "radial-gradient(ellipse at 30% 25%,rgba(125,211,252,.42),transparent 42%),linear-gradient(145deg,#075985,#0e7490 45%,#164e63)"; }
@@ -2253,7 +2260,7 @@
         const actionClickable = bsViewEnemy && bsState.status === "active" && bsState.turn === "player" && (bsActionMode !== "fire" || shots[i] === "0");
         const onclick = actionClickable ? (bsActionMode === "radar" ? `onclick="bsSpecial('radar',${r},${c})"` : bsActionMode === "plane" ? `onclick="bsSpecial('plane',${r},${c})"` : clickable ? `onclick="fireBattleship(${r}, ${c})"` : "") : "";
         const disabled = onclick ? "" : "disabled";
-        board += `<button ${onclick} ${disabled} aria-label="Клетка ${String.fromCharCode(65+c)}${r+1}" class="bs-combat-cell ${shots[i] === "2" || shots[i] === "3" ? "bs-explosion" : ""}" style="aspect-ratio:1;min-width:0;background:${bg};border:${border};border-radius:5px;font-size:clamp(10px,2.6vw,16px);font-weight:700;color:${color};cursor:${onclick ? "crosshair" : "default"};padding:0;transition:transform .12s,filter .12s;">${label}</button>`;
+        board += `<button ${onclick} ${disabled} aria-label="Клетка ${String.fromCharCode(65+c)}${r+1}" class="bs-combat-cell ${!bsViewEnemy && field[i] === "S" ? "bs-ship-segment" : ""} ${shots[i] === "2" || shots[i] === "3" ? "bs-explosion" : ""}" style="aspect-ratio:1;min-width:0;background:${bg};border:${border};border-radius:5px;font-size:clamp(10px,2.6vw,16px);font-weight:700;color:${color};cursor:${onclick ? "crosshair" : "default"};padding:0;transition:transform .12s,filter .12s;">${label}</button>`;
       }
     }
     board += `</div>`;
