@@ -532,13 +532,12 @@ async def handle_bet(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
 
-async def _process_game(callback: CallbackQuery, user_id: int, win: int, msg: str):
-    if win > 0:
-        db.update_balance(user_id, win)
-        db.update_game_stats(user_id, True, win)
-    else:
-        db.update_balance(user_id, win)
-        db.update_game_stats(user_id, False, abs(win))
+async def _process_game(callback: CallbackQuery, user_id: int, net_change: int, msg: str):
+    # Игровые функции возвращают чистое изменение баланса.
+    if not db.update_balance(user_id, net_change):
+        await callback.answer("❌ Не удалось обновить баланс.", show_alert=True)
+        return
+    db.update_game_stats(user_id, net_change > 0, abs(net_change))
     await callback.message.edit_text(
         f"{msg}\n\n💰 Баланс: {db.get_balance(user_id)} 🪙",
         reply_markup=game_result_keyboard()
@@ -1170,23 +1169,55 @@ async def games_word_trigger(message: Message):
     await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
 
 
-@dp.message(F.text.lower().strip().in_({
-    "монетка", "казино", "слот", "слоты", "кубик", "кости",
-    "дротик", "дартс", "угадай число", "число"
-}))
+@dp.message(F.text.lower().regexp(r"^(?:монетка|казино|слот|слоты|кубик|кости|дротик|дартс|угадай число|число)(?:\s+\d+)?$"))
 async def game_word_trigger(message: Message):
-    word = message.text.lower().strip()
-    if word == "монетка":
-        game_type, title = "coin", "🪙 Монетка"
-    elif word in {"кубик", "кости"}:
-        game_type, title = "dice", "🎲 Кубик"
-    elif word in {"дротик", "дартс"}:
-        game_type, title = "dart", "🎯 Дартс"
-    elif word in {"угадай число", "число"}:
-        game_type, title = "number", "🃏 Угадай число"
+    raw = message.text.lower().strip()
+    bet = None
+    word = raw
+    tail = raw.rsplit(maxsplit=1)
+    if len(tail) == 2 and tail[1].isdigit():
+        word, bet_text = tail[0], tail[1]
+        bet = int(bet_text)
+    aliases = {
+        "монетка": ("coin", "🪙 Монетка"), "казино": ("slot", "🎰 Казино / слот"),
+        "слот": ("slot", "🎰 Слот"), "слоты": ("slot", "🎰 Слоты"),
+        "кубик": ("dice", "🎲 Кубик"), "кости": ("dice", "🎲 Кубик"),
+        "дротик": ("dart", "🎯 Дартс"), "дартс": ("dart", "🎯 Дартс"),
+        "угадай число": ("number", "🃏 Угадай число"), "число": ("number", "🃏 Угадай число"),
+    }
+    game_type, title = aliases.get(word, ("slot", "🎰 Слот"))
+    if bet is None:
+        await message.answer(f"{title}\nИспользуй «{word} [ставка]» для мгновенной игры или выбери ставку:", reply_markup=game_bet_menu(game_type))
+        return
+    if not 1 <= bet <= 1000000:
+        await message.answer("❌ Ставка должна быть от 1 до 1 000 000 🪙.")
+        return
+    user_id = message.from_user.id
+    if db.get_balance(user_id) < bet:
+        await message.answer(f"❌ Недостаточно монет. Твой баланс: {db.get_balance(user_id):,} 🪙.")
+        return
+    if game_type == "slot":
+        net_change, result_text = play_slot(bet)
+    elif game_type == "dice":
+        net_change, result_text = play_dice(bet, random.randint(1, 6))
+    elif game_type == "coin":
+        net_change, result_text = play_coin(bet, random.choice(["Орел", "Решка"]))
+    elif game_type == "dart":
+        net_change, result_text = play_dart(bet)
     else:
-        game_type, title = "slot", "🎰 Казино / слот"
-    await message.answer(f"{title}\nВыбери ставку:", reply_markup=game_bet_menu(game_type))
+        net_change, result_text = play_number(bet, random.randint(1, 10))
+    if not db.update_balance(user_id, net_change):
+        await message.answer("❌ Не удалось обновить баланс. Попробуй ещё раз.")
+        return
+    db.update_game_stats(user_id, net_change > 0, abs(net_change))
+    try:
+        db.log_action(user_id, "game", f"Игра {game_type}; ставка={bet}; изменение баланса={net_change}", amount=net_change)
+    except Exception:
+        logger.exception("Не удалось записать лог игры")
+    await message.answer(
+        f"{title}\n💰 Ставка: {bet:,} 🪙\n{result_text}\n\nБаланс: {db.get_balance(user_id):,} 🪙",
+        reply_markup=game_result_keyboard()
+    )
 
 
 # ==================== ПРОФЕССИИ ====================
