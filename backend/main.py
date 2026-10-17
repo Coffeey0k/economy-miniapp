@@ -2247,6 +2247,7 @@ def bs_fire(payload: dict = Body(...)):
         "sea_reward": BS_SEA_WIN_REWARD if completed_status == "win" else 0,
         "player_defenses": final["player_defenses"],
         "plane_available": bool(final["plane_available"]),
+        "plane_buys": int(final["plane_buys"] or 0),
         "radar_cells": [i for i in range(100) if final["radar_cells"] and final["radar_cells"][i] == "1"] if int(final["radar_until"] or 0) >= int(time.time()) else [],
         "radar_until": int(final["radar_until"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
@@ -2409,7 +2410,7 @@ def bs_special(payload: dict = Body(...)):
 
     cur.execute("""
         SELECT player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, plane_available, radar_cells, radar_until
+               player_defenses, plane_available, plane_buys, radar_cells, radar_until
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     final = cur.fetchone()
