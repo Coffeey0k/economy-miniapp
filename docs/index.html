@@ -833,6 +833,7 @@
   @keyframes bsWaves { 0%{background-position:0 0,0 0,0 0,0 0} 100%{background-position:12px -8px,-8px 12px,18px 0,0 0} }
   .bs-ocean-cell:not(:disabled) { animation:bsWaves 5s linear infinite alternate; }
 
+  .bs-sea-card { background-image:linear-gradient(rgba(2,25,45,.88),rgba(2,25,45,.92)),url("images/battleship-water.svg");background-size:auto,96px 96px; }
 </style>
 </head>
 <body>
@@ -2191,20 +2192,19 @@
       const bg = preview ? (bsPreview.valid ? "#22c55e" : "#ef4444") : defense ? "#f59e0b" : ship ? "linear-gradient(145deg,#aab7c4,#475569 38%,#1e293b 72%,#0f172a)" : "";
       const selected = ship && ship.id === bsSelectedShip;
       const shipHead = ship && i === ship.start;
-      board += '<button type="button" data-bs-cell="'+i+'" onpointerdown="bsPointerDown(event,'+i+')" onpointerenter="bsPointerEnter('+i+')" class="bs-ocean-cell '+(ship?'bs-ship-segment':'')+'" style="aspect-ratio:1;min-width:0;padding:0;border-radius:5px;border:'+(selected?'2px solid #fbbf24':'1px solid rgba(125,211,252,.38)')+';'+(bg?'background:'+bg+';':'')+'color:#f8fafc;touch-action:none;display:flex;align-items:center;justify-content:center;font-size:clamp(10px,2.5vw,15px);">'+(defense?'🛡️':shipHead?'🚢':'')+'</button>';
+      board += '<button type="button" data-bs-cell="'+i+'" onpointerdown="bsPointerDown(event,'+i+')" onpointerenter="bsPointerEnter('+i+')" class="bs-ocean-cell '+(ship?'bs-ship-segment':'')+'" style="aspect-ratio:1;min-width:0;padding:0;border-radius:5px;border:'+(selected?'2px solid #fbbf24':'1px solid rgba(125,211,252,.38)')+';'+(bg?'background:'+bg+';':'')+'color:#f8fafc;touch-action:none;display:flex;align-items:center;justify-content:center;font-size:clamp(10px,2.5vw,15px);">'+(defense?'<img src="images/battleship-aa.svg" alt="" style="width:90%;height:90%;object-fit:contain;">':shipHead?'<img src="images/battleship-ship.svg" alt="" style="width:90%;height:90%;object-fit:contain;">':'')+'</button>';
     }
     board += '</div>';
     const selected = bsPlacement.find(s => s.id === bsSelectedShip);
-    const valid = bsPlacement.length === BS_FLEET.length && bsPlacement.every(s => bsCanPlace(bsPlacement, s.id, s.start, s.horizontal)) && bsDefenses.length === 2 && bsDefenses.every(i => bsDefenseAllowed(i));
+    const valid = bsPlacement.length === BS_FLEET.length && bsPlacement.every(s => bsCanPlace(bsPlacement, s.id, s.start, s.horizontal));
     document.getElementById("battleship-area").innerHTML = `
       <div class="card">
         <h2>⚓ Морской бой — подготовка флота</h2>
         <p class="label">Перетаскивай корабли пальцем или мышью. Выбери корабль и нажми «Повернуть».</p>
-        <p class="label">Флот: линкор 4 клетки, крейсеры 3, эсминцы 2 и катера 1. Сначала расставь 2 установки ПВО.</p>
+        <p class="label">Флот: линкор 4 клетки, крейсеры 3, эсминцы 2 и катера 1. ПВО покупается во время боя за морские очки.</p>
         ${board}
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:12px;">
           <button class="btn" onclick="bsRotateSelected()" ${selected ? "" : "disabled"}>↻ Повернуть ${selected ? "корабль ("+selected.size+")" : ""}</button>
-          <button class="btn" onclick="bsDefenseMode=!bsDefenseMode;renderBattleshipStart()" style="${bsDefenseMode?'background:#d97706;color:white;':''}">🛡️ Расставить ПВО (${bsDefenses.length}/2)</button>
           <button class="btn" onclick="bsResetPlacement()">🎲 Случайно</button>
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -2220,8 +2220,7 @@
     if (!bet || bet < 500) { toast("Ставка минимум 500 🪙", true); return; }
     const player_field = bsPlacementField();
     try {
-      if (bsDefenses.length !== 2) { toast("Расставь две установки ПВО", true); return; }
-      const player_defenses = bsDefenseField();
+      const player_defenses = ".".repeat(100);
       const res = await apiPost("/api/battleship/start", { bet, player_field, player_defenses });
       bsState = res; bsViewEnemy = true; renderBattleship();
       loaded.profile = false; loadProfile();
@@ -2249,16 +2248,16 @@
         else if (shots[i] === "3") { label = "🔥"; bg = "rgba(127,29,29,.96)"; color = "#fff"; border = "1px solid rgba(255,255,255,.55)"; }
         else if (!bsViewEnemy && field[i] === "S") {
           const shipHead = (c === 0 || field[i - 1] !== "S") && (r === 0 || field[i - 10] !== "S");
-          label = shipHead ? "🚢" : "";
+          label = shipHead ? '<img src="images/battleship-ship.svg" alt="Корабль" style="width:90%;height:90%;object-fit:contain;">' : "";
           bg = "linear-gradient(145deg,#aab7c4,#475569 38%,#1e293b 72%,#0f172a)";
           color = "#fff";
         }
-        else if (ownDefense) { label = "🛡️"; bg = "linear-gradient(145deg,#fbbf24,#92400e)"; }
+        else if (ownDefense) { label = '<img src="images/battleship-aa.svg" alt="ПВО" style="width:90%;height:90%;object-fit:contain;">'; bg = "linear-gradient(145deg,#fbbf24,#92400e)"; }
         else if (radarVisible) { label = "📡"; bg = "rgba(34,197,94,.82)"; color = "#052e16"; border = "2px solid #bbf7d0"; }
         else { bg = "radial-gradient(ellipse at 30% 25%,rgba(125,211,252,.42),transparent 42%),linear-gradient(145deg,#075985,#0e7490 45%,#164e63)"; }
         const clickable = bsViewEnemy && shots[i] === "0" && bsState.status === "active" && bsState.turn === "player";
-        const actionClickable = bsViewEnemy && bsState.status === "active" && bsState.turn === "player" && (bsActionMode !== "fire" || shots[i] === "0");
-        const onclick = actionClickable ? (bsActionMode === "radar" ? `onclick="bsSpecial('radar',${r},${c})"` : bsActionMode === "plane" ? `onclick="bsSpecial('plane',${r},${c})"` : clickable ? `onclick="fireBattleship(${r}, ${c})"` : "") : "";
+        const actionClickable = bsState.status === "active" && bsState.turn === "player" && ((bsViewEnemy && (bsActionMode === "radar" || bsActionMode === "plane" || (bsActionMode === "fire" && shots[i] === "0"))) || (!bsViewEnemy && bsActionMode === "defense"));
+        const onclick = actionClickable ? (bsActionMode === "defense" && !bsViewEnemy ? `onclick="bsSpecial('place_defense',${r},${c})"` : bsActionMode === "radar" ? `onclick="bsSpecial('radar',${r},${c})"` : bsActionMode === "plane" ? `onclick="bsSpecial('plane',${r},${c})"` : clickable ? `onclick="fireBattleship(${r}, ${c})"` : "") : "";
         const disabled = onclick ? "" : "disabled";
         board += `<button ${onclick} ${disabled} aria-label="Клетка ${String.fromCharCode(65+c)}${r+1}" class="bs-combat-cell ${!bsViewEnemy && field[i] === "S" ? "bs-ship-segment" : ""} ${shots[i] === "2" || shots[i] === "3" ? "bs-explosion" : ""}" style="aspect-ratio:1;min-width:0;background:${bg};border:${border};border-radius:5px;font-size:clamp(10px,2.6vw,16px);font-weight:700;color:${color};cursor:${onclick ? "crosshair" : "default"};padding:0;transition:transform .12s,filter .12s;">${label}</button>`;
       }
@@ -2270,16 +2269,19 @@
     else if (bsState.status === "lose") status = `<div style="color:#ef4444;font-weight:800;">💀 Поражение — ставка потеряна</div>`;
     const tabs = `<div style="display:flex;gap:8px;margin:10px 0 14px;justify-content:center;flex-wrap:wrap;"><button class="btn" aria-pressed="${bsViewEnemy}" onclick="bsViewEnemy=true;renderBattleship()">🎯 Противник</button><button class="btn" aria-pressed="${!bsViewEnemy}" onclick="bsViewEnemy=false;renderBattleship()">🛡️ Моё поле</button></div>`;
     const legend = `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:8px 0 14px;font-size:12px;color:var(--hint);"><span>🌊 вода</span><span>💦 промах</span><span>💥 попадание</span><span>🔥 уничтожен</span><span>🚢 корабль</span><span>🛡️ ПВО</span></div>`;
-    const costs = bsState.special_costs || {plane:40,radar:10};
+    const costs = bsState.special_costs || {plane:25,radar:10,defense:15};
+    const defensesCount = (bsState.player_defenses || "").split("").filter(v => v === "D").length;
+    const planesBought = Number(bsState.plane_buys || 0);
     const specialBar = bsState.status === "active" && bsState.turn === "player" ? `
       <div class="bs-special-panel">
         <div class="bs-points">⚓ Морские очки: <b>${Number(bsState.sea_points||0).toLocaleString()}</b></div>
         <div class="bs-special-actions">
-          <button class="btn" onclick="bsSpecial('buy_plane')" ${bsState.plane_available || Number(bsState.sea_points||0)<costs.plane ? "disabled" : ""}>✈️ ${bsState.plane_available ? "Самолёт готов" : "Купить самолёт"} · ${costs.plane}</button>
+          <button class="btn" onclick="bsSpecial('buy_plane')" ${bsState.plane_available || planesBought >= 2 || Number(bsState.sea_points||0)<costs.plane ? "disabled" : ""}>✈️ <img src="images/battleship-plane.svg" alt="" style="width:20px;height:20px;vertical-align:middle;"> ${bsState.plane_available ? "Самолёт готов" : "Купить самолёт"} · ${costs.plane} · ${planesBought}/2</button>
+          <button class="btn" onclick="bsSetMode('defense');bsViewEnemy=false;renderBattleship()" ${defensesCount >= 3 || Number(bsState.sea_points||0)<costs.defense ? "disabled" : ""} style="${bsActionMode==='defense'?'background:#d97706;color:white;':''}">🛡️ <img src="images/battleship-aa.svg" alt="" style="width:20px;height:20px;vertical-align:middle;"> ПВО · ${costs.defense} очков · ${defensesCount}/3</button>
           <button class="btn" onclick="bsSetMode('plane')" ${!bsState.plane_available ? "disabled" : ""}>${bsActionMode==="plane"?"✈️ Выбери линию":"✈️ Атака самолётом"}</button>
           <button class="btn" onclick="bsSetMode('radar')" ${Number(bsState.sea_points||0)<costs.radar ? "disabled" : ""}>📡 Радар 3×3 · ${costs.radar}</button>
         </div>
-        ${bsActionMode==="plane" ? `<div class="bs-special-actions"><button class="btn" onclick="bsPlaneOrientation='horizontal';renderBattleship()" style="${bsPlaneOrientation==='horizontal'?'outline:2px solid #fbbf24;':''}">↔ Горизонтально</button><button class="btn" onclick="bsPlaneOrientation='vertical';renderBattleship()" style="${bsPlaneOrientation==='vertical'?'outline:2px solid #fbbf24;':''}">↕ Вертикально</button></div><p class="label">Выбери начало линии из 5 клеток. ПВО противника может перехватить вылет.</p>` : bsActionMode==="radar" ? '<p class="label">Нажми на центр зоны 3×3. Результат будет виден 8 секунд.</p>' : '<p class="label">Самолёт: 40 очков, радар: 10. За победу: +20 морских очков.</p>'}
+        ${bsActionMode==="plane" ? `<div class="bs-special-actions"><button class="btn" onclick="bsPlaneOrientation='horizontal';renderBattleship()" style="${bsPlaneOrientation==='horizontal'?'outline:2px solid #fbbf24;':''}">↔ Горизонтально</button><button class="btn" onclick="bsPlaneOrientation='vertical';renderBattleship()" style="${bsPlaneOrientation==='vertical'?'outline:2px solid #fbbf24;':''}">↕ Вертикально</button></div><p class="label">Выбери начало линии из 5 клеток. ПВО противника может перехватить вылет.</p>` : bsActionMode==="radar" ? '<p class="label">Нажми на центр зоны 3×3. Результат будет виден 8 секунд.</p>' : '<p class="label">Самолёт: 25 очков (максимум 2). ПВО: 15 очков (максимум 3), защищает полосу 2×10. За победу: +20 морских очков.</p>'}
       </div>` : `<div class="bs-points">⚓ Морские очки: <b>${Number(bsState.sea_points||0).toLocaleString()}</b></div>`;
     area.innerHTML = `<div class="card bs-sea-card"><div class="bs-ocean-header"><h2 style="margin:0;">⚓ Морской бой</h2><span class="label">10×10 · Глубокое море</span></div><div class="label" style="margin-top:8px;">${heading} · Ставка: ${Number(bsState.bet).toLocaleString()} 🪙 · Выплата: ${Number(bsState.reward).toLocaleString()} 🪙</div>${status}${specialBar}${tabs}${board}${legend}</div>`;
   }
