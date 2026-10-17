@@ -60,8 +60,8 @@ async def ms_start(message: Message):
             await message.answer("❌ Ставка должна быть числом.")
             return
 
-    if bet <= 0:
-        await message.answer("❌ Ставка должна быть больше нуля.")
+    if not 1 <= bet <= 1000000:
+        await message.answer("❌ Ставка должна быть от 1 до 1 000 000 🪙.")
         return
 
     user_id = message.from_user.id
@@ -75,11 +75,17 @@ async def ms_start(message: Message):
         return
 
     game = db.ms_get_game(game_id)
+    chat_hint = (
+        "\n\n👥 В групповом чате у каждого игрока своя отдельная партия. "
+        "Ставка и выигрыш принадлежат тому, кто запустил эту игру."
+        if message.chat.type in {"group", "supergroup"} else ""
+    )
     text = (
         f"💣 Сапёр\n\n"
-        f"💰 Ставка: {bet} 🪙\n"
+        f"💰 Ставка: {bet:,} 🪙\n"
         f"🎁 Выплата при победе: {bet * 2:,} 🪙 (чистая прибыль {bet:,} 🪙)\n\n"
         f"Открывай клетки. Не попади на мину!"
+        f"{chat_hint}"
     )
     kb = ms_keyboard(game_id, game["board"], game["revealed"], game["field_size"]).as_markup()
     await message.answer(text, reply_markup=kb)
