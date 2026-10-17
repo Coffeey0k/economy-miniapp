@@ -3757,6 +3757,37 @@ def admin_clear_banned(payload: dict = Body(...)):
 
     return {"ok": True, "message": msg, "deleted": deleted, "errors": errors}
 
+@app.post("/api/admin/users/clear_blocked")
+def admin_clear_blocked(payload: dict = Body(...)):
+    """Полностью удаляет из базы игроков, у которых отмечена блокировка бота."""
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE is_banned = 2")
+    ids = [r["user_id"] for r in cur.fetchall()]
+
+    deleted = 0
+    errors = []
+    for uid in ids:
+        try:
+            _delete_user_full_main(cur, uid)
+            deleted += 1
+        except Exception as e:
+            errors.append(f"{uid}: {e}")
+            print(f"[clear_blocked] Ошибка удаления {uid}: {e}")
+
+    conn.commit()
+    conn.close()
+
+    msg = f"Удалено {deleted} из {len(ids)}"
+    if errors:
+        msg += f". Ошибки: {len(errors)}"
+        print(f"[clear_blocked] Ошибки: {errors}")
+
+    return {"ok": True, "message": msg, "deleted": deleted, "errors": errors}
+
 
 @app.post("/api/admin/users/delete")
 def admin_delete_user(payload: dict = Body(...)):
