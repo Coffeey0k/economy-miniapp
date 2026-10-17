@@ -2115,10 +2115,6 @@
   function bsDefenseAllowed(idx) {
     if (bsPlacement.some(s => (bsPlacementCells(s) || []).includes(idx))) return false;
     const r = Math.floor(idx / 10), c = idx % 10;
-    for (const ship of bsPlacement) for (const cell of (bsPlacementCells(ship) || [])) {
-      const sr = Math.floor(cell / 10), sc = cell % 10;
-      if (Math.abs(r - sr) <= 1 && Math.abs(c - sc) <= 1) return false;
-    }
     return bsDefenses.every(other => {
       const rr = Math.floor(other / 10), cc = other % 10;
       return Math.max(Math.abs(r - rr), Math.abs(c - cc)) > 1 || other === idx;
