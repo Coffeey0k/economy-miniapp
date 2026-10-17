@@ -1698,33 +1698,15 @@ def _bs_validate_defenses(defenses, field: str) -> bool:
     if not isinstance(defenses, str) or len(defenses) != BS_SIZE * BS_SIZE or any(c not in {".", "D"} for c in defenses):
         return False
     positions = [i for i, cell in enumerate(defenses) if cell == "D"]
-    if len(positions) != BS_DEFENSE_COUNT:
+    if len(positions) != BS_DEFENSE_COUNT or any(field[idx] == "S" for idx in positions):
         return False
-    for idx in positions:
-        if field[idx] == "S":
-            return False
-        r, c = divmod(idx, BS_SIZE)
-        for other, cell in enumerate(field):
-            if cell == "S":
-                rr, cc = divmod(other, BS_SIZE)
-                if abs(r - rr) <= 1 and abs(c - cc) <= 1:
-                    return False
     ar, ac = divmod(positions[0], BS_SIZE)
     br, bc = divmod(positions[1], BS_SIZE)
     return max(abs(ar - br), abs(ac - bc)) > 1
 
 
 def _bs_generate_defenses(field: str) -> str:
-    candidates = []
-    for idx, cell in enumerate(field):
-        if cell != ".":
-            continue
-        r, c = divmod(idx, BS_SIZE)
-        near_ship = any(field[_bs_cell_index(rr, cc)] == "S"
-            for rr in range(max(0, r - 1), min(BS_SIZE, r + 2))
-            for cc in range(max(0, c - 1), min(BS_SIZE, c + 2)))
-        if not near_ship:
-            candidates.append(idx)
+    candidates = [i for i, cell in enumerate(field) if cell == "."]
     random.shuffle(candidates)
     selected = []
     for idx in candidates:
@@ -1733,8 +1715,6 @@ def _bs_generate_defenses(field: str) -> str:
             selected.append(idx)
             if len(selected) == BS_DEFENSE_COUNT:
                 break
-    if len(selected) < BS_DEFENSE_COUNT:
-        selected = random.sample([i for i, cell in enumerate(field) if cell == "."], BS_DEFENSE_COUNT)
     out = ["."] * 100
     for idx in selected:
         out[idx] = "D"
