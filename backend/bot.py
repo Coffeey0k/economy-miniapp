@@ -1,4 +1,5 @@
 from PIL import Image
+import re
 import os
 from banner import print_banner
 import asyncio
@@ -1169,15 +1170,22 @@ async def games_word_trigger(message: Message):
     await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
 
 
-@dp.message(F.text.lower().regexp(r"^(?:монетка|казино|слот|слоты|кубик|кости|дротик|дартс|угадай число|число)(?:\s+\d+)?$"))
+@dp.message(F.text.lower().regexp(r"^(?:монетка|казино|слот|слоты|кубик|кости|дротик|дартс|угадай число|число)(?:\s+[0-9]+(?:[.,][0-9]+)?(?:к{1,3})?)?$"))
 async def game_word_trigger(message: Message):
     raw = message.text.lower().strip()
     bet = None
     word = raw
     tail = raw.rsplit(maxsplit=1)
-    if len(tail) == 2 and tail[1].isdigit():
+    if len(tail) == 2:
         word, bet_text = tail[0], tail[1]
-        bet = int(bet_text)
+        amount_match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", bet_text)
+        if amount_match:
+            number = float(amount_match.group(1).replace(",", "."))
+            suffix = amount_match.group(2) or ""
+            multiplier = {"": 1, "к": 1_000, "кк": 1_000_000, "ккк": 1_000_000_000}[suffix]
+            scaled = number * multiplier
+            if scaled.is_integer():
+                bet = int(scaled)
     aliases = {
         "монетка": ("coin", "🪙 Монетка"), "казино": ("slot", "🎰 Казино / слот"),
         "слот": ("slot", "🎰 Слот"), "слоты": ("slot", "🎰 Слоты"),
