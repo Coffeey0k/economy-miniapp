@@ -121,6 +121,48 @@ class OwnerCheckMiddleware(BaseMiddleware):
 dp.callback_query.middleware(OwnerCheckMiddleware())
 
 
+class DailyTaskProgressMiddleware(BaseMiddleware):
+    """Tracks daily-task progress from real incoming chat messages."""
+    async def __call__(self, handler, event, data):
+        if isinstance(event, Message) and event.from_user and not event.from_user.is_bot:
+            try:
+                uid = event.from_user.id
+                db.assign_daily_tasks(uid)
+                text_value = event.text or event.caption or ""
+                now = datetime.now()
+                if event.chat.type in {"group", "supergroup"}:
+                    db.update_task_progress(uid, "messages", 1)
+                    if len(text_value) >= 50:
+                        db.update_task_progress(uid, "long_messages", 1)
+                    if "?" in text_value or "？" in text_value:
+                        db.update_task_progress(uid, "question_messages", 1)
+                    if re.search(r"https?://|t\.me/", text_value, re.I):
+                        db.update_task_progress(uid, "links", 1)
+                    if re.search(r"[😀-🙏🌀-🗿]", text_value):
+                        db.update_task_progress(uid, "emoji_messages", 1)
+                    if event.reply_to_message and event.reply_to_message.from_user and event.reply_to_message.from_user.id != uid:
+                        db.update_task_progress(uid, "replies", 1)
+                    if event.reply_to_message and event.reply_to_message.from_user and event.reply_to_message.from_user.id != uid:
+                        db.update_task_progress(uid, "help_replies", 1)
+                    if now.hour < 9:
+                        db.update_task_progress(uid, "morning_message", 1)
+                    if now.hour >= 20:
+                        db.update_task_progress(uid, "night_message", 1)
+                    if now.weekday() >= 5:
+                        db.update_task_progress(uid, "weekend_messages", 1)
+                    db.update_task_progress(uid, "active_hours", 1)
+                if event.photo:
+                    db.update_task_progress(uid, "photo", 1)
+                if event.voice or event.audio:
+                    db.update_task_progress(uid, "audio", 1)
+            except Exception:
+                logger.exception("Не удалось обновить прогресс ежедневного задания")
+        return await handler(event, data)
+
+
+dp.message.middleware(DailyTaskProgressMiddleware())
+
+
 @dp.my_chat_member()
 async def track_bot_block_status(event: ChatMemberUpdated):
     """Отслеживает блокировку/разблокировку бота в личных сообщениях."""
