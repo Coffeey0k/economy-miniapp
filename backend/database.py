@@ -1908,18 +1908,22 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
 # === ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ===
 
 DAILY_TASKS = {
-    "activist":    {"name": "💬 Активист",            "target": 30, "reward": 100, "type": "messages",
-                    "desc": "Отправь 30 сообщений в чат"},
-    "resident":    {"name": "🌴 Житель Lavender Dream", "target": 50, "reward": 150, "type": "messages",
-                    "desc": "Отправь 50 сообщений в чат"},
-    "friendly":    {"name": "🤍 Дружелюбный",          "target": 5,  "reward": 200, "type": "replies",
-                    "desc": "Ответь (реплаем) на 5 разных сообщений"},
-    "photographer":{"name": "📸 Фотограф",            "target": 1,  "reward": 50,  "type": "photo",
-                    "desc": "Отправь фото в чат"},
-    "musician":    {"name": "🎵 Музыкант",            "target": 1,  "reward": 50,  "type": "audio",
-                    "desc": "Отправь музыку или голосовое в чат"},
-    "night_owl":   {"name": "🌙 Ночной житель",       "target": 1,  "reward": 250, "type": "night_message",
-                    "desc": "Напиши сообщение после 20:00"},
+    "activist": {"name": "💬 Активист", "target": 30, "reward": 100, "type": "messages", "desc": "Отправь 30 сообщений в чат"},
+    "resident": {"name": "🌴 Житель Lavender Dream", "target": 50, "reward": 150, "type": "messages", "desc": "Отправь 50 сообщений в чат"},
+    "friendly": {"name": "🤍 Дружелюбный", "target": 5, "reward": 200, "type": "replies", "desc": "Ответь на 5 разных сообщений"},
+    "photographer": {"name": "📸 Фотограф", "target": 1, "reward": 50, "type": "photo", "desc": "Отправь фото в чат"},
+    "musician": {"name": "🎵 Музыкант", "target": 1, "reward": 50, "type": "audio", "desc": "Отправь музыку или голосовое в чат"},
+    "night_owl": {"name": "🌙 Ночной житель", "target": 1, "reward": 250, "type": "night_message", "desc": "Напиши сообщение после 20:00"},
+    "early_bird": {"name": "🌅 Ранняя пташка", "target": 1, "reward": 150, "type": "morning_message", "desc": "Напиши сообщение до 09:00"},
+    "storyteller": {"name": "📖 Рассказчик", "target": 10, "reward": 120, "type": "long_messages", "desc": "Отправь 10 сообщений длиной от 50 символов"},
+    "emoji_master": {"name": "✨ Эмодзи-мастер", "target": 15, "reward": 100, "type": "emoji_messages", "desc": "Отправь 15 сообщений с эмодзи"},
+    "questioner": {"name": "❓ Любопытный", "target": 10, "reward": 100, "type": "question_messages", "desc": "Отправь 10 сообщений с вопросительным знаком"},
+    "game_player": {"name": "🎮 Игрок", "target": 3, "reward": 200, "type": "games", "desc": "Сыграй 3 игры"},
+    "helper": {"name": "🤝 Помощник", "target": 10, "reward": 150, "type": "replies", "desc": "Ответь на 10 сообщений других участников"},
+    "social_butterfly": {"name": "🦋 Душа компании", "target": 3, "reward": 150, "type": "active_hours", "desc": "Напиши в чате в течение 3 разных часов"},
+    "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых или музыкальных сообщений"},
+    "link_sharer": {"name": "🔗 Делится полезным", "target": 3, "reward": 100, "type": "links", "desc": "Отправь 3 сообщения со ссылками"},
+    "weekend_vibes": {"name": "🎉 Выходной вайб", "target": 25, "reward": 150, "type": "weekend_messages", "desc": "Напиши 25 сообщений в выходной"},
 }
 
 
