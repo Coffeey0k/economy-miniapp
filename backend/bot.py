@@ -105,6 +105,7 @@ class GiftCoinStates(StatesGroup):
 
 # Хранилище: message_id -> user_id владельца
 message_owners = {}
+_task_active_hour_seen = set()
 
 
 class OwnerCheckMiddleware(BaseMiddleware):
@@ -142,15 +143,18 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                         db.update_task_progress(uid, "emoji_messages", 1)
                     if event.reply_to_message and event.reply_to_message.from_user and event.reply_to_message.from_user.id != uid:
                         db.update_task_progress(uid, "replies", 1)
-                    if event.reply_to_message and event.reply_to_message.from_user and event.reply_to_message.from_user.id != uid:
-                        db.update_task_progress(uid, "help_replies", 1)
                     if now.hour < 9:
                         db.update_task_progress(uid, "morning_message", 1)
                     if now.hour >= 20:
                         db.update_task_progress(uid, "night_message", 1)
                     if now.weekday() >= 5:
                         db.update_task_progress(uid, "weekend_messages", 1)
-                    db.update_task_progress(uid, "active_hours", 1)
+                    hour_key = (uid, now.date().isoformat(), now.hour)
+                    if hour_key not in _task_active_hour_seen:
+                        _task_active_hour_seen.add(hour_key)
+                        db.update_task_progress(uid, "active_hours", 1)
+                    if len(_task_active_hour_seen) > 50000:
+                        _task_active_hour_seen.clear()
                 if event.photo:
                     db.update_task_progress(uid, "photo", 1)
                 if event.voice or event.audio:
@@ -581,6 +585,11 @@ async def _process_game(callback: CallbackQuery, user_id: int, net_change: int, 
         await callback.answer("❌ Не удалось обновить баланс.", show_alert=True)
         return
     db.update_game_stats(user_id, net_change > 0, abs(net_change))
+    try:
+        db.assign_daily_tasks(user_id)
+        db.update_task_progress(user_id, "games", 1)
+    except Exception:
+        logger.exception("Не удалось обновить задание за сыгранную игру")
     await callback.message.edit_text(
         f"{msg}\n\n💰 Баланс: {db.get_balance(user_id)} 🪙",
         reply_markup=game_result_keyboard()
