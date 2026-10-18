@@ -1965,7 +1965,9 @@ def assign_daily_tasks(user_id: int):
 
 
 def update_task_progress(user_id: int, task_type: str, amount: int = 1):
-    """Обновляет прогресс задания и возвращает данные, если задание завершено."""
+    """Advance every matching task assigned today; reward each completed task once."""
+    if amount <= 0:
+        return None
     date = datetime.now().date().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -1973,36 +1975,28 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
         SELECT id, progress, target, is_done FROM daily_tasks
         WHERE user_id = ? AND assigned_date = ? AND task_type = ?
     """, (user_id, date, task_type))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return None
-    task_id, progress, target, is_done = row
-    if is_done:
-        conn.close()
-        return None
-
-    new_progress = min(progress + amount, target)
-    done = new_progress >= target
-
-    cur.execute("""
-        UPDATE daily_tasks SET progress = ?, is_done = ? WHERE id = ?
-    """, (new_progress, 1 if done else 0, task_id))
+    rows = cur.fetchall()
+    completed = []
+    for task_id, progress, target, is_done in rows:
+        if is_done:
+            continue
+        new_progress = min(progress + amount, target)
+        done = new_progress >= target
+        cur.execute("UPDATE daily_tasks SET progress = ?, is_done = ?, is_claimed = ? WHERE id = ?",
+                    (new_progress, int(done), int(done), task_id))
+        if done:
+            completed.append(task_id)
     conn.commit()
     conn.close()
-
-    if done:
-        task_info = DAILY_TASKS[task_type]
-        reward = task_info["reward"]
-        update_balance(user_id, reward)
-        conn2 = sqlite3.connect(DB_NAME)
-        cur2 = conn2.cursor()
-        cur2.execute("UPDATE daily_tasks SET is_claimed = 1 WHERE id = ?", (task_id,))
-        conn2.commit()
-        conn2.close()
-        return {"task_type": task_type, "name": task_info["name"], "reward": reward}
-    return None
-
+    if not completed:
+        return None
+    task_info = DAILY_TASKS.get(task_type, {})
+    reward = int(task_info.get("reward", 0))
+    total_reward = reward * len(completed)
+    if total_reward:
+        update_balance(user_id, total_reward)
+    return {"task_type": task_type, "name": task_info.get("name", task_type),
+            "reward": total_reward, "completed_count": len(completed)}
 
 def get_tasks_by_type(user_id: int, task_type: str) -> List[dict]:
     date = datetime.now().date().isoformat()
