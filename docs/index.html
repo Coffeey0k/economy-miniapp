@@ -1487,13 +1487,22 @@
   }
   
   async function apiPost(path, body) {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, ...body }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Ошибка запроса");
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, ...body }),
+      });
+    } catch (networkError) {
+      throw new Error("Сервер API недоступен или соединение прервано. Попробуй открыть игру ещё раз.");
+    }
+    let data = {};
+    try { data = await res.json(); } catch (parseError) {
+      if (!res.ok) throw new Error(`Ошибка сервера (${res.status})`);
+      throw new Error("Сервер вернул некорректный ответ");
+    }
+    if (!res.ok) throw new Error(data.detail || `Ошибка запроса (${res.status})`);
     return data;
   }
   function showMsg(elId, text, ok) { toast(text, !ok); }
