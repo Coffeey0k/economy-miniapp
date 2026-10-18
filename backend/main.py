@@ -1669,7 +1669,7 @@ BS_SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
 
 BS_SEA_WIN_REWARD = 20
 BS_PLANE_COST = 25
-BS_RADAR_COST = 10
+BS_RADAR_COST = 20
 BS_DEFENSE_COST = 15
 BS_RADAR_SECONDS = 8
 BS_DEFENSE_MAX = 3
@@ -1700,7 +1700,7 @@ def _bs_ensure_special_schema(conn):
     for column, definition in (
         ("player_defenses", "TEXT DEFAULT NULL"), ("bot_defenses", "TEXT DEFAULT NULL"),
         ("plane_available", "INTEGER NOT NULL DEFAULT 0"), ("plane_buys", "INTEGER NOT NULL DEFAULT 0"), ("defenses_bought", "INTEGER NOT NULL DEFAULT 0"), ("radar_cells", "TEXT DEFAULT NULL"),
-        ("radar_until", "INTEGER NOT NULL DEFAULT 0"), ("sea_reward_paid", "INTEGER NOT NULL DEFAULT 0"),
+        ("radar_until", "INTEGER NOT NULL DEFAULT 0"), ("radar_bought", "INTEGER NOT NULL DEFAULT 0"), ("sea_reward_paid", "INTEGER NOT NULL DEFAULT 0"),
     ):
         try:
             cur.execute(f"ALTER TABLE battleship_games ADD COLUMN {column} {definition}")
@@ -2035,6 +2035,9 @@ def bs_start(payload: dict = Body(...)):
         "sea_points": sea_points,
         "player_defenses": player_defenses,
         "plane_available": False,
+        "plane_buys": 0,
+        "defenses_bought": 0,
+        "radar_bought": 0,
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
     }
 
@@ -2048,7 +2051,7 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots,
                bet, status, turn, player_defenses, bot_defenses, plane_available, plane_buys, defenses_bought,
-               radar_cells, radar_until
+               radar_cells, radar_until, radar_bought
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     row = cur.fetchone()
@@ -2287,6 +2290,9 @@ def bs_fire(payload: dict = Body(...)):
         "defenses_bought": int(final["defenses_bought"] or 0),
         "radar_cells": [i for i in range(100) if final["radar_cells"] and final["radar_cells"][i] == "1"] if int(final["radar_until"] or 0) >= int(time.time()) else [],
         "radar_until": int(final["radar_until"] or 0),
+        "radar_bought": int(final["radar_bought"] or 0),
+        "defenses_bought": int(final["defenses_bought"] or 0),
+        "plane_buys": int(final["plane_buys"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
     }
 
@@ -2305,7 +2311,7 @@ def bs_special(payload: dict = Body(...)):
     cur = conn.cursor()
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, bot_defenses, plane_available, plane_buys, defenses_bought, sea_reward_paid
+               player_defenses, bot_defenses, plane_available, plane_buys, defenses_bought, sea_reward_paid, radar_bought
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     g = cur.fetchone()
@@ -2364,6 +2370,9 @@ def bs_special(payload: dict = Body(...)):
         cur.execute("UPDATE battleship_games SET player_defenses = ?, defenses_bought = defenses_bought + 1 WHERE id = ?", ("".join(defenses), game_id))
         result = "defense_placed"
     elif action == "radar":
+        if int(g["radar_bought"] or 0) >= 1:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Радар можно использовать только один раз за игру")
         try:
             row, col = int(payload.get("row")), int(payload.get("col"))
         except (TypeError, ValueError):
@@ -2385,7 +2394,12 @@ def bs_special(payload: dict = Body(...)):
                 if g["bot_field"][idx] == "S":
                     mask[idx] = "1"
         until = int(time.time()) + BS_RADAR_SECONDS
-        cur.execute("UPDATE battleship_games SET radar_cells = ?, radar_until = ? WHERE id = ?", ("".join(mask), until, game_id))
+        cur.execute("UPDATE battleship_games SET radar_cells = ?, radar_until = ?, radar_bought = 1 WHERE id = ? AND radar_bought = 0", ("".join(mask), until, game_id))
+        if cur.rowcount != 1:
+            _bs_change_points(cur, user_id, BS_RADAR_COST)
+            conn.commit()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Радар уже использован")
     elif action == "plane":
         if not g["plane_available"]:
             conn.close()
