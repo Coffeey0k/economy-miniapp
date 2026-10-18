@@ -1474,9 +1474,14 @@
 
   async function apiGet(path) {
     const sep = path.includes("?") ? "&" : "?";
-    const res = await fetch(`${API_BASE}${path}${sep}initData=${encodeURIComponent(initData)}`);
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}${sep}initData=${encodeURIComponent(initData)}`);
+    } catch (networkError) {
+      throw new Error("Не удалось подключиться к серверу игры. Если ошибка повторяется, сервер API может быть недоступен.");
+    }
     if (!res.ok) {
-      let errMsg = "Ошибка запроса";
+      let errMsg = `Ошибка запроса (${res.status})`;
       try {
         const errData = await res.json();
         errMsg = errData.detail || errMsg;
