@@ -5090,11 +5090,23 @@ def send_gift(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Нельзя подарить себе")
 
     # Проверка и списание
+    transfer_count = None
     if gift_type == "money":
-        amount = int(gift_data_raw)
+        try:
+            amount = int(gift_data_raw)
+        except (TypeError, ValueError, OverflowError):
+            conn.close()
+            _log_security_attempt(user_id, "money_gift_invalid_amount", f"amount={gift_data_raw!r}")
+            raise HTTPException(status_code=400, detail="Сумма должна быть целым числом")
         if amount <= 0:
             conn.close()
+            _log_security_attempt(user_id, "money_gift_invalid_amount", f"amount={amount}")
             raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+        slot_ok, transfer_count = bot_db.reserve_daily_transfer_slot(cur, user_id, daily_limit=5)
+        if not slot_ok:
+            conn.close()
+            _log_security_attempt(user_id, "money_gift_daily_limit", f"target_id={target_id}; amount={amount}; count={transfer_count}")
+            raise HTTPException(status_code=429, detail="Лимит исчерпан: максимум 5 денежных переводов LDC в сутки (UTC), включая денежные подарки.")
         if not change_balance(cur, user_id, -amount):
             conn.close()
             raise HTTPException(status_code=400, detail="Недостаточно монет")
@@ -5169,7 +5181,10 @@ def send_gift(payload: dict = Body(...)):
         f"⏳ Сгорает через 5 дней."
     )
 
-    return {"ok": True, "message": f"Подарок отправлен @{target_username}"}
+    message = f"Подарок отправлен @{target_username}"
+    if transfer_count is not None:
+        message += f". Денежных переводов сегодня: {transfer_count}/5 (UTC)"
+    return {"ok": True, "message": message}
 
 
 @app.post("/api/gifts/open")
