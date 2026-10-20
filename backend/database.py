@@ -652,6 +652,16 @@ def init_db():
         )
     """)
 
+    # === ЛИМИТ ПОДАРКОВ: 5 успешных отправок в UTC-день, общий для бота и Mini App ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_gift_usage (
+            user_id BIGINT NOT NULL,
+            gift_date TEXT NOT NULL,
+            gift_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, gift_date)
+        )
+    """)
+
     # === ПОКУПКА БИЛЕТОВ КОЛЕСА РАЗ В НЕДЕЛЮ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS wheel_ticket_weekly_purchases (
@@ -843,6 +853,65 @@ def transfer_coins_limited(sender_id: int, recipient_id: int, amount: int, daily
             sender_id, recipient_id, amount,
         )
         return False, "error", 0
+
+
+def reserve_daily_gift_slot(user_id: int, daily_limit: int = 5) -> tuple:
+    """Atomically reserve one successful-gift slot shared by bot and Mini App."""
+    today = datetime.utcnow().date().isoformat()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO daily_gift_usage (user_id, gift_date, gift_count) "
+            "VALUES (?, ?, 0) ON CONFLICT(user_id, gift_date) DO NOTHING",
+            (user_id, today),
+        )
+        cur.execute(
+            "SELECT gift_count FROM daily_gift_usage WHERE user_id = ? AND gift_date = ? FOR UPDATE",
+            (user_id, today),
+        )
+        row = cur.fetchone()
+        count = int(row[0] or 0) if row else 0
+        if count >= daily_limit:
+            conn.rollback()
+            conn.close()
+            return False, count
+        cur.execute(
+            "UPDATE daily_gift_usage SET gift_count = gift_count + 1 "
+            "WHERE user_id = ? AND gift_date = ? AND gift_count < ?",
+            (user_id, today, daily_limit),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            return False, count
+        conn.commit()
+        conn.close()
+        return True, count + 1
+    except Exception:
+        conn.rollback()
+        conn.close()
+        logger.exception("Failed to reserve daily gift slot user_id=%s", user_id)
+        return False, 0
+
+
+def release_daily_gift_slot(user_id: int) -> None:
+    """Release a reserved gift slot if the gift operation itself failed."""
+    today = datetime.utcnow().date().isoformat()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE daily_gift_usage SET gift_count = CASE WHEN gift_count > 0 "
+            "THEN gift_count - 1 ELSE 0 END WHERE user_id = ? AND gift_date = ?",
+            (user_id, today),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("Failed to release daily gift slot user_id=%s", user_id)
+    finally:
+        conn.close()
 
 
 def transfer_coins(sender_id: int, recipient_id: int, amount: int) -> bool:
