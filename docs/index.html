@@ -1755,9 +1755,9 @@
     try {
       const data = await apiGet("/api/wheel");
       document.getElementById("wheel-status").textContent = data.can_spin
-        ? `Стоимость: ${data.cost} 🪙`
-        : `Следующее кручение через ${fmtTime(data.remaining_seconds)}`;
-      document.getElementById("wheel-spin-btn").disabled = !data.can_spin;
+        ? `У тебя ${data.tickets} 🎟️ · нужно ${data.ticket_cost} билетов`
+        : `Следующее кручение через ${fmtTime(data.remaining_seconds)} · билеты: ${data.tickets} 🎟️`;
+      document.getElementById("wheel-spin-btn").disabled = !data.can_spin || data.tickets < data.ticket_cost;
       document.getElementById("wheel-sectors").innerHTML = data.sectors.map(s => `
         <div class="item-row"><span>${s.label}</span><span>${s.chance}%</span></div>`).join("");
     } catch (e) { showMsg("wheel-msg", e.message, false); }
