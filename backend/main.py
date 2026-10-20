@@ -1851,16 +1851,20 @@ def _bs_ensure_special_schema(conn):
     )""")
     cur.execute("""CREATE TABLE IF NOT EXISTS battleship_economy (
         user_id INTEGER PRIMARY KEY, sea_points INTEGER NOT NULL DEFAULT 0)""")
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = current_schema() AND table_name = 'battleship_games'"
+    )
+    existing_columns = {str(row[0]).lower() for row in cur.fetchall()}
     for column, definition in (
         ("player_defenses", "TEXT DEFAULT NULL"), ("bot_defenses", "TEXT DEFAULT NULL"),
         ("plane_available", "INTEGER NOT NULL DEFAULT 0"), ("plane_buys", "INTEGER NOT NULL DEFAULT 0"), ("defenses_bought", "INTEGER NOT NULL DEFAULT 0"), ("radar_cells", "TEXT DEFAULT NULL"),
         ("radar_until", "INTEGER NOT NULL DEFAULT 0"), ("radar_bought", "INTEGER NOT NULL DEFAULT 0"), ("sea_reward_paid", "INTEGER NOT NULL DEFAULT 0"),
         ("bot_plane_buys", "INTEGER NOT NULL DEFAULT 0"), ("bot_radar_bought", "INTEGER NOT NULL DEFAULT 0"),
     ):
-        try:
+        if column.lower() not in existing_columns:
             cur.execute(f"ALTER TABLE battleship_games ADD COLUMN {column} {definition}")
-        except Exception:
-            pass
+            existing_columns.add(column.lower())
     conn.commit()
 
 
