@@ -2500,6 +2500,7 @@ def bs_state(init_data: str = Query(..., alias="initData"), game_id: int = Query
         "defenses_bought": int(row["defenses_bought"] or 0),
         "radar_cells": [i for i in range(100) if row["radar_cells"] and row["radar_cells"][i] == "1"] if int(row["radar_until"] or 0) >= int(time.time()) else [],
         "radar_until": int(row["radar_until"] or 0),
+        "radar_bought": int(row["radar_bought"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
     }
 
@@ -2897,6 +2898,7 @@ def bs_special(payload: dict = Body(...)):
         "player_defenses": final["player_defenses"], "plane_available": bool(final["plane_available"]),
         "plane_buys": int(final["plane_buys"] or 0),
         "defenses_bought": int(final["defenses_bought"] or 0),
+        "radar_bought": int(g["radar_bought"] or 0) if action == "radar" else int(final.get("radar_bought", 0) or 0),
         "radar_cells": radar_visible, "radar_until": int(final["radar_until"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
     }
