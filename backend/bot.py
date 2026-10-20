@@ -1503,7 +1503,7 @@ async def wheel_menu_handler(callback: CallbackQuery):
         "🎡 Колесо фортуны\n\n"
         "Стоимость вращения: 10 🎟️\n"
         f"Билеты у тебя: {db.get_wheel_tickets(callback.from_user.id)} 🎟️\nКулдаун: раз в 3 часа\n\n"
-        "Испытай удачу!",
+        "Билеты можно получить за некоторые задания, из сундуков, яиц и промокодов. Испытай удачу!",
         reply_markup=wheel_menu()
     )
     await callback.answer()
