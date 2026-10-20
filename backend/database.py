@@ -1965,39 +1965,50 @@ def assign_daily_tasks(user_id: int):
 
 
 def update_task_progress(user_id: int, task_type: str, amount: int = 1):
-    """Advance every matching task assigned today; reward each completed task once."""
+    """Advance assigned tasks by progress event type and reward each completion once.
+
+    daily_tasks.task_type stores a task ID (such as activist), while callers
+    report event types (such as messages). Match through DAILY_TASKS['type'];
+    otherwise most daily tasks never advance.
+    """
     if amount <= 0:
         return None
     date = datetime.now().date().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
-        SELECT id, progress, target, is_done FROM daily_tasks
-        WHERE user_id = ? AND assigned_date = ? AND task_type = ?
-    """, (user_id, date, task_type))
+        SELECT id, task_type, progress, target, reward, is_done
+        FROM daily_tasks WHERE user_id = ? AND assigned_date = ?
+    """, (user_id, date))
     rows = cur.fetchall()
     completed = []
-    for task_id, progress, target, is_done in rows:
+    completed_reward = 0
+    completed_names = []
+    for task_id, task_key, progress, target, reward, is_done in rows:
+        task_info = DAILY_TASKS.get(task_key, {})
+        if task_info.get("type") != task_type and task_key != task_type:
+            continue
         if is_done:
             continue
-        new_progress = min(progress + amount, target)
+        target = int(target or task_info.get("target", 0) or 0)
+        new_progress = min(int(progress or 0) + amount, target)
         done = new_progress >= target
-        cur.execute("UPDATE daily_tasks SET progress = ?, is_done = ?, is_claimed = ? WHERE id = ?",
-                    (new_progress, int(done), int(done), task_id))
-        if done:
+        cur.execute(
+            "UPDATE daily_tasks SET progress = ?, is_done = ?, is_claimed = ? WHERE id = ? AND is_done = 0",
+            (new_progress, int(done), int(done), task_id),
+        )
+        if done and cur.rowcount == 1:
             completed.append(task_id)
+            completed_reward += int(reward or task_info.get("reward", 0) or 0)
+            completed_names.append(task_info.get("name", task_key))
     conn.commit()
     conn.close()
+    if completed_reward:
+        update_balance(user_id, completed_reward)
     if not completed:
         return None
-    task_info = DAILY_TASKS.get(task_type, {})
-    reward = int(task_info.get("reward", 0))
-    total_reward = reward * len(completed)
-    if total_reward:
-        update_balance(user_id, total_reward)
-    return {"task_type": task_type, "name": task_info.get("name", task_type),
-            "reward": total_reward, "completed_count": len(completed)}
-
+    return {"task_type": task_type, "names": completed_names,
+            "reward": completed_reward, "completed_count": len(completed)}
 def get_tasks_by_type(user_id: int, task_type: str) -> List[dict]:
     date = datetime.now().date().isoformat()
     conn = sqlite3.connect(DB_NAME)
