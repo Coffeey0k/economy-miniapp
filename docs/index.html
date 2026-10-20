@@ -849,6 +849,8 @@
   .bs-ocean-cell { background-image:none !important; animation:none !important; box-shadow:none !important; }
   .bs-combat-cell { background-image:none !important; box-shadow:none !important; }
   /* ===== ISLAND EXPANSION ===== */
+  .island-decoration-sprite { position:absolute; z-index:5; transform:translate(-50%,-50%); touch-action:none; cursor:grab; user-select:none; display:flex; align-items:center; justify-content:center; min-width:30px; min-height:30px; padding:2px; border-radius:50%; background:rgba(255,255,255,.84); border:1px solid rgba(91,65,145,.45); box-shadow:0 2px 7px rgba(0,0,0,.24); font-size:22px; }
+  .island-decoration-sprite:active { cursor:grabbing; }
   .island-building-marker {
     position:absolute; z-index:4; transform:translate(-50%,-50%);
     display:flex; align-items:center; justify-content:center;
@@ -3838,6 +3840,7 @@
       ${state.has_pier ? '<img class="island-sprite island-pier" src="images/pier.png" alt="Причал">' : ''}
       ${state.has_ship ? '<img class="island-sprite island-ship" src="images/ship.png" alt="Корабль">' : ''}
       ${markers.filter(m => buildings[m[0]]).map(m => `<span class="island-building-marker" style="left:${m[2]};top:${m[3]}" title="${catalog[m[0]].name}">${m[1]}</span>`).join('')}
+      ${(islandData.decorations || []).map(d => `<span class="island-decoration-sprite" data-x="${d.x}" data-y="${d.y}" style="left:${d.x}%;top:${d.y}%" title="${d.name}" onpointerdown="startIslandDecorationDrag(event,${d.id})">${d.emoji}</span>`).join('')}
     </div>
     <div class="island-status-row">
       <span>💰 ${Number(balance).toLocaleString()} LDC</span>
@@ -3896,6 +3899,12 @@
     html += `<h2 style="margin-top:20px">🎒 Ресурсы</h2>`;
     const inventory = islandData.inventory || [];
     html += inventory.length ? `<div class="island-inventory-grid">${inventory.map(r => `<div class="island-resource"><span>${r.name}</span><strong>×${r.quantity}</strong></div>`).join("")}</div>` : `<p class="label">Пока нет ресурсов. Выполни островную работу, чтобы начать собирать материалы.</p>`;
+
+    html += `<h2 style="margin-top:20px">🎨 Украшение острова</h2><p class="label">Купи декор, затем перетащи его по карте мышью или пальцем. Расположение сохранится на сервере.</p><div class="island-building-grid">`;
+    Object.entries(islandData.decoration_catalog || {}).forEach(([key, decor]) => {
+      html += `<div class="island-building-card"><div class="island-building-title">${decor.emoji} ${decor.name}</div><div class="island-building-footer"><span class="island-price">${Number(decor.price).toLocaleString()} LDC</span><button class="btn btn-small" ${Number(balance) < decor.price ? "disabled" : ""} onclick="buyIslandDecoration('${key}')">Добавить</button></div></div>`;
+    });
+    html += `</div>`;
 
     html += `<h2 style="margin-top:20px">📦 Торговые контракты</h2>`;
     if (!buildings.market) {
@@ -3957,6 +3966,47 @@
       await loadIsland();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
+  }
+
+  async function buyIslandDecoration(decoration) {
+    try {
+      const res = await apiPost("/api/island/decorations/buy", { decoration });
+      toast(res.message, false);
+      await loadIsland();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  function startIslandDecorationDrag(event, decorationId) {
+    if (event.button !== undefined && event.button !== 0) return;
+    event.preventDefault();
+    const el = event.currentTarget;
+    const wrapper = el.closest(".island-wrapper");
+    if (!wrapper) return;
+    const rect = wrapper.getBoundingClientRect();
+    try { el.setPointerCapture(event.pointerId); } catch (_) {}
+    const move = (ev) => {
+      const x = Math.max(3, Math.min(97, ((ev.clientX - rect.left) / rect.width) * 100));
+      const y = Math.max(3, Math.min(97, ((ev.clientY - rect.top) / rect.height) * 100));
+      el.style.left = x + "%"; el.style.top = y + "%";
+      el.dataset.x = x.toFixed(2); el.dataset.y = y.toFixed(2);
+    };
+    const finish = async () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", finish);
+      el.removeEventListener("pointercancel", finish);
+      try {
+        const res = await apiPost("/api/island/decorations/move", {
+          decoration_id: decorationId,
+          x: Number(el.dataset.x || el.style.left.replace("%", "")),
+          y: Number(el.dataset.y || el.style.top.replace("%", ""))
+        });
+        toast(res.message, false);
+      } catch (e) { toast(e.message, true); }
+      await loadIsland();
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", finish, {once: true});
+    el.addEventListener("pointercancel", finish, {once: true});
   }
 
   async function claimIslandContract(contract) {
