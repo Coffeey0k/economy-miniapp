@@ -1641,6 +1641,7 @@ def resolve_pet_trade(trade_id: int, user_id: int, accept: bool) -> tuple:
 
 
 def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
+    """Return pet stats after applying time-based needs decay."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute(
@@ -1648,19 +1649,40 @@ def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
         "ON CONFLICT(pet_id) DO NOTHING",
         (pet_id, user_id),
     )
-    conn.commit()
     cur.execute(
-        "SELECT c.energy, c.mood, c.health, c.level, c.experience "
+        "SELECT c.energy, c.mood, c.health, c.level, c.experience, c.last_care "
         "FROM pet_care c JOIN pets p ON p.id = c.pet_id "
         "WHERE c.pet_id = ? AND p.user_id = ?",
         (pet_id, user_id),
     )
     row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+    energy, mood, health, level, experience, last_care = row
+    now = datetime.now()
+    if not last_care:
+        cur.execute("UPDATE pet_care SET last_care = ? WHERE pet_id = ?", (now.isoformat(), pet_id))
+    else:
+        try:
+            last = datetime.fromisoformat(last_care)
+            elapsed_hours = max(0, int((now - last).total_seconds() // 3600))
+        except (TypeError, ValueError):
+            elapsed_hours = 0
+            last = now
+        if elapsed_hours:
+            energy = max(0, int(energy) - elapsed_hours * 4)
+            mood = max(0, int(mood) - elapsed_hours * 3)
+            health = max(0, int(health) - elapsed_hours // 4)
+            last = last + timedelta(hours=elapsed_hours)
+            cur.execute(
+                "UPDATE pet_care SET energy = ?, mood = ?, health = ?, last_care = ? WHERE pet_id = ?",
+                (energy, mood, health, last.isoformat(), pet_id),
+            )
+    conn.commit()
     conn.close()
-    return ({"energy": row[0], "mood": row[1], "health": row[2],
-             "level": row[3], "experience": row[4]} if row else None)
-
-
+    return {"energy": int(energy), "mood": int(mood), "health": int(health),
+            "level": int(level), "experience": int(experience)}
 def care_for_pet(user_id: int, pet_id: int, action: str) -> tuple:
     """Уход за своим питомцем; списание и обновление состояния выполняются одной транзакцией."""
     costs = {"feed": 100, "play": 50, "heal": 250, "upgrade": 1000}
