@@ -3096,6 +3096,15 @@
   // ===== МИНИ-ИГРА =====
   async function rccStartGame() {
     if (!rccData.can_play) { toast("Кулдаун ещё не прошёл", true); return; }
+    // Reserve the round server-side before starting the local animation.
+    try {
+      await apiPost("/api/rcc/game_start", {});
+      rccData.can_play = false;
+    } catch (e) {
+      toast(e.message, true);
+      await loadRcc();
+      return;
+    }
 
     rccGame = {
       active: true,
