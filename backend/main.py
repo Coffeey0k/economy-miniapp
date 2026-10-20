@@ -1254,9 +1254,14 @@ def _ttt_bot_choice(board: str) -> int:
                 return (a, b, c)[line.index("_")]
     if cells[4] == "_":
         return 4
-    for cell in (0, 2, 6, 8, 1, 3, 5, 7):
-        if cells[cell] == "_":
-            return cell
+    # Keep the same strong priority (win, block, center), but randomize
+    # equally good fallback cells so the bot is not a fixed replay script.
+    corners = [cell for cell in (0, 2, 6, 8) if cells[cell] == "_"]
+    if corners:
+        return random.choice(corners)
+    edges = [cell for cell in (1, 3, 5, 7) if cells[cell] == "_"]
+    if edges:
+        return random.choice(edges)
     return 0
 
 
