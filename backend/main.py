@@ -3765,6 +3765,62 @@ def build_island_building(payload: dict = Body(...)):
     return {"ok": True, "message": f"Построено: {config['name']}", "balance": balance, "island_level": next_level}
 
 
+@app.post("/api/island/upgrade")
+def upgrade_island_building(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    building_key = str(payload.get("building", ""))
+    config = ISLAND_BUILDINGS.get(building_key)
+    if not config:
+        raise HTTPException(status_code=400, detail="Неизвестная постройка")
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT has_island FROM islands WHERE user_id = %s FOR UPDATE", (user_id,))
+    island = cur.fetchone()
+    if not island or not island["has_island"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала купи остров")
+    cur.execute("SELECT level FROM island_buildings WHERE user_id = %s AND building_key = %s FOR UPDATE", (user_id, building_key))
+    building = cur.fetchone()
+    if not building:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала построй это здание")
+    level = int(building["level"])
+    if level >= 3:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Здание уже достигло максимального уровня")
+    price = max(1, int(config["price"] * 0.6 * level))
+    materials = {"wood": level * 10, "stone": level * 5}
+    if building_key in ("workshop", "lighthouse"):
+        materials["ore"] = level * 3
+    for resource_key, needed in materials.items():
+        cur.execute("SELECT quantity FROM island_inventory WHERE user_id = %s AND item_key = %s FOR UPDATE", (user_id, resource_key))
+        resource = cur.fetchone()
+        if not resource or int(resource["quantity"]) < needed:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Для улучшения нужно: {ISLAND_RESOURCE_NAMES.get(resource_key, resource_key)} ×{needed}")
+    if not change_balance(cur, user_id, -price):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно LDC. Нужно: {price:,}")
+    for resource_key, needed in materials.items():
+        cur.execute("UPDATE island_inventory SET quantity = quantity - %s WHERE user_id = %s AND item_key = %s", (needed, user_id, resource_key))
+    new_level = level + 1
+    cur.execute("UPDATE island_buildings SET level = %s WHERE user_id = %s AND building_key = %s", (new_level, user_id, building_key))
+    cur.execute("""
+        INSERT INTO island_progress (user_id, island_level, experience)
+        VALUES (%s, 1, 15)
+        ON CONFLICT(user_id) DO UPDATE SET experience = island_progress.experience + 15
+    """, (user_id,))
+    cur.execute("SELECT island_level, experience FROM island_progress WHERE user_id = %s FOR UPDATE", (user_id,))
+    progress = cur.fetchone()
+    island_level = min(6, max(int(progress["island_level"]), 1 + int(progress["experience"]) // 100))
+    cur.execute("UPDATE island_progress SET island_level = %s WHERE user_id = %s", (island_level, user_id))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"{config['name']} улучшено до уровня {new_level}", "balance": balance, "building_level": new_level, "island_level": island_level}
+
+
 @app.post("/api/island/profession-action")
 def island_profession_action(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
@@ -3806,6 +3862,17 @@ def island_profession_action(payload: dict = Body(...)):
         amount = random.randint(bounds[0], bounds[1])
         if resource_key == "crystal":
             amount = 1 if random.random() < 0.15 else 0
+        if amount > 0:
+            related_building = {
+                "crops": "farm", "fiber": "farm",
+                "stone": "mine", "ore": "mine", "crystal": "mine",
+                "tools": "workshop", "gears": "workshop", "circuits": "workshop",
+            }.get(resource_key)
+            if related_building:
+                cur.execute("SELECT level FROM island_buildings WHERE user_id = %s AND building_key = %s", (user_id, related_building))
+                building_row = cur.fetchone()
+                if building_row:
+                    amount += max(0, int(building_row["level"]) - 1)
         if amount <= 0:
             continue
         cur.execute("""
