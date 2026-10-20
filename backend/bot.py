@@ -694,6 +694,18 @@ async def buy_item(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     item_type = callback.data.replace("buy_", "")
     price = db.get_price(item_type)
+    if item_type == "wheel_tickets_weekly":
+        ok, result_text = db.buy_weekly_wheel_tickets(user_id)
+        if not ok:
+            await callback.answer(result_text, show_alert=True)
+            return
+        db.log_action(user_id, "purchase", "Куплено: wheel_tickets_weekly", amount=-price)
+        await callback.message.edit_text(
+            f"✅ {result_text}\n\n🎟️ Билетов сейчас: {db.get_wheel_tickets(user_id)}\n💰 Баланс: {db.get_balance(user_id)} LDC",
+            reply_markup=back_to_catalog_keyboard(),
+        )
+        await callback.answer()
+        return
     if db.get_balance(user_id) < price:
         await callback.answer(f"❌ Нужно {price} 🪙", show_alert=True)
         return
