@@ -1454,6 +1454,17 @@
     </div>
   </div>
   
+    <div class="card" id="island-visit-card" style="margin-top:14px;">
+      <h2>👥 Посетить остров</h2>
+      <p class="label">Посмотри, как развиваются острова других игроков. Баланс и личные ресурсы не показываются.</p>
+      <div class="item-row" style="gap:8px;flex-wrap:wrap;">
+        <input id="island-visit-username" type="text" placeholder="Telegram username" maxlength="33" style="flex:1;min-width:160px;">
+        <button class="btn btn-small" onclick="visitIsland()">Посетить</button>
+      </div>
+      <div id="island-visit-result"></div>
+    </div>
+  </div>
+  
   <!-- ТРЕЙДЫ временно отключены; сохранённые данные не удаляем -->
   <div class="tab" id="tab-trades">
     <div class="card">
@@ -4042,6 +4053,39 @@
       await loadIsland();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
+  }
+
+  async function visitIsland() {
+    const field = document.getElementById("island-visit-username");
+    const username = (field.value || "").trim().replace(/^@/, "");
+    if (!username) { toast("Введи Telegram username", true); return; }
+    const result = document.getElementById("island-visit-result");
+    result.innerHTML = '<p class="label">Загружаю остров…</p>';
+    try {
+      const data = await apiGet("/api/island/visit?username=" + encodeURIComponent(username));
+      if (!data.state.has_island) {
+        result.innerHTML = `<p class="label">@${data.username} ещё не построил остров.</p>`;
+        return;
+      }
+      const markers = [
+        ["farm","🌾","30%","54%"],["mine","⛏️","17%","36%"],
+        ["workshop","🛠️","45%","22%"],["market","🛒","68%","34%"],
+        ["lighthouse","🗼","76%","16%"]
+      ];
+      const buildings = data.buildings || {};
+      const map = `<div class="island-wrapper">
+        <img class="island-base" src="images/island.png" alt="Остров">
+        ${data.state.has_house ? '<img class="island-sprite island-house" src="images/house.png" alt="Дом">' : ''}
+        ${data.state.has_pier ? '<img class="island-sprite island-pier" src="images/pier.png" alt="Причал">' : ''}
+        ${data.state.has_ship ? '<img class="island-sprite island-ship" src="images/ship.png" alt="Корабль">' : ''}
+        ${markers.filter(m => buildings[m[0]]).map(m => `<span class="island-building-marker" style="left:${m[2]};top:${m[3]}" title="${buildings[m[0]].name}">${m[1]}</span>`).join("")}
+        ${(data.decorations || []).map(d => `<span class="island-decoration-sprite" style="left:${d.x}%;top:${d.y}%" title="${d.name}">${d.emoji}</span>`).join("")}
+      </div>`;
+      result.innerHTML = `<h3>@${data.username} · 🏝️ Уровень ${data.level}</h3>${map}<p class="label">${Object.keys(buildings).length} дополнительных построек · ${(data.decorations || []).length} украшений</p>`;
+    } catch (e) {
+      result.innerHTML = "";
+      toast(e.message, true);
+    }
   }
 
   async function buyIslandItem(item) {
