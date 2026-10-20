@@ -565,7 +565,7 @@ async def handle_bet(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
     elif game_type == "dart":
         win, msg = play_dart(bet)
-        await _process_game(callback, user_id, win, msg)
+        await _process_game(callback, user_id, win, msg, game_type)
     elif game_type == "number":
         await callback.message.edit_text("🃏 Введите число 1–10:", reply_markup=cancel_button())
         await state.update_data(bet=bet)
