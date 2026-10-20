@@ -4905,7 +4905,23 @@ def delete_user_full(user_id: int) -> bool:
 
 
 def _delete_user_full(cur, user_id: int):
-    """Внутренняя — удаляет пользователя из всех таблиц."""
+    """Внутренняя — удаляет пользовательские данные, сохраняя аудит безопасности."""
+    # These tables refer to a user through columns other than user_id.
+    related_deletes = [
+        ("pet_care", "pet_id IN (SELECT id FROM pets WHERE user_id = ?)"),
+        ("ttt_games", "(player_x = ? OR player_o = ?)"),
+        ("ttt_invites", "(from_user = ? OR to_user = ?)"),
+        ("web_trades", "(from_user = ? OR to_user = ?)"),
+        ("pet_trades", "(from_user = ? OR to_user = ?)"),
+        ("gifts", "(from_user = ? OR to_user = ?)"),
+    ]
+    for table, condition in related_deletes:
+        try:
+            params = (user_id, user_id) if condition.count("?") == 2 else (user_id,)
+            cur.execute(f"DELETE FROM {table} WHERE {condition}", params)
+        except Exception:
+            logger.exception("Не удалось очистить связанные данные user_id=%s table=%s", user_id, table)
+
     tables_with_user_id = [
         "purchases", "warns", "game_stats", "new_members",
         "pets", "professions", "profession_progress",
@@ -4915,7 +4931,9 @@ def _delete_user_full(cur, user_id: int):
         "friends", "friend_requests",
         "clan_members", "clan_requests",
         "music_personal", "music_shared", "music_slots",
-        "rcc_balance", "rcc_transactions",
+        "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
+        "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
+        "daily_transfer_usage", "inventory_items", "minesweeper_games", "battleship_games",
     ]
     for t in tables_with_user_id:
         try:
