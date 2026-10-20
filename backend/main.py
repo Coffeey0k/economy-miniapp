@@ -3455,6 +3455,16 @@ ISLAND_RESOURCE_NAMES = {
     "photos": "📸 Фотографии", "pet_treats": "🦴 Лакомства", "circuits": "🔌 Платы",
     "crystal": "💎 Кристаллы",
 }
+ISLAND_CONTRACTS = {
+    "harvest": {"name": "Поставка урожая", "item": "crops", "quantity": 5, "reward": 4000, "experience": 10},
+    "fishing": {"name": "Свежий улов", "item": "fish", "quantity": 3, "reward": 5000, "experience": 10},
+    "stone": {"name": "Камень для стройки", "item": "stone", "quantity": 5, "reward": 6000, "experience": 12},
+    "tools": {"name": "Инструменты для порта", "item": "tools", "quantity": 1, "reward": 8000, "experience": 15},
+}
+ISLAND_EXPEDITIONS = {
+    "nearby": {"name": "Ближний маршрут", "duration": 2 * 3600, "requires": "ship", "cost": {"maps": 1, "meals": 1}},
+    "distant": {"name": "Дальний маршрут", "duration": 8 * 3600, "requires": "lighthouse", "cost": {"maps": 3, "meals": 2, "gears": 1}},
+}
 HOUSE_INCOME = 5000
 HOUSE_COOLDOWN = 5 * 3600
 SHIP_INCOME = 75000
@@ -3688,6 +3698,26 @@ def get_island(init_data: str = Query(..., alias="initData")):
     profession = None
     if profession_row and profession_row["profession"] in PROFESSION_INFO:
         profession = {"key": profession_row["profession"], "name": PROFESSION_INFO[profession_row["profession"]]["name"], "level": int(profession_row["level"] or 1)}
+
+    today = datetime.now().date().isoformat()
+    cur.execute("SELECT contract_key FROM island_contract_claims WHERE user_id = %s AND claimed_date = %s", (user_id, today))
+    claimed_contracts = {r["contract_key"] for r in cur.fetchall()}
+    contracts = [
+        {"key": key, **value, "item_name": ISLAND_RESOURCE_NAMES.get(value["item"], value["item"]), "claimed": key in claimed_contracts}
+        for key, value in ISLAND_CONTRACTS.items()
+    ]
+    cur.execute("SELECT expedition_key, started_at, completes_at, claimed_at FROM island_expeditions WHERE user_id = %s", (user_id,))
+    expedition_row = cur.fetchone()
+    expedition = None
+    if expedition_row:
+        expedition = {
+            "key": expedition_row["expedition_key"],
+            "started_at": expedition_row["started_at"],
+            "completes_at": expedition_row["completes_at"],
+            "claimed_at": expedition_row["claimed_at"],
+            "active": expedition_row["claimed_at"] is None,
+            "name": ISLAND_EXPEDITIONS.get(expedition_row["expedition_key"], {}).get("name", expedition_row["expedition_key"]),
+        }
     conn.close()
 
     return {
@@ -3700,6 +3730,8 @@ def get_island(init_data: str = Query(..., alias="initData")):
         "resource_names": ISLAND_RESOURCE_NAMES,
         "progress": progress,
         "profession": profession,
+        "contracts": contracts,
+        "expedition": expedition,
         "balance": balance,
         "house_income": HOUSE_INCOME,
         "house_cooldown": HOUSE_COOLDOWN,
@@ -3895,6 +3927,168 @@ def island_profession_action(payload: dict = Body(...)):
     if not gains_text:
         gains_text = "редкие находки не попались"
     return {"ok": True, "message": f"{action['message']} Получено: {gains_text}", "gains": gains, "island_level": level, "next_action_seconds": ISLAND_RESOURCE_ACTION_COOLDOWN}
+
+
+@app.get("/api/island/contracts")
+def get_island_contracts(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM island_buildings WHERE user_id = %s AND building_key = 'market'", (user_id,))
+    has_market = cur.fetchone() is not None
+    today = datetime.now().date().isoformat()
+    cur.execute("SELECT contract_key FROM island_contract_claims WHERE user_id = %s AND claimed_date = %s", (user_id, today))
+    claimed = {r["contract_key"] for r in cur.fetchall()}
+    conn.close()
+    return {"has_market": has_market, "contracts": [
+        {"key": key, **value, "item_name": ISLAND_RESOURCE_NAMES.get(value["item"], value["item"]), "claimed": key in claimed}
+        for key, value in ISLAND_CONTRACTS.items()
+    ]}
+
+
+@app.post("/api/island/contracts/claim")
+def claim_island_contract(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    contract_key = str(payload.get("contract", ""))
+    contract = ISLAND_CONTRACTS.get(contract_key)
+    if not contract:
+        raise HTTPException(status_code=400, detail="Неизвестный контракт")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM island_buildings WHERE user_id = %s AND building_key = 'market'", (user_id,))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала построй рынок")
+    today = datetime.now().date().isoformat()
+    cur.execute("""
+        INSERT INTO island_contract_claims (user_id, contract_key, claimed_date)
+        VALUES (%s, %s, %s) ON CONFLICT(user_id, contract_key, claimed_date) DO NOTHING
+    """, (user_id, contract_key, today))
+    if cur.rowcount != 1:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Этот контракт уже выполнен сегодня")
+    cur.execute("SELECT quantity FROM island_inventory WHERE user_id = %s AND item_key = %s FOR UPDATE", (user_id, contract["item"]))
+    item = cur.fetchone()
+    if not item or int(item["quantity"]) < contract["quantity"]:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Не хватает ресурса: {contract['quantity']} × {ISLAND_RESOURCE_NAMES.get(contract['item'], contract['item'])}")
+    cur.execute("UPDATE island_inventory SET quantity = quantity - %s WHERE user_id = %s AND item_key = %s", (contract["quantity"], user_id, contract["item"]))
+    change_balance(cur, user_id, int(contract["reward"]))
+    cur.execute("""
+        INSERT INTO island_progress (user_id, island_level, experience)
+        VALUES (%s, 1, %s)
+        ON CONFLICT(user_id) DO UPDATE SET experience = island_progress.experience + EXCLUDED.experience
+    """, (user_id, int(contract["experience"])))
+    cur.execute("SELECT island_level, experience FROM island_progress WHERE user_id = %s FOR UPDATE", (user_id,))
+    progress = cur.fetchone()
+    level = min(6, max(int(progress["island_level"]), 1 + int(progress["experience"]) // 100))
+    cur.execute("UPDATE island_progress SET island_level = %s WHERE user_id = %s", (level, user_id))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Контракт выполнен: +{contract['reward']:,} LDC", "balance": balance, "island_level": level}
+
+
+@app.post("/api/island/expeditions/start")
+def start_island_expedition(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    expedition_key = str(payload.get("expedition", ""))
+    expedition_config = ISLAND_EXPEDITIONS.get(expedition_key)
+    if not expedition_config:
+        raise HTTPException(status_code=400, detail="Неизвестная экспедиция")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT has_island, has_ship FROM islands WHERE user_id = %s FOR UPDATE", (user_id,))
+    island = cur.fetchone()
+    if not island or not island["has_island"] or not island["has_ship"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Для экспедиций нужен остров и корабль")
+    if expedition_config["requires"] == "lighthouse":
+        cur.execute("SELECT 1 FROM island_buildings WHERE user_id = %s AND building_key = 'lighthouse'", (user_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="Для дальнего маршрута нужен маяк")
+    cur.execute("SELECT expedition_key, completes_at, claimed_at FROM island_expeditions WHERE user_id = %s FOR UPDATE", (user_id,))
+    current = cur.fetchone()
+    if current and current["claimed_at"] is None:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала забери награду за предыдущую экспедицию")
+    for resource_key, needed in expedition_config["cost"].items():
+        cur.execute("SELECT quantity FROM island_inventory WHERE user_id = %s AND item_key = %s FOR UPDATE", (user_id, resource_key))
+        resource = cur.fetchone()
+        if not resource or int(resource["quantity"]) < needed:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Для экспедиции нужно: {ISLAND_RESOURCE_NAMES.get(resource_key, resource_key)} ×{needed}")
+    for resource_key, needed in expedition_config["cost"].items():
+        cur.execute("UPDATE island_inventory SET quantity = quantity - %s WHERE user_id = %s AND item_key = %s", (needed, user_id, resource_key))
+    now = datetime.now()
+    completes = now + timedelta(seconds=expedition_config["duration"])
+    if current:
+        cur.execute("""
+            UPDATE island_expeditions SET expedition_key = %s, started_at = %s, completes_at = %s, claimed_at = NULL
+            WHERE user_id = %s
+        """, (expedition_key, now.isoformat(), completes.isoformat(), user_id))
+    else:
+        cur.execute("""
+            INSERT INTO island_expeditions (user_id, expedition_key, started_at, completes_at, claimed_at)
+            VALUES (%s, %s, %s, %s, NULL)
+        """, (user_id, expedition_key, now.isoformat(), completes.isoformat()))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": f"Экспедиция «{expedition_config['name']}» отправлена", "completes_at": completes.isoformat()}
+
+
+@app.post("/api/island/expeditions/claim")
+def claim_island_expedition(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT expedition_key, completes_at, claimed_at FROM island_expeditions WHERE user_id = %s FOR UPDATE", (user_id,))
+    row = cur.fetchone()
+    if not row or row["claimed_at"] is not None:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Нет готовой экспедиции для получения")
+    completes_at = datetime.fromisoformat(str(row["completes_at"]))
+    now = datetime.now()
+    if now < completes_at:
+        remaining = int((completes_at - now).total_seconds())
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Экспедиция завершится через {remaining // 3600} ч {(remaining % 3600) // 60} мин")
+    key = row["expedition_key"]
+    if key == "nearby":
+        rewards = {"stone": random.randint(2, 5), "fish": random.randint(1, 3)}
+        bonus_ldc = 3000
+    else:
+        rewards = {"ore": random.randint(3, 6), "crystal": 1 if random.random() < 0.25 else 0, "artifacts": 1}
+        bonus_ldc = 10000
+    for resource_key, amount in rewards.items():
+        if amount <= 0:
+            continue
+        cur.execute("""
+            INSERT INTO island_inventory (user_id, item_key, quantity) VALUES (%s, %s, %s)
+            ON CONFLICT(user_id, item_key) DO UPDATE SET quantity = island_inventory.quantity + EXCLUDED.quantity
+        """, (user_id, resource_key, amount))
+    cur.execute("UPDATE island_expeditions SET claimed_at = %s WHERE user_id = %s AND claimed_at IS NULL", (now.isoformat(), user_id))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=409, detail="Награда уже получена")
+    change_balance(cur, user_id, bonus_ldc)
+    cur.execute("""
+        INSERT INTO island_progress (user_id, island_level, experience)
+        VALUES (%s, 1, 15)
+        ON CONFLICT(user_id) DO UPDATE SET experience = island_progress.experience + 15
+    """, (user_id,))
+    cur.execute("SELECT island_level, experience FROM island_progress WHERE user_id = %s FOR UPDATE", (user_id,))
+    progress = cur.fetchone()
+    level = min(6, max(int(progress["island_level"]), 1 + int(progress["experience"]) // 100))
+    cur.execute("UPDATE island_progress SET island_level = %s WHERE user_id = %s", (level, user_id))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    reward_text = ", ".join(f"{ISLAND_RESOURCE_NAMES.get(k, k)} ×{v}" for k, v in rewards.items() if v > 0)
+    return {"ok": True, "message": f"Экспедиция завершена: {reward_text} и +{bonus_ldc:,} LDC", "balance": balance, "island_level": level}
 
 
 @app.post("/api/island/buy")
