@@ -603,6 +603,12 @@ async def handle_coin_choice(callback: CallbackQuery):
     data = callback.data[len("coin_choice_"):]
     choice, bet_str = data.rsplit("_", 1)
     bet = int(bet_str)
+    if bet < 500:
+        await callback.answer("❌ Минимальная ставка — 500 LDC.", show_alert=True)
+        return
+    if db.get_balance(callback.from_user.id) < bet:
+        await callback.answer("❌ Недостаточно LDC.", show_alert=True)
+        return
     win, msg = play_coin(bet, choice)
     await _process_game(callback, callback.from_user.id, win, msg, "coin")
 
