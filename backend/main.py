@@ -4714,7 +4714,23 @@ def admin_delete_user(payload: dict = Body(...)):
     return {"ok": True, "message": "Пользователь удалён"}
 
 def _delete_user_full_main(cur, user_id: int):
-    """Удаляет пользовательские данные, сохраняя журнал действий и безопасности."""
+    """Удаляет пользовательские данные, сохраняя журналы действий и безопасности."""
+    def safe_query(query, params=(), fetch=False, context=""):
+        cur.execute("SAVEPOINT ld_web_user_cleanup")
+        try:
+            cur.execute(query, params)
+            rows = cur.fetchall() if fetch else None
+            cur.execute("RELEASE SAVEPOINT ld_web_user_cleanup")
+            return rows
+        except Exception:
+            try:
+                cur.execute("ROLLBACK TO SAVEPOINT ld_web_user_cleanup")
+                cur.execute("RELEASE SAVEPOINT ld_web_user_cleanup")
+            except Exception:
+                logger.exception("Не удалось откатить cleanup savepoint context=%s", context)
+            logger.exception("Не удалось очистить пользовательские данные context=%s user_id=%s", context, user_id)
+            return None
+
     related_deletes = [
         ("pet_care", "pet_id IN (SELECT id FROM pets WHERE user_id = %s)", (user_id,)),
         ("ttt_games", "(player_x = %s OR player_o = %s)", (user_id, user_id)),
@@ -4724,77 +4740,35 @@ def _delete_user_full_main(cur, user_id: int):
         ("gifts", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
     ]
     for table, condition, params in related_deletes:
-        try:
-            cur.execute(f"DELETE FROM {table} WHERE {condition}", params)
-        except Exception as e:
-            print(f"[delete_user] {table} (related): {e}")
-            try:
-                cur.connection.rollback()
-            except Exception:
-                logger.exception("Не удалось выполнить необязательную операцию")
+        safe_query(f"DELETE FROM {table} WHERE {condition}", params, context=table)
 
     tables_with_user_id = [
         "purchases", "warns", "game_stats", "new_members",
-        "pets", "professions", "profession_progress",
-        "daily_tasks", "promo_activations",
-        "user_cosmetics", "user_badges", "user_cosmetics_owned",
-        "user_settings", "islands",
-        "clan_members",
+        "pets", "professions", "profession_progress", "daily_tasks", "promo_activations",
+        "user_cosmetics", "user_badges", "user_cosmetics_owned", "user_settings", "islands",
+        "clan_members", "clan_requests",
         "music_personal", "music_shared", "music_slots",
         "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
         "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
         "daily_transfer_usage", "inventory_items", "minesweeper_games", "battleship_games",
     ]
-    for t in tables_with_user_id:
-        try:
-            cur.execute(f"DELETE FROM {t} WHERE user_id = %s", (user_id,))
-        except Exception as e:
-            print(f"[delete_user] {t} (user_id): {e}")
-            try:
-                cur.connection.rollback()
-            except Exception:
-                logger.exception("Не удалось выполнить необязательную операцию")
+    for table in tables_with_user_id:
+        safe_query(f"DELETE FROM {table} WHERE user_id = %s", (user_id,), context=table)
 
-    # Друзья (где он фигурирует как friend_id или to_user)
-    for q in [
-        ("DELETE FROM friends WHERE friend_id = %s", (user_id,)),
-        ("DELETE FROM friends WHERE user_id = %s", (user_id,)),
-        ("DELETE FROM friend_requests WHERE to_user = %s", (user_id,)),
-        ("DELETE FROM friend_requests WHERE from_user = %s", (user_id,)),
-    ]:
-        try:
-            cur.execute(q[0], q[1])
-        except Exception as e:
-            print(f"[delete_user] friends: {e}")
+    safe_query("DELETE FROM friends WHERE friend_id = %s", (user_id,), context="friends.friend_id")
+    safe_query("DELETE FROM friend_requests WHERE to_user = %s", (user_id,), context="friend_requests.to_user")
+    safe_query("DELETE FROM friend_requests WHERE from_user = %s", (user_id,), context="friend_requests.from_user")
 
-    # Кланы, где он лидер — роспуск
-    try:
-        cur.execute("SELECT id FROM clans WHERE leader_id = %s", (user_id,))
-        clan_ids = [r["id"] for r in cur.fetchall()]
-        for cid in clan_ids:
-            for q in [
-                ("DELETE FROM clan_members WHERE clan_id = %s", (cid,)),
-                ("DELETE FROM clan_requests WHERE clan_id = %s", (cid,)),
-                ("DELETE FROM clans WHERE id = %s", (cid,)),
-            ]:
-                try:
-                    cur.execute(q[0], q[1])
-                except Exception as e:
-                    print(f"[delete_user] clan {cid}: {e}")
-    except Exception as e:
-        print(f"[delete_user] clans lookup: {e}")
+    clan_rows = safe_query(
+        "SELECT id FROM clans WHERE leader_id = %s", (user_id,), fetch=True, context="clans.leader_id"
+    ) or []
+    for row in clan_rows:
+        clan_id = row["id"] if hasattr(row, "keys") else row[0]
+        safe_query("DELETE FROM clan_members WHERE clan_id = %s", (clan_id,), context="clan_members.clan_id")
+        safe_query("DELETE FROM clan_requests WHERE clan_id = %s", (clan_id,), context="clan_requests.clan_id")
+        safe_query("DELETE FROM clans WHERE id = %s", (clan_id,), context="clans.id")
 
-    # Заявки в кланы, где он заявитель
-    try:
-        cur.execute("DELETE FROM clan_requests WHERE user_id = %s", (user_id,))
-    except Exception as e:
-        print(f"[delete_user] clan_requests: {e}")
-
-    # Наконец, сам пользователь
-    try:
-        cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
-    except Exception as e:
-        print(f"[delete_user] users: {e}")
+    safe_query("DELETE FROM users WHERE user_id = %s", (user_id,), context="users")
 
 
 # Автоудаление при блокировке бота
