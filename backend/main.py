@@ -1217,6 +1217,13 @@ def ttt_start(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     conn = db()
     cur = conn.cursor()
+    if require_balance(cur, user_id) < bet:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно LDC")
+    allowed, remaining = bot_db.register_game_play(user_id, "ttt")
+    if not allowed:
+        conn.close()
+        raise HTTPException(status_code=429, detail=f"Крестики-нолики на перерыве ещё {remaining // 3600} ч {(remaining % 3600) // 60} мин")
     if not change_balance(cur, user_id, -bet):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
@@ -1533,6 +1540,13 @@ def ms_start_api(payload: dict = Body(...)):
 
     conn = db()
     cur = conn.cursor()
+    if require_balance(cur, user_id) < bet:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно LDC")
+    allowed, remaining = bot_db.register_game_play(user_id, "minesweeper")
+    if not allowed:
+        conn.close()
+        raise HTTPException(status_code=429, detail=f"Сапёр на перерыве ещё {remaining // 3600} ч {(remaining % 3600) // 60} мин")
     if not change_balance(cur, user_id, -bet):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
@@ -2082,6 +2096,13 @@ def bs_start(payload: dict = Body(...)):
     conn = db()
     _bs_ensure_special_schema(conn)
     cur = conn.cursor()
+    if require_balance(cur, user_id) < bet:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно LDC")
+    allowed, remaining = bot_db.register_game_play(user_id, "battleship")
+    if not allowed:
+        conn.close()
+        raise HTTPException(status_code=429, detail=f"Морской бой на перерыве ещё {remaining // 3600} ч {(remaining % 3600) // 60} мин")
     if not change_balance(cur, user_id, -bet):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
