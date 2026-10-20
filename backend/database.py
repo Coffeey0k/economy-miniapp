@@ -1673,7 +1673,7 @@ def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
         if elapsed_hours:
             energy = max(0, int(energy) - elapsed_hours * 4)
             mood = max(0, int(mood) - elapsed_hours * 3)
-            health = max(0, int(health) - elapsed_hours // 4)
+            health = max(0, int(health) - elapsed_hours)
             last = last + timedelta(hours=elapsed_hours)
             cur.execute(
                 "UPDATE pet_care SET energy = ?, mood = ?, health = ?, last_care = ? WHERE pet_id = ?",
