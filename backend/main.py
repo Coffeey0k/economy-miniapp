@@ -2602,7 +2602,7 @@ def bs_fire(payload: dict = Body(...)):
     # Финальное состояние
     cur.execute("""
         SELECT player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, plane_available, plane_buys, defenses_bought, radar_cells, radar_until
+               player_defenses, plane_available, plane_buys, defenses_bought, radar_cells, radar_until, radar_bought
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     final = cur.fetchone()
