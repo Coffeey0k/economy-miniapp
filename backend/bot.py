@@ -2103,6 +2103,9 @@ async def transfer_start(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(TransferStates.waiting_recipient)
 async def transfer_recipient(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Отправь username текстом.")
+        return
     target = message.text.strip().lstrip("@")
     conn = sqlite3.connect(db.DB_NAME)
     cur = conn.cursor()
@@ -2125,6 +2128,8 @@ async def transfer_recipient(message: Message, state: FSMContext):
 @dp.message(TransferStates.waiting_amount)
 async def transfer_amount(message: Message, state: FSMContext):
     try:
+        if not message.text:
+            raise ValueError
         amount = int(message.text)
         if amount <= 0:
             await message.answer("❌ Сумма > 0")
@@ -2139,13 +2144,19 @@ async def transfer_amount(message: Message, state: FSMContext):
             reply_markup=confirm_transfer_keyboard()
         )
         await state.set_state(TransferStates.waiting_confirm)
-    except ValueError:
-        await message.answer("❌ Число")
+    except (ValueError, TypeError):
+        await message.answer("❌ Введи сумму целым числом.")
 
 
 @dp.callback_query(F.data == "confirm_transfer")
 async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    required = {"recipient_id", "recipient_name", "amount"}
+    if not required.issubset(data):
+        db.log_action(callback.from_user.id, "security", "Подтверждение перевода без активного состояния")
+        await state.clear()
+        await callback.answer("Перевод устарел. Начни заново.", show_alert=True)
+        return
     rid = data["recipient_id"]
     rname = data["recipient_name"]
     amount = data["amount"]
