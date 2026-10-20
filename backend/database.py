@@ -590,6 +590,16 @@ def init_db():
             claimed_at TIMESTAMP
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS island_decorations (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            decoration_key TEXT NOT NULL,
+            x_pct DOUBLE PRECISION NOT NULL DEFAULT 50,
+            y_pct DOUBLE PRECISION NOT NULL DEFAULT 50,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     # === МУЗЫКА ===
     cur.execute("""
