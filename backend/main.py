@@ -4714,7 +4714,25 @@ def admin_delete_user(payload: dict = Body(...)):
     return {"ok": True, "message": "Пользователь удалён"}
 
 def _delete_user_full_main(cur, user_id: int):
-    """Удаляет пользователя из всех таблиц. Каждая таблица — в своём try."""
+    """Удаляет пользовательские данные, сохраняя журнал действий и безопасности."""
+    related_deletes = [
+        ("pet_care", "pet_id IN (SELECT id FROM pets WHERE user_id = %s)", (user_id,)),
+        ("ttt_games", "(player_x = %s OR player_o = %s)", (user_id, user_id)),
+        ("ttt_invites", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
+        ("web_trades", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
+        ("pet_trades", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
+        ("gifts", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
+    ]
+    for table, condition, params in related_deletes:
+        try:
+            cur.execute(f"DELETE FROM {table} WHERE {condition}", params)
+        except Exception as e:
+            print(f"[delete_user] {table} (related): {e}")
+            try:
+                cur.connection.rollback()
+            except Exception:
+                logger.exception("Не удалось выполнить необязательную операцию")
+
     tables_with_user_id = [
         "purchases", "warns", "game_stats", "new_members",
         "pets", "professions", "profession_progress",
@@ -4725,7 +4743,7 @@ def _delete_user_full_main(cur, user_id: int):
         "music_personal", "music_shared", "music_slots",
         "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
         "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
-        "inventory_items",
+        "daily_transfer_usage", "inventory_items", "minesweeper_games", "battleship_games",
     ]
     for t in tables_with_user_id:
         try:
