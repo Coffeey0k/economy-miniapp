@@ -308,6 +308,15 @@ def init_db():
         )
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS game_play_limits (
+            user_id BIGINT NOT NULL,
+            game_type TEXT NOT NULL,
+            plays INTEGER NOT NULL DEFAULT 0,
+            cooldown_until TIMESTAMP,
+            PRIMARY KEY (user_id, game_type)
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS halloween_claims (
             user_id BIGINT NOT NULL,
             event_key TEXT NOT NULL,
