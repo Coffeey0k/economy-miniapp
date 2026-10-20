@@ -28,6 +28,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import random
 import re
@@ -4541,7 +4542,7 @@ def rcc_game_start(payload: dict = Body(default={})):
     """)
     cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
     progress = _rcc_get_progress(cur, user_id)
-    cur.execute("SELECT last_game FROM rcc_balance WHERE user_id = %s", (user_id,))
+    cur.execute("SELECT last_game FROM rcc_balance WHERE user_id = %s FOR UPDATE", (user_id,))
     row = cur.fetchone()
     now = datetime.now()
     if row and row["last_game"]:
@@ -4574,7 +4575,15 @@ def rcc_game_start(payload: dict = Body(default={})):
 def rcc_game_finish(payload: dict = Body(...)):
     """Завершение мини-игры. Принимает набранное количество RCC."""
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    amount = float(payload.get("amount") or 0)
+    try:
+        amount = float(payload.get("amount") or 0)
+    except (TypeError, ValueError, OverflowError):
+        _log_security_attempt(user_id, "rcc_invalid_game_reward", f"amount={payload.get('amount')!r}")
+        raise HTTPException(status_code=400, detail="Некорректная награда")
+
+    if not math.isfinite(amount):
+        _log_security_attempt(user_id, "rcc_non_finite_game_reward", f"amount={payload.get('amount')!r}")
+        raise HTTPException(status_code=400, detail="Некорректная награда")
 
     conn = db()
     cur = conn.cursor()
@@ -4587,10 +4596,11 @@ def rcc_game_finish(payload: dict = Body(...)):
             started_at TIMESTAMP NOT NULL
         )
     """)
-    cur.execute("SELECT started_at FROM rcc_game_sessions WHERE user_id = %s", (user_id,))
+    cur.execute("SELECT started_at FROM rcc_game_sessions WHERE user_id = %s FOR UPDATE", (user_id,))
     session = cur.fetchone()
     if not session:
         conn.close()
+        _log_security_attempt(user_id, "rcc_finish_without_session", "No active LCC game session")
         raise HTTPException(status_code=400, detail="Сначала начни раунд кнопкой «Начать»")
     try:
         started_at = session["started_at"] if isinstance(session["started_at"], datetime) else datetime.fromisoformat(str(session["started_at"]))
@@ -4607,15 +4617,31 @@ def rcc_game_finish(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=400, detail="Раунд истёк. Запусти мини-игру заново")
 
-    cur.execute("DELETE FROM rcc_game_sessions WHERE user_id = %s", (user_id,))
+    # Claim the session exactly once. The row lock plus conditional DELETE prevents
+    # concurrent/replayed finish requests from crediting the same round twice.
+    cur.execute(
+        "DELETE FROM rcc_game_sessions WHERE user_id = %s AND started_at = %s",
+        (user_id, session["started_at"]),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        _log_security_attempt(user_id, "rcc_duplicate_game_finish", "Session already claimed")
+        raise HTTPException(status_code=409, detail="Этот раунд уже был завершён")
+
     # The reward ceiling scales only with server-owned timer/reward upgrades.
     max_reward = 0.04 * (duration / 25) * progress["reward_multiplier"]
+    if amount < 0 or amount > max_reward:
+        _log_security_attempt(
+            user_id, "rcc_game_reward_out_of_range",
+            f"requested={amount}; allowed=0..{max_reward}; elapsed={elapsed:.2f}; duration={duration}",
+        )
     amount = max(0.0, min(amount, max_reward))
 
     cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
     cur.execute(
-        "UPDATE rcc_balance SET balance = balance + ?, last_game = %s WHERE user_id = %s",
-        (amount, datetime.now().isoformat(), user_id)
+        "UPDATE rcc_balance SET balance = balance + ? WHERE user_id = %s",
+        (amount, user_id)
     )
     cur.execute(
         "INSERT INTO rcc_transactions (user_id, amount, type) VALUES (%s, %s, 'game')",
@@ -4626,6 +4652,15 @@ def rcc_game_finish(payload: dict = Body(...)):
     cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
     new_balance = cur.fetchone()["balance"]
     conn.close()
+    try:
+        bot_db.log_action(
+            user_id, "game",
+            f"LCC мини-игра завершена: elapsed={elapsed:.2f}; requested={payload.get('amount')!r}; "
+            f"awarded={amount}; cap={max_reward}",
+            amount=0,
+        )
+    except Exception:
+        logger.exception("Не удалось записать аудит LCC-раунда user_id=%s", user_id)
     return {"ok": True, "balance": round(new_balance, 8), "earned": round(amount, 8)}
 
 
