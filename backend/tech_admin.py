@@ -7,7 +7,7 @@
 """
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -157,7 +157,7 @@ async def tech_logs_all(callback: CallbackQuery):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    entries = db.get_action_log(limit=50)
+    entries = db.get_action_log(limit=500)
     if not entries:
         text = "📜 Логи пусты."
     else:
@@ -169,7 +169,18 @@ async def tech_logs_all(callback: CallbackQuery):
     builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="tech_logs_all"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="tech_logs_menu"))
 
-    await callback.message.edit_text(text[:4000], reply_markup=builder.as_markup(), parse_mode=None)
+    if len(text) > 3500:
+        try:
+            await callback.bot.send_document(
+                callback.from_user.id,
+                BufferedInputFile(text.encode("utf-8"), filename="lavender-dream-actions.log"),
+                caption="Полный список логов действий.",
+            )
+            text = f"📎 Отправил полный список из {len(entries)} записей файлом в личные сообщения."
+        except Exception:
+            logger.exception("Не удалось отправить файл логов тех.админу user_id=%s", callback.from_user.id)
+            text = text[:3500] + "\n\n⚠️ Не удалось отправить файл. Попробуй открыть логи в личных сообщениях."
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode=None)
     await callback.answer()
 
 
@@ -194,10 +205,10 @@ async def tech_logs_type(callback: CallbackQuery):
     types = groups.get(t, [t])
     entries = []
     for tt in types:
-        entries += db.get_action_log(filter_type=tt, limit=30)
+        entries += db.get_action_log(filter_type=tt, limit=100)
 
     entries.sort(key=lambda x: x.get("created_at") or "", reverse=True)
-    entries = entries[:50]
+    entries = entries[:100]
 
     if not entries:
         text = f"📜 По фильтру «{t}» пусто."
@@ -209,7 +220,18 @@ async def tech_logs_type(callback: CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="tech_logs_menu"))
 
-    await callback.message.edit_text(text[:4000], reply_markup=builder.as_markup(), parse_mode="Markdown")
+    if len(text) > 3500:
+        try:
+            await callback.bot.send_document(
+                callback.from_user.id,
+                BufferedInputFile(text.encode("utf-8"), filename=f"lavender-dream-{t}-logs.log"),
+                caption=f"Полный лог по фильтру: {t}.",
+            )
+            text = f"📎 Полный список ({len(entries)} записей) отправлен файлом в личные сообщения."
+        except Exception:
+            logger.exception("Не удалось отправить файл логов тех.админу user_id=%s", callback.from_user.id)
+            text = text[:3500] + "\n\n⚠️ Не удалось отправить файл."
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode=None)
     await callback.answer()
 
 
@@ -255,7 +277,17 @@ async def tech_logs_user_show(message: Message, state: FSMContext):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔙 В логи", callback_data="tech_logs_menu"))
 
-    await message.answer(text[:4000], reply_markup=builder.as_markup(), parse_mode="Markdown")
+    if len(text) > 3500:
+        try:
+            await message.answer_document(
+                BufferedInputFile(text.encode("utf-8"), filename=f"lavender-dream-user-{uid}-logs.log"),
+                caption=f"Полный лог действий игрока {uid}.",
+            )
+            text = f"📎 Полный лог ({len(entries)} записей) отправлен файлом."
+        except Exception:
+            logger.exception("Не удалось отправить файл лога игрока тех.админу user_id=%s", message.from_user.id)
+            text = text[:3500] + "\n\n⚠️ Не удалось отправить файл."
+    await message.answer(text, reply_markup=builder.as_markup(), parse_mode=None)
     await state.clear()
 
 
