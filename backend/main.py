@@ -1057,6 +1057,9 @@ def transfer_coins(payload: dict = Body(...)):
     if amount <= 0:
         _log_security_attempt(user_id, "transfer_invalid_amount", f"amount={amount}")
         raise HTTPException(status_code=400, detail="Сумма должна быть больше нуля")
+    if amount > 200_000:
+        _log_security_attempt(user_id, "transfer_over_limit", f"amount={amount}; limit=200000")
+        raise HTTPException(status_code=400, detail="Максимум за один перевод — 200 000 LDC.")
     if not target_username:
         _log_security_attempt(user_id, "transfer_missing_recipient", "username is empty")
         raise HTTPException(status_code=400, detail="Укажи username получателя")
@@ -5147,10 +5150,10 @@ def send_gift(payload: dict = Body(...)):
             conn.close()
             _log_security_attempt(user_id, "money_gift_invalid_amount", f"amount={gift_data_raw!r}")
             raise HTTPException(status_code=400, detail="Сумма должна быть целым числом")
-        if amount <= 0 or amount > 9_223_372_036_854_775_807:
+        if amount <= 0 or amount > 200_000:
             conn.close()
-            _log_security_attempt(user_id, "money_gift_invalid_amount", f"amount={amount}")
-            raise HTTPException(status_code=400, detail="Сумма должна быть от 1 до максимального значения LDC")
+            _log_security_attempt(user_id, "money_gift_invalid_amount", f"amount={amount}; limit=200000")
+            raise HTTPException(status_code=400, detail="Денежный подарок должен быть от 1 до 200 000 LDC.")
         slot_ok, transfer_count = bot_db.reserve_daily_transfer_slot(cur, user_id, daily_limit=5)
         if not slot_ok:
             conn.close()
