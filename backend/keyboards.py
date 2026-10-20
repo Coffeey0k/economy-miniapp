@@ -24,6 +24,10 @@ def main_menu(user_id: int = None) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="💡 Подсказки", callback_data="hints_menu")
     )
     builder.row(
+        InlineKeyboardButton(text="📜 Правила", callback_data="show_rules"),
+        InlineKeyboardButton(text="✉️ Обратная связь", callback_data="feedback_start")
+    )
+    builder.row(
         InlineKeyboardButton(text="🐾 Питомцы", callback_data="pets_menu"),
         InlineKeyboardButton(text="💼 Профессии", callback_data="professions_menu")
     )
