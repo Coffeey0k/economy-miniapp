@@ -749,6 +749,33 @@ def update_balance(user_id: int, amount: int) -> bool:
         return False
 
 
+def reserve_daily_transfer_slot(cur, user_id: int, daily_limit: int = 5) -> tuple:
+    """Reserve a successful LDC transfer slot inside the caller's transaction."""
+    today = datetime.utcnow().date().isoformat()
+    cur.execute(
+        "INSERT INTO daily_transfer_usage (user_id, transfer_date, transfer_count) "
+        "VALUES (?, ?, 0) ON CONFLICT(user_id, transfer_date) DO NOTHING",
+        (user_id, today),
+    )
+    cur.execute(
+        "SELECT transfer_count FROM daily_transfer_usage "
+        "WHERE user_id = ? AND transfer_date = ? FOR UPDATE",
+        (user_id, today),
+    )
+    row = cur.fetchone()
+    count = int(row[0] or 0) if row else 0
+    if count >= daily_limit:
+        return False, count
+    cur.execute(
+        "UPDATE daily_transfer_usage SET transfer_count = transfer_count + 1 "
+        "WHERE user_id = ? AND transfer_date = ? AND transfer_count < ?",
+        (user_id, today, daily_limit),
+    )
+    if cur.rowcount != 1:
+        return False, count
+    return True, count + 1
+
+
 def transfer_coins_limited(sender_id: int, recipient_id: int, amount: int, daily_limit: int = 5) -> tuple:
     """Atomically transfer LDC and enforce one shared daily quota for bot + Mini App.
 
