@@ -3465,6 +3465,13 @@ ISLAND_EXPEDITIONS = {
     "nearby": {"name": "Ближний маршрут", "duration": 2 * 3600, "requires": "ship", "cost": {"maps": 1, "meals": 1}},
     "distant": {"name": "Дальний маршрут", "duration": 8 * 3600, "requires": "lighthouse", "cost": {"maps": 3, "meals": 2, "gears": 1}},
 }
+ISLAND_DECORATIONS = {
+    "palm": {"name": "Пальма", "emoji": "🌴", "price": 4000},
+    "flower": {"name": "Цветы", "emoji": "🌸", "price": 2500},
+    "lantern": {"name": "Фонарь", "emoji": "🏮", "price": 6000},
+    "fountain": {"name": "Фонтан", "emoji": "⛲", "price": 20000},
+    "statue": {"name": "Статуя", "emoji": "🗿", "price": 15000},
+}
 HOUSE_INCOME = 5000
 HOUSE_COOLDOWN = 5 * 3600
 SHIP_INCOME = 75000
@@ -3699,6 +3706,14 @@ def get_island(init_data: str = Query(..., alias="initData")):
     if profession_row and profession_row["profession"] in PROFESSION_INFO:
         profession = {"key": profession_row["profession"], "name": PROFESSION_INFO[profession_row["profession"]]["name"], "level": int(profession_row["level"] or 1)}
 
+    cur.execute("SELECT id, decoration_key, x_pct, y_pct FROM island_decorations WHERE user_id = %s ORDER BY id", (user_id,))
+    decorations = [
+        {"id": int(r["id"]), "key": r["decoration_key"],
+         "name": ISLAND_DECORATIONS.get(r["decoration_key"], {}).get("name", r["decoration_key"]),
+         "emoji": ISLAND_DECORATIONS.get(r["decoration_key"], {}).get("emoji", "✨"),
+         "x": float(r["x_pct"]), "y": float(r["y_pct"])}
+        for r in cur.fetchall()
+    ]
     today = datetime.now().date().isoformat()
     cur.execute("SELECT contract_key FROM island_contract_claims WHERE user_id = %s AND claimed_date = %s", (user_id, today))
     claimed_contracts = {r["contract_key"] for r in cur.fetchall()}
@@ -3732,6 +3747,8 @@ def get_island(init_data: str = Query(..., alias="initData")):
         "profession": profession,
         "contracts": contracts,
         "expedition": expedition,
+        "decorations": decorations,
+        "decoration_catalog": ISLAND_DECORATIONS,
         "balance": balance,
         "house_income": HOUSE_INCOME,
         "house_cooldown": HOUSE_COOLDOWN,
@@ -3927,6 +3944,58 @@ def island_profession_action(payload: dict = Body(...)):
     if not gains_text:
         gains_text = "редкие находки не попались"
     return {"ok": True, "message": f"{action['message']} Получено: {gains_text}", "gains": gains, "island_level": level, "next_action_seconds": ISLAND_RESOURCE_ACTION_COOLDOWN}
+
+
+@app.post("/api/island/decorations/buy")
+def buy_island_decoration(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    decoration_key = str(payload.get("decoration", ""))
+    config = ISLAND_DECORATIONS.get(decoration_key)
+    if not config:
+        raise HTTPException(status_code=400, detail="Неизвестное украшение")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT has_island FROM islands WHERE user_id = %s FOR UPDATE", (user_id,))
+    island = cur.fetchone()
+    if not island or not island["has_island"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала купи остров")
+    if not change_balance(cur, user_id, -int(config["price"])):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно LDC. Нужно: {config['price']:,}")
+    cur.execute("SELECT COUNT(*) AS count FROM island_decorations WHERE user_id = %s", (user_id,))
+    count = int(cur.fetchone()["count"])
+    x = float(18 + (count % 4) * 18)
+    y = float(72 if count % 2 == 0 else 82)
+    cur.execute("INSERT INTO island_decorations (user_id, decoration_key, x_pct, y_pct) VALUES (%s, %s, %s, %s)", (user_id, decoration_key, x, y))
+    cur.execute("SELECT currval(pg_get_serial_sequence('island_decorations', 'id'))")
+    decoration_id = int(cur.fetchone()["currval"])
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Добавлено украшение: {config['emoji']} {config['name']}", "decoration_id": decoration_id, "balance": balance}
+
+
+@app.post("/api/island/decorations/move")
+def move_island_decoration(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        decoration_id = int(payload.get("decoration_id"))
+        x = float(payload.get("x"))
+        y = float(payload.get("y"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректные координаты украшения")
+    if not math.isfinite(x) or not math.isfinite(y) or not (3 <= x <= 97 and 3 <= y <= 97):
+        raise HTTPException(status_code=400, detail="Украшение должно оставаться в пределах острова")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE island_decorations SET x_pct = %s, y_pct = %s WHERE id = %s AND user_id = %s", (x, y, decoration_id, user_id))
+    if cur.rowcount != 1:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Украшение не найдено на твоём острове")
+    conn.commit()
+    conn.close()
+    return {"ok": True, "message": "Расположение украшения сохранено"}
 
 
 @app.get("/api/island/contracts")
