@@ -1395,6 +1395,7 @@ async def game_word_trigger(message: Message):
     if args:
         bet = parse_bet(args[-1])
     if bet is None:
+        db.log_action(message.from_user.id, "security", f"Некорректная ставка/аргументы игры: game={game_type}; text={message.text[:180]!r}")
         if game_type in {"coin", "dice", "number"} and choice is None:
             hint = "Формат: монетка о 500 (или монетка р 1к)." if game_type == "coin" else ("Формат: кубик 4 500." if game_type == "dice" else "Формат: число 7 500.")
             await message.answer(f"{title}\n{hint}\nМинимальная ставка — 500 LDC.")
@@ -1402,12 +1403,14 @@ async def game_word_trigger(message: Message):
             await message.answer(f"{title}\nИспользуй «{word} [выбор] [ставка]» для игры. Минимальная ставка — 500 LDC.")
         return
     if bet < 500:
+        db.log_action(message.from_user.id, "security", f"Ставка ниже минимума: game={game_type}; bet={bet}")
         await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
 
     user_id = message.from_user.id
     balance = db.get_balance(user_id)
     if balance < bet:
+        db.log_action(user_id, "security", f"Ставка превышает баланс: game={game_type}; bet={bet}; balance={balance}")
         await message.answer(f"❌ Недостаточно LDC. Твой баланс: {balance:,} LDC.")
         return
     # Validate all required arguments before consuming a play attempt.
@@ -1423,6 +1426,7 @@ async def game_word_trigger(message: Message):
 
     allowed, remaining = db.register_game_play(user_id, game_type)
     if not allowed:
+        db.log_action(user_id, "security", f"Попытка игры во время кулдауна: game={game_type}; remaining={remaining}s")
         await message.answer(f"⏳ Эта игра на перерыве ещё {format_time(remaining)}")
         return
 
