@@ -3757,6 +3757,48 @@ def get_island(init_data: str = Query(..., alias="initData")):
     }
 
 
+@app.get("/api/island/visit")
+def visit_island(username: str = Query(...), init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    target_username = username.strip().lstrip("@")
+    if not target_username or len(target_username) > 32 or not re.fullmatch(r"[A-Za-z0-9_]{5,32}", target_username):
+        raise HTTPException(status_code=400, detail="Укажи корректный Telegram username")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, username FROM users WHERE LOWER(REPLACE(username, '@', '')) = LOWER(%s) LIMIT 1", (target_username,))
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игрок с таким username не найден")
+    target_id = int(target["user_id"])
+    cur.execute("SELECT has_island, has_house, has_pier, has_ship FROM islands WHERE user_id = %s", (target_id,))
+    island = cur.fetchone()
+    state = {
+        "has_island": bool(island and island["has_island"]),
+        "has_house": bool(island and island["has_house"]),
+        "has_pier": bool(island and island["has_pier"]),
+        "has_ship": bool(island and island["has_ship"]),
+    }
+    cur.execute("SELECT building_key, level FROM island_buildings WHERE user_id = %s ORDER BY building_key", (target_id,))
+    buildings = {r["building_key"]: {"level": int(r["level"]), "name": ISLAND_BUILDINGS[r["building_key"]]["name"]} for r in cur.fetchall() if r["building_key"] in ISLAND_BUILDINGS}
+    cur.execute("SELECT decoration_key, x_pct, y_pct FROM island_decorations WHERE user_id = %s ORDER BY id", (target_id,))
+    decorations = [
+        {"key": r["decoration_key"], "name": ISLAND_DECORATIONS.get(r["decoration_key"], {}).get("name", r["decoration_key"]),
+         "emoji": ISLAND_DECORATIONS.get(r["decoration_key"], {}).get("emoji", "✨"), "x": float(r["x_pct"]), "y": float(r["y_pct"])}
+        for r in cur.fetchall()
+    ]
+    cur.execute("SELECT island_level FROM island_progress WHERE user_id = %s", (target_id,))
+    level_row = cur.fetchone()
+    conn.close()
+    return {
+        "username": target["username"] or target_username,
+        "state": state,
+        "buildings": buildings,
+        "decorations": decorations,
+        "level": int(level_row["island_level"]) if level_row else 1,
+    }
+
+
 @app.post("/api/island/build")
 def build_island_building(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
