@@ -6,6 +6,8 @@
 Их действия логируются, но логи видят ТОЛЬКО они между собой.
 """
 
+import logging
+
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -16,6 +18,7 @@ import config
 import database as db
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 # ==================== FSM ====================
