@@ -1224,6 +1224,12 @@ async def web_trade_word_trigger(message: Message):
     )
 
 
+@dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "курс"))
+async def lcc_rate_word_trigger(message: Message):
+    rate = db.get_lcc_rate()
+    await message.answer(f"💎 Текущий курс Lavender Crypto Coin (LCC): 1 LCC ≈ {rate:,.2f} LDC.")
+
+
 @dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "колесо"))
 async def wheel_word_trigger(message: Message):
     """Word trigger for the fortune wheel."""
