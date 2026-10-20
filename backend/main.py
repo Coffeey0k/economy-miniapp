@@ -584,6 +584,22 @@ def open_egg(payload: dict = Body(...)):
     return {"ok": True, "pet": {"name": chosen[0], "rarity": chosen[1], "income": chosen[2]}}
 
 
+@app.get("/api/inventory")
+def get_inventory_endpoint(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return {"items": bot_db.get_inventory(user_id)}
+
+
+@app.post("/api/inventory/use-pet-food")
+def use_pet_food_endpoint(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    pet_id = int(payload.get("pet_id") or 0)
+    ok, message = bot_db.use_pet_food(user_id, pet_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    return {"ok": True, "message": message, "items": bot_db.get_inventory(user_id)}
+
+
 @app.post("/api/pets/toggle")
 def toggle_pet(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
