@@ -1216,14 +1216,21 @@ async def pet_gift_send(message: Message, state: FSMContext):
         await message.answer("❌ Пользователь не найден")
         return
     target_id = row[0]
+    sender_id = message.from_user.id
     pet_id = (await state.get_data()).get("pet_id")
-    if db.transfer_pet(pet_id, message.from_user.id, target_id):
-        await message.answer(f"✅ Питомец подарен @{target}!")
+    slot_ok, gift_count = db.reserve_daily_gift_slot(sender_id, daily_limit=5)
+    if not slot_ok:
+        await message.answer("🚫 Лимит подарков исчерпан: максимум 5 успешных отправок в сутки (UTC), общий для бота и веба.")
+        await state.clear()
+        return
+    if db.transfer_pet(pet_id, sender_id, target_id):
+        await message.answer(f"✅ Питомец подарен @{target}! Подарков сегодня: {gift_count}/5 (UTC).")
         try:
             await bot.send_message(target_id, f"🎁 Вам подарили питомца!")
         except Exception:
             logger.exception("Не удалось выполнить необязательную операцию")
     else:
+        db.release_daily_gift_slot(sender_id)
         await message.answer("❌ Не удалось подарить")
     await state.clear()
 
