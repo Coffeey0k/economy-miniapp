@@ -4274,6 +4274,22 @@ def rcc_upgrade(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Неизвестное улучшение")
     conn = db()
     cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS rcc_game_sessions (
+            user_id BIGINT PRIMARY KEY,
+            started_at TIMESTAMP NOT NULL
+        )
+    """)
+    cur.execute("SELECT started_at FROM rcc_game_sessions WHERE user_id = ?", (user_id,))
+    active_session = cur.fetchone()
+    if active_session:
+        try:
+            started_at = active_session["started_at"] if isinstance(active_session["started_at"], datetime) else datetime.fromisoformat(str(active_session["started_at"]))
+            if (datetime.now() - started_at).total_seconds() <= 90:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Заверши текущий раунд перед покупкой улучшения")
+        except (TypeError, ValueError, KeyError):
+            pass
     progress = _rcc_get_progress(cur, user_id)
     level = int(progress[f"{upgrade}_level"])
     if level >= config["max_level"]:
