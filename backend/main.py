@@ -36,7 +36,7 @@ import time
 import httpx
 import config
 import db_compat as sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl
 from db_compat import init_db
@@ -5016,7 +5016,7 @@ def _rcc_get_progress(cur, user_id: int) -> dict:
                 raw_value = raw_value[:-1] + "+00:00"
             updated_at = datetime.fromisoformat(raw_value)
         if updated_at.tzinfo is not None:
-            updated_at = updated_at.astimezone(__import__("datetime").timezone.utc).replace(tzinfo=None)
+            updated_at = updated_at.astimezone(timezone.utc).replace(tzinfo=None)
         elapsed = max(0.0, (now - updated_at).total_seconds())
     except (TypeError, ValueError, KeyError, OverflowError):
         # Repair malformed/missing timestamps so future requests can recover.
