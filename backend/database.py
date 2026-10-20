@@ -2947,7 +2947,7 @@ def ttt_finish_game(game_id: int, winner_id: int):
 
 MS_FIELD_SIZE = 8
 MS_MINES = 6
-MS_BET = 200
+MS_BET = 500
 MS_REWARD = 400
 
 
