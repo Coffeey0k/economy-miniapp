@@ -2519,12 +2519,14 @@ def set_hints_enabled(user_id: int, enabled: bool):
     conn.close()
 
 def buy_weekly_wheel_tickets(user_id: int) -> tuple:
-    """Buy 10 wheel tickets for 25,000 LDC, once every seven days."""
-    price = 25000
+    """Buy 10 wheel tickets at the current catalog price, once every seven days."""
     quantity = 10
     now = datetime.now()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+    cur.execute("SELECT price FROM catalog_items WHERE item_type = ?", ("wheel_tickets_weekly",))
+    price_row = cur.fetchone()
+    price = int(price_row[0]) if price_row else 25000
     cur.execute("""
         CREATE TABLE IF NOT EXISTS wheel_ticket_weekly_purchases (
             user_id BIGINT PRIMARY KEY,
