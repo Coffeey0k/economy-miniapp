@@ -573,6 +573,23 @@ def init_db():
             last_action_at TIMESTAMP
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS island_contract_claims (
+            user_id BIGINT NOT NULL,
+            contract_key TEXT NOT NULL,
+            claimed_date TEXT NOT NULL,
+            PRIMARY KEY (user_id, contract_key, claimed_date)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS island_expeditions (
+            user_id BIGINT PRIMARY KEY,
+            expedition_key TEXT NOT NULL,
+            started_at TIMESTAMP NOT NULL,
+            completes_at TIMESTAMP NOT NULL,
+            claimed_at TIMESTAMP
+        )
+    """)
 
     # === МУЗЫКА ===
     cur.execute("""
