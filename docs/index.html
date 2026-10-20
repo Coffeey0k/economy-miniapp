@@ -834,10 +834,37 @@
   .bs-ocean-cell:not(:disabled) { animation:bsWaves 5s linear infinite alternate; }
 
   .bs-sea-card { background-image:linear-gradient(rgba(2,25,45,.88),rgba(2,25,45,.92)),url("images/battleship-water.svg");background-size:auto,96px 96px; }
+
+  /* Mandatory first-visit rules */
+  #mandatory-rules-overlay { position:fixed; inset:0; z-index:20000; display:none; align-items:center; justify-content:center; padding:18px; background:rgba(5,4,18,.88); backdrop-filter:blur(5px); }
+  #mandatory-rules-overlay.visible { display:flex; }
+  #mandatory-rules-dialog { width:min(620px,100%); max-height:calc(100dvh - 36px); overflow:auto; background:var(--bg); color:var(--text); border:1px solid var(--card-border); border-radius:18px; padding:22px; box-shadow:0 18px 70px rgba(0,0,0,.5); }
+  #mandatory-rules-dialog h2 { font-size:20px; margin-bottom:8px; }
+  #mandatory-rules-dialog p { color:var(--text); line-height:1.45; margin:10px 0; }
+  #mandatory-rules-countdown { color:var(--hint); font-size:13px; text-align:center; margin-top:16px; }
+  #mandatory-rules-progress { height:5px; border-radius:8px; overflow:hidden; background:var(--progress-bg); margin-top:10px; }
+  #mandatory-rules-progress span { display:block; height:100%; width:100%; background:var(--accent); transform-origin:left; }
+  /* Simpler, classic Battleship look; mechanics and cell-state colors remain intact. */
+  .bs-sea-card { background-image:none !important; box-shadow:none !important; border:1px solid var(--card-border) !important; }
+  .bs-ocean-cell { background-image:none !important; animation:none !important; box-shadow:none !important; }
+  .bs-combat-cell { background-image:none !important; box-shadow:none !important; }
 </style>
 </head>
 <body>
 
+<div id="mandatory-rules-overlay" role="dialog" aria-modal="true" aria-labelledby="mandatory-rules-title">
+  <div id="mandatory-rules-dialog">
+    <h2 id="mandatory-rules-title">📜 Обязательные правила Lavender Dream</h2>
+    <p><b>1.</b> Используй бота и Mini App по назначению и соблюдай правила Telegram.</p>
+    <p><b>2.</b> Дюпы, эксплуатация багов, подмена запросов, накрутка наград и обход ограничений запрещены. Нашёл баг — сообщи через /feedback, не используй его для выгоды.</p>
+    <p><b>3.</b> Запрещены спам, угрозы, оскорбления и попытки нарушить работу сервиса.</p>
+    <p><b>4.</b> Переводы LDC и денежные подарки ограничены пятью успешными операциями в сутки по UTC. Лимит общий для бота и Mini App.</p>
+    <p><b>5.</b> Нельзя обходить ограничения игр, ставок, покупок и аккаунтов. Подозрительные действия могут проверяться по техническим журналам; нарушения могут привести к отмене операций или блокировке.</p>
+    <p><b>6.</b> LDC — основная внутриигровая валюта, LCC — отдельная внутренняя псевдокриптовалюта. Это не реальные деньги, и у них нет гарантированной денежной стоимости.</p>
+    <div id="mandatory-rules-countdown">Пожалуйста, прочитай правила. Окно закроется через 15 секунд.</div>
+    <div id="mandatory-rules-progress"><span></span></div>
+  </div>
+</div>
 <div id="status">Загрузка…</div>
 <div id="app" style="display:none;">
 
@@ -4046,6 +4073,7 @@
       document.getElementById("status").style.display = "none";
       document.getElementById("app").style.display = "block";
       document.getElementById("nav").style.display = "flex";
+      checkRulesNotice().catch((e) => console.warn("Не удалось проверить прочтение правил:", e));
       setInterval(() => { loadProfile().catch(() => {}); }, 20000);
       setInterval(() => { checkFriendRequests().catch(() => {}); }, 30000);
       loadHalloweenEvent().catch(() => {});
@@ -4053,6 +4081,37 @@
     } catch (err) {
       document.getElementById("status").textContent = "Не удалось загрузить профиль. " + err.message;
     }
+  }
+
+  let mandatoryRulesTimer = null;
+  async function checkRulesNotice() {
+    const overlay = document.getElementById("mandatory-rules-overlay");
+    if (!overlay || !initData) return;
+    const result = await apiGet("/api/rules/read-status");
+    if (result.read) return;
+
+    const countdown = document.getElementById("mandatory-rules-countdown");
+    const progress = document.querySelector("#mandatory-rules-progress span");
+    overlay.classList.add("visible");
+    document.body.style.overflow = "hidden";
+    let secondsLeft = 15;
+    countdown.textContent = "Пожалуйста, прочитай правила. Окно закроется через " + secondsLeft + " секунд.";
+    progress.style.transform = "scaleX(1)";
+    mandatoryRulesTimer = setInterval(() => {
+      secondsLeft -= 1;
+      countdown.textContent = secondsLeft > 0
+        ? "Пожалуйста, прочитай правила. Окно закроется через " + secondsLeft + " секунд."
+        : "Сохраняем отметку о прочтении…";
+      progress.style.transform = "scaleX(" + Math.max(0, secondsLeft / 15) + ")";
+      if (secondsLeft <= 0) {
+        clearInterval(mandatoryRulesTimer);
+        mandatoryRulesTimer = null;
+        apiPost("/api/rules/read", {}).catch(() => {}).finally(() => {
+          overlay.classList.remove("visible");
+          document.body.style.overflow = "";
+        });
+      }
+    }, 1000);
   }
 
     async function checkFriendRequests() {
