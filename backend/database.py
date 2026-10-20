@@ -2260,6 +2260,13 @@ PROFESSIONS = {
     "cook": {"name": "🍳 Повар", "salary": 1000, "cooldown_hours": 3, "admin_only": False},
     "vet": {"name": "🩺 Ветеринар", "salary": 1200, "cooldown_hours": 4, "admin_only": False},
     "programmer": {"name": "💻 Программист", "salary": 1400, "cooldown_hours": 5, "admin_only": False},
+    "farmer": {"name": "🌾 Фермер", "salary": 900, "cooldown_hours": 3, "admin_only": False},
+    "fisher": {"name": "🎣 Рыбак", "salary": 950, "cooldown_hours": 3, "admin_only": False},
+    "miner": {"name": "⛏️ Шахтёр", "salary": 1100, "cooldown_hours": 4, "admin_only": False},
+    "blacksmith": {"name": "⚒️ Кузнец", "salary": 1200, "cooldown_hours": 4, "admin_only": False},
+    "engineer": {"name": "⚙️ Инженер", "salary": 1350, "cooldown_hours": 5, "admin_only": False},
+    "explorer": {"name": "🧭 Исследователь", "salary": 1250, "cooldown_hours": 5, "admin_only": False},
+    "merchant": {"name": "🛒 Торговец", "salary": 1150, "cooldown_hours": 4, "admin_only": False},
     "ruler": {"name": "👑 Правитель Lavender Dream", "salary": 10000, "cooldown_hours": 12, "admin_only": True},
 }
 
