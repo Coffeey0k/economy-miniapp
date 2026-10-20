@@ -547,6 +547,33 @@ def init_db():
         )
     """)
 
+    # Additive island expansion tables: existing island ownership and income are untouched.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS island_buildings (
+            user_id BIGINT NOT NULL,
+            building_key TEXT NOT NULL,
+            level INTEGER NOT NULL DEFAULT 1,
+            built_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, building_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS island_inventory (
+            user_id BIGINT NOT NULL,
+            item_key TEXT NOT NULL,
+            quantity BIGINT NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+            PRIMARY KEY (user_id, item_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS island_progress (
+            user_id BIGINT PRIMARY KEY,
+            island_level INTEGER NOT NULL DEFAULT 1,
+            experience INTEGER NOT NULL DEFAULT 0,
+            last_action_at TIMESTAMP
+        )
+    """)
+
     # === МУЗЫКА ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS music_personal (
