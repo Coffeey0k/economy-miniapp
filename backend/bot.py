@@ -1213,10 +1213,11 @@ async def web_trade_word_trigger(message: Message):
 @dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "колесо"))
 async def wheel_word_trigger(message: Message):
     """Word trigger for the fortune wheel."""
-    await message.answer(
+    sent = await message.answer(
         "🎡 Колесо фортуны\n\nСтоимость вращения: 200 LDC.\nКулдаун: раз в 3 часа.\n\nИспытай удачу!",
         reply_markup=wheel_menu(),
     )
+    message_owners[sent.message_id] = message.from_user.id
 
 
 @dp.message(F.text.lower().strip().in_({"игры", "игра"}))
