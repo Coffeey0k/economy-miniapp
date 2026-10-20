@@ -1032,13 +1032,16 @@ def play_game(payload: dict = Body(...)):
         if choice not in {"Орел", "Решка"}:
             raise HTTPException(status_code=400, detail="Выберите орла или решку")
 
-    allowed, remaining = bot_db.register_game_play(user_id, game)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=f"Эта игра на перерыве ещё {remaining // 3600} ч {(remaining % 3600) // 60} мин")
-
     conn = db()
     cur = conn.cursor()
     test_mode = bool(bot_db.is_test_mode(user_id))
+    if not test_mode and require_balance(cur, user_id) < bet:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно монет")
+    allowed, remaining = bot_db.register_game_play(user_id, game)
+    if not allowed:
+        conn.close()
+        raise HTTPException(status_code=429, detail=f"Эта игра на перерыве ещё {remaining // 3600} ч {(remaining % 3600) // 60} мин")
     if not test_mode and not change_balance(cur, user_id, -bet):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно монет")
