@@ -3997,8 +3997,8 @@ def _bot_send_music_moderation(admin_id: int, title: str, author: str, sender: s
 
 # ========== API: RCC ==========
 
-RCC_CLICK_AMOUNT = 0.01
-RCC_EXCHANGE_RATE = 5
+RCC_CLICK_AMOUNT = 0.00001
+RCC_EXCHANGE_RATE = 50500
 RCC_GAME_COOLDOWN = 7200
 
 
@@ -4033,12 +4033,15 @@ def rcc_get(init_data: str = Query(..., alias="initData")):
 
     pc_balance = require_balance(cur, user_id)
     conn.close()
+    exchange_rate = bot_db.get_lcc_rate()
 
     return {
-        "balance": round(balance, 4),
+        "balance": round(balance, 8),
+        "lcc_balance": round(balance, 8),
         "total_clicks": clicks,
         "click_amount": RCC_CLICK_AMOUNT,
-        "exchange_rate": RCC_EXCHANGE_RATE,
+        "exchange_rate": exchange_rate,
+        "lcc_rate": exchange_rate,
         "can_play": can_play,
         "remaining_seconds": remaining,
         "pc_balance": pc_balance,
@@ -4050,8 +4053,8 @@ def rcc_click(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     amount = float(payload.get("amount") or 0)
 
-    if amount <= 0 or amount > 1:
-        raise HTTPException(status_code=400, detail="Слишком много кликов за раз")
+    if amount != RCC_CLICK_AMOUNT:
+        raise HTTPException(status_code=400, detail="Некорректная награда за клик")
 
     conn = db()
     cur = conn.cursor()
@@ -4087,8 +4090,8 @@ def rcc_game_finish(payload: dict = Body(...)):
 
     if amount < 0:
         amount = 0
-    if amount > 5:  # защита от накрутки
-        amount = 5
+    if amount > 0.05:  # Ограничение суммарной награды за один раунд
+        amount = 0.05
 
     cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
     cur.execute(
@@ -4100,6 +4103,7 @@ def rcc_game_finish(payload: dict = Body(...)):
         (user_id, amount)
     )
     conn.commit()
+    bot_db.update_lcc_rate("buy", amount)
     cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
     new_balance = cur.fetchone()["balance"]
     conn.close()
@@ -4123,7 +4127,11 @@ def rcc_exchange_endpoint(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно RCC")
 
-    pc_amount = int(amount * RCC_EXCHANGE_RATE)
+    exchange_rate = bot_db.get_lcc_rate()
+    pc_amount = int(amount * exchange_rate)
+    if pc_amount < 1:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Минимум для обмена — 1 LDC")
 
     cur.execute(
         "UPDATE rcc_balance SET balance = balance - ? WHERE user_id = %s",
@@ -4140,6 +4148,7 @@ def rcc_exchange_endpoint(payload: dict = Body(...)):
         raise HTTPException(status_code=500, detail="Ошибка начисления LDC")
 
     conn.commit()
+    bot_db.update_lcc_rate("sell", amount)
     cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
     new_rcc = cur.fetchone()["balance"]
     pc_balance = require_balance(cur, user_id)
@@ -4147,7 +4156,7 @@ def rcc_exchange_endpoint(payload: dict = Body(...)):
 
     return {
         "ok": True,
-        "message": f"Обменяно {amount:.2f} RCC → {pc_amount:,} LDC",
+        "message": f"Обменяно {amount:.8f} LCC → {pc_amount:,} LDC по курсу {exchange_rate:,.2f} LDC/LCC",
         "rcc_balance": round(new_rcc, 4),
         "pc_balance": pc_balance,
     }
