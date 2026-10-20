@@ -4091,6 +4091,43 @@ def rcc_click(payload: dict = Body(...)):
     return {"ok": True, "balance": round(new_balance, 8)}
 
 
+@app.post("/api/rcc/game_start")
+def rcc_game_start(payload: dict = Body(default={})):
+    """Reserve one LCC mini-game round on the server before the client starts."""
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS rcc_game_sessions (
+            user_id BIGINT PRIMARY KEY,
+            started_at TIMESTAMP NOT NULL
+        )
+    """)
+    cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
+    cur.execute("SELECT last_game FROM rcc_balance WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    now = datetime.now()
+    if row and row["last_game"]:
+        try:
+            last_game = row["last_game"] if isinstance(row["last_game"], datetime) else datetime.fromisoformat(str(row["last_game"]))
+            remaining = int(RCC_GAME_COOLDOWN - (now - last_game).total_seconds())
+        except (TypeError, ValueError):
+            remaining = 0
+        if remaining > 0:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Мини-игра ещё недоступна: {remaining} сек.")
+    # A round is reserved and the cooldown begins at start, not at finish.
+    cur.execute(
+        "INSERT INTO rcc_game_sessions (user_id, started_at) VALUES (%s, %s) "
+        "ON CONFLICT(user_id) DO UPDATE SET started_at = excluded.started_at",
+        (user_id, now.isoformat()),
+    )
+    cur.execute("UPDATE rcc_balance SET last_game = %s WHERE user_id = %s", (now.isoformat(), user_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "started_at": now.isoformat(), "duration_seconds": 25}
+
+
 @app.post("/api/rcc/game_finish")
 def rcc_game_finish(payload: dict = Body(...)):
     """Завершение мини-игры. Принимает набранное количество RCC."""
@@ -4100,19 +4137,35 @@ def rcc_game_finish(payload: dict = Body(...)):
     conn = db()
     cur = conn.cursor()
 
-    # Проверка кулдауна
-    cur.execute("SELECT last_game FROM rcc_balance WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    if row and row["last_game"]:
-        delta = (datetime.now() - datetime.fromisoformat(row["last_game"])).total_seconds()
-        if delta < RCC_GAME_COOLDOWN:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Мини-игра ещё недоступна")
+    # The server must see a reserved round and enforce a plausible duration.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS rcc_game_sessions (
+            user_id BIGINT PRIMARY KEY,
+            started_at TIMESTAMP NOT NULL
+        )
+    """)
+    cur.execute("SELECT started_at FROM rcc_game_sessions WHERE user_id = %s", (user_id,))
+    session = cur.fetchone()
+    if not session:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала начни раунд кнопкой «Начать»")
+    try:
+        started_at = session["started_at"] if isinstance(session["started_at"], datetime) else datetime.fromisoformat(str(session["started_at"]))
+        elapsed = (datetime.now() - started_at).total_seconds()
+    except (TypeError, ValueError):
+        elapsed = 0
+    if elapsed < 20:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Раунд ещё не завершён")
+    if elapsed > 90:
+        cur.execute("DELETE FROM rcc_game_sessions WHERE user_id = %s", (user_id,))
+        conn.commit()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Раунд истёк. Запусти мини-игру заново")
 
-    if amount < 0:
-        amount = 0
-    if amount > 0.05:  # Ограничение суммарной награды за один раунд
-        amount = 0.05
+    cur.execute("DELETE FROM rcc_game_sessions WHERE user_id = %s", (user_id,))
+    # One 25-second round can award at most 0.04 LCC, even if the client is modified.
+    amount = max(0.0, min(amount, 0.04))
 
     cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
     cur.execute(
