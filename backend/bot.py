@@ -1104,6 +1104,12 @@ async def pet_sell_handler(callback: CallbackQuery):
     await callback.answer("Продано!")
 
 
+@dp.callback_query(F.data.startswith("pet_trade_"))
+async def pet_trade_disabled_callback(callback: CallbackQuery):
+    """Disable pet trades safely while retaining old trade records."""
+    await callback.answer("🔁 Обмены временно отключены. Данные и история сохранены.", show_alert=True)
+
+
 @dp.callback_query(F.data.startswith("pet_trade_start_"))
 async def pet_trade_start(callback: CallbackQuery, state: FSMContext):
     try:
@@ -1119,6 +1125,12 @@ async def pet_trade_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(PetTradeStates.waiting_recipient)
     await callback.message.answer("🔁 Напиши username игрока, с которым хочешь обменяться питомцами (без @).", reply_markup=cancel_button())
     await callback.answer()
+
+
+@dp.message(PetTradeStates.waiting_recipient)
+async def pet_trade_disabled_message(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("🔁 Обмены временно отключены. Данные и история сохранены.")
 
 
 @dp.message(PetTradeStates.waiting_recipient)
