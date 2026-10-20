@@ -173,10 +173,11 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                         # Drop expired hour keys only; never clear current-hour
                         # keys or active users could earn the same task repeatedly.
                         current_date = now.date().isoformat()
-                        _task_active_hour_seen.intersection_update(
+                        current_hour_keys = {
                             key for key in _task_active_hour_seen
                             if key[1] == current_date and key[2] == now.hour
-                        )
+                        }
+                        _task_active_hour_seen.intersection_update(current_hour_keys)
             except Exception:
                 logger.exception("Не удалось обновить прогресс ежедневного задания")
         return await handler(event, data)
