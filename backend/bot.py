@@ -170,7 +170,13 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                         _task_active_hour_seen.add(hour_key)
                         db.update_task_progress(uid, "active_hours", 1)
                     if len(_task_active_hour_seen) > 50000:
-                        _task_active_hour_seen.clear()
+                        # Drop expired hour keys only; never clear current-hour
+                        # keys or active users could earn the same task repeatedly.
+                        current_date = now.date().isoformat()
+                        _task_active_hour_seen.intersection_update(
+                            key for key in _task_active_hour_seen
+                            if key[1] == current_date and key[2] == now.hour
+                        )
             except Exception:
                 logger.exception("Не удалось обновить прогресс ежедневного задания")
         return await handler(event, data)
@@ -2403,6 +2409,17 @@ async def clear_old_members():
         await asyncio.sleep(86400)
         db.clear_old_new_members(7)
 
+async def blocked_users_cleanup_loop():
+    """Remove users marked as having blocked the bot; they can re-register if they return."""
+    while True:
+        await asyncio.sleep(86400)
+        try:
+            removed = db.clear_blocked_users()
+            if removed:
+                logger.info("🧹 Удалено заблокировавших бота пользователей: %s", removed)
+        except Exception:
+            logger.exception("Не удалось очистить пользователей, заблокировавших бота")
+
 
 async def daily_tasks_reset():
     """Сброс ежедневных заданий в 5:00 МСК"""
@@ -2628,10 +2645,13 @@ async def main():
     await bot.set_my_commands([
         {"command": "start", "description": "🏠 Запустить бота"},
         {"command": "help", "description": "ℹ️ Помощь"},
+        {"command": "rules", "description": "📜 Правила Lavender Dream"},
+        {"command": "feedback", "description": "✉️ Обратная связь"},
         {"command": "admin", "description": "👑 Админ-панель"},
     ])
     asyncio.create_task(weekly_clean_reminder())
     asyncio.create_task(clear_old_members())
+    asyncio.create_task(blocked_users_cleanup_loop())
     asyncio.create_task(daily_tasks_reset())
     asyncio.create_task(pets_income())
     asyncio.create_task(cursed_egg_scheduler())
