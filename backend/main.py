@@ -1178,10 +1178,11 @@ def play_game(payload: dict = Body(...)):
         result = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
         text = f"{result[0]} {result[1]} {result[2]}"
         if result[0] == result[1] == result[2]:
-            mult = 10 if result[0] == "7️⃣" else (5 if result[0] == "💎" else 3)
-            win = bet * mult
-        elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
+            # Three matching symbols: return the stake plus an equal amount (x2 payout).
             win = bet * 2
+        elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
+            # Exactly two matching symbols: return only half of the original stake.
+            win = bet // 2
     elif game == "dice":
         roll = random.randint(1, 6)
         text = f"🎲 Выпало: {roll}"
@@ -1209,15 +1210,19 @@ def play_game(payload: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=400, detail="Неизвестная игра")
 
-    net_profit = max(0, win - bet)
+    net_result = win - bet
+    net_profit = max(0, net_result)
     if test_mode:
         text += "\n🧪 Тест-режим: баланс не изменён."
-    elif win > bet:
+    elif win > 0:
+        # A positive payout is credited even when it is smaller than the stake.
         change_balance(cur, user_id, win)
-        text += f"\n✅ Валовая выплата: {win:,} 🪙 • Чистая прибыль: {net_profit:,} 🪙"
-    elif win == bet:
-        change_balance(cur, user_id, bet)
-        text += f"\n↩️ Ставка возвращена: {bet:,} 🪙"
+        if win > bet:
+            text += f"\n✅ Валовая выплата: {win:,} 🪙 • Чистая прибыль: {net_profit:,} 🪙"
+        elif win == bet:
+            text += f"\n↩️ Ставка возвращена: {bet:,} 🪙"
+        else:
+            text += f"\n↩️ Возврат 50% ставки: {win:,} 🪙 • Потеряно: {bet - win:,} 🪙"
     else:
         text += f"\n❌ Проигрыш: {bet:,} 🪙"
 
@@ -1232,7 +1237,7 @@ def play_game(payload: dict = Body(...)):
             total_lost = COALESCE(total_lost, 0) + ?
         WHERE user_id = ?
         """,
-        (1 if win > bet else 0, net_profit if win > bet else 0, bet if win == 0 else 0, user_id),
+        (1 if win > bet else 0, max(0, net_result), max(0, -net_result), user_id),
     )
 
     conn.commit()
@@ -1241,7 +1246,7 @@ def play_game(payload: dict = Body(...)):
         bot_db.log_action(
             user_id, "game",
             f"Игра Mini App: {game}; ставка={bet}; выигрыш={win}; результат={text}",
-            amount=(net_profit if win > bet else (-bet if win == 0 else 0)),
+            amount=net_result,
         )
     except Exception:
         logger.exception("Не удалось выполнить необязательную операцию")
