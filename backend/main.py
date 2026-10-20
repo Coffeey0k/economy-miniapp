@@ -1267,6 +1267,23 @@ def ttt_start(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     conn = db()
     cur = conn.cursor()
+    # Make start requests idempotent: retries return the current active game
+    # instead of charging the same player for multiple parallel games.
+    cur.execute(
+        "SELECT id, player_x, player_o, is_vs_bot, board, turn, bet, status, winner "
+        "FROM ttt_games WHERE player_x = ? AND is_vs_bot = 1 AND status = 'active' "
+        "ORDER BY id DESC LIMIT 1",
+        (user_id,),
+    )
+    existing_game = cur.fetchone()
+    if existing_game:
+        balance = require_balance(cur, user_id)
+        conn.close()
+        try:
+            bot_db.log_action(user_id, "game", f"TTT duplicate start reused active game_id={existing_game['id']}", amount=0)
+        except Exception:
+            logger.exception("Не удалось записать повторный старт TTT user_id=%s", user_id)
+        return _ttt_game_payload(dict(existing_game), balance)
     if require_balance(cur, user_id) < bet:
         conn.close()
         raise HTTPException(status_code=400, detail="Недостаточно LDC")
