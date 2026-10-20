@@ -1251,7 +1251,7 @@
     <div id="rcc-msg"></div>
 
     <div class="tabs-sub">
-      <button class="rcc-tab active" onclick="rccShowTab('main', event)">💰 RCC</button>
+      <button class="rcc-tab active" onclick="rccShowTab('main', event)">💰 LCC</button>
       <button class="rcc-tab" onclick="rccShowTab('game', event)">🎮 Мини-игра</button>
     </div>
 
@@ -2984,7 +2984,7 @@
     }, 3500);
   }
   
-  // ===== RCC =====
+  // ===== LCC =====
   let rccData = null;
   let rccTab = "main";
   let rccGame = {
@@ -3059,7 +3059,7 @@
 
   async function rccExchange() {
     const amount = parseFloat(document.getElementById("rcc-exchange-amount").value);
-    if (!amount || amount <= 0) { toast("Введи количество RCC", true); return; }
+    if (!amount || amount <= 0) { toast("Введи количество LCC", true); return; }
     try {
       const res = await apiPost("/api/rcc/exchange", { amount });
       toast(res.message, false);
@@ -3219,12 +3219,12 @@
     canvas.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;">
       <div style="font-size:48px;">🏁</div>
       <div style="font-size:20px;font-weight:700;margin-top:12px;">Раунд завершён!</div>
-      <div style="font-size:24px;color:var(--link);margin-top:8px;">+${rccGame.score.toFixed(2)} RCC</div>
+      <div style="font-size:24px;color:var(--link);margin-top:8px;">+${rccGame.score.toFixed(5)} LCC</div>
     </div>`;
 
     try {
       const res = await apiPost("/api/rcc/game_finish", { amount: rccGame.score });
-      toast(`🎉 Заработано ${res.earned.toFixed(5)} RCC`, false);
+      toast(`🎉 Заработано ${res.earned.toFixed(5)} LCC`, false);
     } catch (e) {
       toast(e.message, true);
     }
