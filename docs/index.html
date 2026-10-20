@@ -848,6 +848,26 @@
   .bs-sea-card { background-image:none !important; box-shadow:none !important; border:1px solid var(--card-border) !important; }
   .bs-ocean-cell { background-image:none !important; animation:none !important; box-shadow:none !important; }
   .bs-combat-cell { background-image:none !important; box-shadow:none !important; }
+  /* ===== ISLAND EXPANSION ===== */
+  .island-building-marker {
+    position:absolute; z-index:4; transform:translate(-50%,-50%);
+    display:flex; align-items:center; justify-content:center;
+    width:32px; height:32px; border-radius:50%;
+    background:rgba(255,255,255,.88); border:2px solid rgba(91,65,145,.65);
+    box-shadow:0 2px 8px rgba(0,0,0,.28); font-size:19px;
+  }
+  .island-status-row { display:flex; justify-content:space-around; flex-wrap:wrap; gap:8px; margin-top:10px; font-size:13px; }
+  .island-building-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; }
+  .island-building-card,.island-profession-card { background:var(--secondary-bg); border:1px solid var(--card-border); border-radius:12px; padding:12px; }
+  .island-building-title { font-weight:700; margin-bottom:5px; }
+  .island-materials { margin-top:8px; }
+  .island-building-footer { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .island-price { font-weight:700; white-space:nowrap; }
+  .island-profession-card { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .island-profession-card p { width:100%; margin:0; }
+  .island-inventory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; }
+  .island-resource { display:flex; justify-content:space-between; gap:8px; padding:10px; border:1px solid var(--card-border); border-radius:10px; background:var(--secondary-bg); }
+
 </style>
 </head>
 <body>
@@ -3796,51 +3816,98 @@
   function renderIsland() {
     if (!islandData) return;
     const { state, prices, names, balance } = islandData;
-
     if (!state.has_island) {
       document.getElementById("island-empty").style.display = "block";
       document.getElementById("island-content").style.display = "none";
       return;
     }
-
     document.getElementById("island-empty").style.display = "none";
     document.getElementById("island-content").style.display = "block";
 
-    // === Визуал через наложение картинок ===
-    let visual = `<div class="island-wrapper">`;
-    visual += `<img class="island-base" src="images/island.png" alt="island">`;
-    if (state.has_house) visual += `<img class="island-sprite island-house" src="images/house.png" alt="house">`;
-    if (state.has_pier)  visual += `<img class="island-sprite island-pier" src="images/pier.png" alt="pier">`;
-    if (state.has_ship)  visual += `<img class="island-sprite island-ship" src="images/ship.png" alt="ship">`;
-    visual += `</div>`;
-    visual += `<div class="label" style="text-align:center;margin-top:8px;">💰 Баланс: ${balance.toLocaleString()} 🪙</div>`;
+    const buildings = islandData.buildings || {};
+    const catalog = islandData.building_catalog || {};
+    const progress = islandData.progress || {level: 1, experience: 0};
+    const markers = [
+      ["farm", "🌾", "30%", "54%"], ["mine", "⛏️", "17%", "36%"],
+      ["workshop", "🛠️", "45%", "22%"], ["market", "🛒", "68%", "34%"],
+      ["lighthouse", "🗼", "76%", "16%"]
+    ];
+    let visual = `<div class="island-wrapper">
+      <img class="island-base" src="images/island.png" alt="Остров">
+      ${state.has_house ? '<img class="island-sprite island-house" src="images/house.png" alt="Дом">' : ''}
+      ${state.has_pier ? '<img class="island-sprite island-pier" src="images/pier.png" alt="Причал">' : ''}
+      ${state.has_ship ? '<img class="island-sprite island-ship" src="images/ship.png" alt="Корабль">' : ''}
+      ${markers.filter(m => buildings[m[0]]).map(m => `<span class="island-building-marker" style="left:${m[2]};top:${m[3]}" title="${catalog[m[0]].name}">${m[1]}</span>`).join('')}
+    </div>
+    <div class="island-status-row">
+      <span>💰 ${Number(balance).toLocaleString()} LDC</span>
+      <span>⭐ Уровень ${progress.level}</span>
+      <span>✨ Опыт ${progress.experience}</span>
+    </div>`;
     document.getElementById("island-visual").innerHTML = visual;
 
-    // === Постройки ===
     let html = `<h2>Постройки</h2>`;
-
     const buildRow = (key) => {
       const owned = state[`has_${key}`];
-      const canBuild = !owned && (
-        key === "island" ? true :
-        key === "ship" ? state.has_pier :
-        state.has_island
-      );
-      const status = owned ? " ✅" : "";
-      const button = owned 
-        ? `<span class="label">куплено</span>`
-        : `<button class="btn btn-small" ${canBuild ? "" : "disabled"} onclick="buyIslandItem('${key}')">${prices[key].toLocaleString()} 🪙</button>`;
-      return `<div class="item-row">
-        <span>${names[key]}${status}</span>
-        ${button}
-      </div>`;
+      const canBuild = !owned && (key === "ship" ? state.has_pier : state.has_island);
+      const button = owned ? `<span class="label">куплено</span>` :
+        `<button class="btn btn-small" ${canBuild ? "" : "disabled"} onclick="buyIslandItem('${key}')">${prices[key].toLocaleString()} LDC</button>`;
+      return `<div class="item-row"><span>${names[key]}${owned ? " ✅" : ""}</span>${button}</div>`;
     };
-
-    html += buildRow("house");
-    html += buildRow("pier");
-    html += buildRow("ship");
-
+    html += buildRow("house") + buildRow("pier") + buildRow("ship");
+    html += `<h2 style="margin-top:20px">🌴 Развитие острова</h2><p class="label">Новые здания требуют LDC и материалы. Ресурсы добываются профессией раз в 3 часа.</p><div class="island-building-grid">`;
+    Object.entries(catalog).forEach(([key, cfg]) => {
+      const owned = Boolean(buildings[key]);
+      const req = cfg.requires;
+      const reqMet = req === "island" ? state.has_island : req === "pier" ? state.has_pier : req === "ship" ? state.has_ship : Boolean(buildings[req]);
+      const have = Object.fromEntries((islandData.inventory || []).map(r => [r.key, r.quantity]));
+      const materialsMet = Object.entries(cfg.materials || {}).every(([resource, qty]) => (have[resource] || 0) >= qty);
+      const materialText = Object.entries(cfg.materials || {}).map(([resource, qty]) => `${islandData.resource_names[resource] || resource} ×${qty}`).join(" · ");
+      const disabled = owned || !reqMet || !materialsMet || Number(balance) < cfg.price;
+      html += `<div class="island-building-card">
+        <div class="island-building-title">${cfg.name}</div>
+        <div class="label">${cfg.description}</div>
+        <div class="label island-materials">Материалы: ${materialText}</div>
+        <div class="island-building-footer">${owned ? `<span class="label">Построено · ур. ${buildings[key].level}</span>` : `<span class="island-price">${Number(cfg.price).toLocaleString()} LDC</span><button class="btn btn-small" ${disabled ? "disabled" : ""} onclick="buildIslandBuilding('${key}')">Построить</button>`}</div>
+      </div>`;
+    });
+    html += `</div><h2 style="margin-top:20px">🧑‍🌾 Работа по профессии</h2>`;
+    const supported = new Set(["artist","musician","photographer","gardener","cook","vet","programmer","farmer","fisher","miner","blacksmith","engineer","explorer","merchant"]);
+    const prof = islandData.profession;
+    const lastAction = progress.last_action_at ? Date.parse(progress.last_action_at) : NaN;
+    const remaining = Number.isFinite(lastAction) ? Math.max(0, Math.ceil((lastAction + (progress.action_cooldown || 10800) * 1000 - Date.now()) / 1000)) : 0;
+    const fmtTime = (s) => `${Math.floor(s/3600)} ч ${Math.floor((s%3600)/60)} мин`;
+    if (!prof) {
+      html += `<p class="label">Сначала выбери профессию в разделе «Профессии» — она определяет, какие ресурсы ты можешь добывать.</p>`;
+    } else {
+      html += `<div class="island-profession-card"><div><strong>${prof.name}</strong><div class="label">Уровень профессии: ${prof.level}</div></div>
+      <button class="btn" ${!supported.has(prof.key) || remaining > 0 ? "disabled" : ""} onclick="islandProfessionAction()">${!supported.has(prof.key) ? "Нет островного действия" : remaining > 0 ? "Отдых: " + fmtTime(remaining) : "Выполнить работу"}</button>
+      <p class="label">Работа расходует нужные материалы и выдаёт уникальные ресурсы. LCC не затрагивается.</p></div>`;
+    }
+    html += `<h2 style="margin-top:20px">🎒 Ресурсы</h2>`;
+    const inventory = islandData.inventory || [];
+    html += inventory.length ? `<div class="island-inventory-grid">${inventory.map(r => `<div class="island-resource"><span>${r.name}</span><strong>×${r.quantity}</strong></div>`).join("")}</div>` : `<p class="label">Пока нет ресурсов. Выполни островную работу, чтобы начать собирать материалы.</p>`;
     document.getElementById("island-buildings").innerHTML = html;
+  }
+
+  async function buildIslandBuilding(building) {
+    const cfg = islandData && islandData.building_catalog && islandData.building_catalog[building];
+    if (!cfg || !confirm(`Построить ${cfg.name} за ${Number(cfg.price).toLocaleString()} LDC и необходимые материалы?`)) return;
+    try {
+      const res = await apiPost("/api/island/build", { building });
+      toast(res.message, false);
+      await loadIsland();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function islandProfessionAction() {
+    try {
+      const res = await apiPost("/api/island/profession-action", {});
+      toast(res.message, false);
+      await loadIsland();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
   }
 
   async function buyIslandItem(item) {
