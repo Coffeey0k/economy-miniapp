@@ -590,6 +590,43 @@ def get_inventory_endpoint(init_data: str = Query(..., alias="initData")):
     return {"items": bot_db.get_inventory(user_id)}
 
 
+@app.post("/api/inventory/buy-pet-food")
+def buy_pet_food_endpoint(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    item_key = str(payload.get("item_key") or "")
+    try:
+        quantity = int(payload.get("quantity") or 1)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректное количество")
+    prices = {
+        "cat_food": 250, "dog_food": 250, "rabbit_food": 250,
+        "bird_food": 250, "fish_food": 250, "reptile_food": 250,
+        "small_pet_food": 250, "universal_pet_food": 500,
+    }
+    if item_key not in prices:
+        raise HTTPException(status_code=400, detail="Неизвестный корм")
+    if not 1 <= quantity <= 100:
+        raise HTTPException(status_code=400, detail="Можно купить от 1 до 100 порций за раз")
+    total = prices[item_key] * quantity
+    conn = db()
+    cur = conn.cursor()
+    if not change_balance(cur, user_id, -total):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Недостаточно LDC")
+    cur.execute(
+        "INSERT INTO inventory_items (user_id, item_key, quantity) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, item_key) DO UPDATE SET quantity = quantity + excluded.quantity",
+        (user_id, item_key, quantity),
+    )
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {
+        "ok": True, "message": f"Куплено: {quantity} порц. корма за {total:,} LDC.",
+        "items": bot_db.get_inventory(user_id), "balance": balance,
+    }
+
+
 @app.post("/api/inventory/use-pet-food")
 def use_pet_food_endpoint(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
