@@ -3694,10 +3694,16 @@ def get_island(init_data: str = Query(..., alias="initData")):
     inventory = [{"key": r["item_key"], "name": ISLAND_RESOURCE_NAMES.get(r["item_key"], r["item_key"]), "quantity": int(r["quantity"])} for r in cur.fetchall()]
     cur.execute("SELECT island_level, experience, last_action_at FROM island_progress WHERE user_id = %s", (user_id,))
     progress_row = cur.fetchone()
+    last_action_at = progress_row["last_action_at"] if progress_row else None
+    action_remaining = 0
+    if last_action_at:
+        last_action_dt = datetime.fromisoformat(str(last_action_at))
+        action_remaining = max(0, int(ISLAND_RESOURCE_ACTION_COOLDOWN - (datetime.now() - last_action_dt).total_seconds()))
     progress = {
         "level": int(progress_row["island_level"]) if progress_row else 1,
         "experience": int(progress_row["experience"]) if progress_row else 0,
-        "last_action_at": progress_row["last_action_at"] if progress_row else None,
+        "last_action_at": last_action_at,
+        "action_remaining_seconds": action_remaining,
         "action_cooldown": ISLAND_RESOURCE_ACTION_COOLDOWN,
     }
     cur.execute("SELECT profession, level FROM professions WHERE user_id = %s", (user_id,))
@@ -3731,6 +3737,7 @@ def get_island(init_data: str = Query(..., alias="initData")):
             "completes_at": expedition_row["completes_at"],
             "claimed_at": expedition_row["claimed_at"],
             "active": expedition_row["claimed_at"] is None,
+            "remaining_seconds": max(0, int((datetime.fromisoformat(str(expedition_row["completes_at"])) - datetime.now()).total_seconds())) if expedition_row["claimed_at"] is None else 0,
             "name": ISLAND_EXPEDITIONS.get(expedition_row["expedition_key"], {}).get("name", expedition_row["expedition_key"]),
         }
     conn.close()
