@@ -1168,6 +1168,37 @@ def clear_all_immunities() -> int:
 
 # === ИГРЫ ===
 
+def can_play_game(user_id: int, game_type: str, limit: int = 5) -> tuple:
+    """Read-only cooldown check, useful before accepting a multiplayer invitation."""
+    now = datetime.now()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO game_play_limits (user_id, game_type, plays, cooldown_until) "
+        "VALUES (?, ?, 0, NULL) ON CONFLICT(user_id, game_type) DO NOTHING",
+        (user_id, game_type),
+    )
+    cur.execute(
+        "SELECT plays, cooldown_until FROM game_play_limits WHERE user_id = ? AND game_type = ?",
+        (user_id, game_type),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return True, 0
+    cooldown_until = row[1]
+    if cooldown_until:
+        try:
+            until = cooldown_until if isinstance(cooldown_until, datetime) else datetime.fromisoformat(str(cooldown_until))
+            remaining = int((until - now).total_seconds())
+            if remaining > 0:
+                return False, remaining
+        except (TypeError, ValueError):
+            pass
+    return True, 0
+
+
 def register_game_play(user_id: int, game_type: str, limit: int = 5, cooldown_seconds: int = 9000) -> tuple:
     """Atomically register a game play; after five plays, lock that game for 2h30m."""
     now = datetime.now()
