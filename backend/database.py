@@ -1685,6 +1685,8 @@ def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
             "level": int(level), "experience": int(experience)}
 def care_for_pet(user_id: int, pet_id: int, action: str) -> tuple:
     """Уход за своим питомцем; списание и обновление состояния выполняются одной транзакцией."""
+    # Apply inactivity decay before an action can restore a stat.
+    get_pet_care(pet_id, user_id)
     costs = {"feed": 100, "play": 50, "heal": 250, "upgrade": 1000}
     if action not in costs:
         return False, "Неизвестное действие."
