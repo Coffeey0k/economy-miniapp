@@ -166,6 +166,12 @@ app = FastAPI()
 async def audit_rejected_api_requests(request: Request, call_next):
     """Record rejected requests and return CORS-compatible 500 responses."""
     client_host = request.client.host if request.client else "unknown"
+    if request.url.path.startswith("/api/trades"):
+        logger.info("Disabled trade endpoint requested method=%s path=%s client=%s", request.method, request.url.path, client_host)
+        return JSONResponse(
+            status_code=410,
+            content={"detail": "Обмены временно отключены. История и данные сохранены."},
+        )
     try:
         response = await call_next(request)
     except Exception:
