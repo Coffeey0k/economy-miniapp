@@ -1030,23 +1030,21 @@ def transfer_coins(payload: dict = Body(...)):
         raise HTTPException(status_code=404, detail="Пользователь с таким username не найден")
 
     target_id = int(target["user_id"])
-    # Перевод — реальная денежная операция: намеренно обходим test-mode скидку,
-    # иначе тех.админ в тестовом режиме мог бы переводить монеты бесплатно.
-    cur.execute(
-        "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
-        (amount, user_id, amount),
-    )
-    if cur.rowcount != 1:
-        conn.rollback()
-        conn.close()
-        raise HTTPException(status_code=400, detail="Недостаточно монет")
-    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
-    if cur.rowcount != 1:
-        conn.rollback()
-        conn.close()
-        raise HTTPException(status_code=400, detail="Не удалось зачислить перевод; деньги не списаны")
-    conn.commit()
     conn.close()
+    # Shared atomic quota: at most five successful transfers per UTC day across
+    # Telegram bot and Mini App. Quota increments only if the money moves.
+    ok, reason, count = bot_db.transfer_coins_limited(user_id, target_id, amount, daily_limit=5)
+    if not ok:
+        if reason == "limit":
+            _log_security_attempt(user_id, "transfer_daily_limit", f"Попытка перевода сверх лимита; target_id={target_id}; amount={amount}; count={count}")
+            raise HTTPException(status_code=429, detail="Лимит переводов исчерпан: максимум 5 успешных переводов в сутки (UTC).")
+        if reason == "balance":
+            _log_security_attempt(user_id, "transfer_insufficient_balance", f"target_id={target_id}; amount={amount}")
+            raise HTTPException(status_code=400, detail="Недостаточно монет")
+        if reason == "recipient":
+            raise HTTPException(status_code=404, detail="Пользователь-получатель не найден")
+        _log_security_attempt(user_id, "transfer_rejected", f"reason={reason}; target_id={target_id}; amount={amount}")
+        raise HTTPException(status_code=400, detail="Перевод не выполнен")
     try:
         bot_db.log_action(
             user_id, "transfer", f"Перевод в Mini App пользователю @{target_username}",
@@ -1054,7 +1052,7 @@ def transfer_coins(payload: dict = Body(...)):
         )
     except Exception:
         logger.exception("Не удалось выполнить необязательную операцию")
-    return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}"}
+    return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}. Переводов сегодня: {count}/5."}
 
 
 # ========== API: ИГРЫ ==========
@@ -1075,6 +1073,7 @@ def play_game(payload: dict = Body(...)):
     if game not in {"slot", "dice", "coin", "dart", "number"}:
         raise HTTPException(status_code=400, detail="Неизвестная игра")
     if bet < 500:
+        _log_security_attempt(user_id, "ttt_invalid_bet", f"bet={bet}")
         raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     if game in {"dice", "number"}:
         try:
@@ -1182,6 +1181,15 @@ def play_game(payload: dict = Body(...)):
 
 
 
+# ========== ЖУРНАЛ ПОДОЗРИТЕЛЬНЫХ ДЕЙСТВИЙ ==========
+def _log_security_attempt(user_id: int, event: str, details: str = ""):
+    logger.warning("SECURITY event=%s user_id=%s details=%s", event, user_id, details)
+    try:
+        bot_db.log_action(user_id, "security", f"{event}: {details}"[:1000])
+    except Exception:
+        logger.exception("Не удалось записать security action user_id=%s event=%s", user_id, event)
+
+
 # ========== КРЕСТИКИ-НОЛИКИ MINI APP ==========
 def _ttt_bot_choice(board: str) -> int:
     cells = list(board)
@@ -1270,6 +1278,7 @@ def ttt_move_web(payload: dict = Body(...)):
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Некорректный ход")
     if not 0 <= cell <= 8:
+        _log_security_attempt(user_id, "ttt_invalid_cell", f"game_id={game_id}; cell={cell}")
         raise HTTPException(status_code=400, detail="Клетка вне поля")
 
     conn = db()
@@ -1282,18 +1291,22 @@ def ttt_move_web(payload: dict = Body(...)):
     row = cur.fetchone()
     if not row:
         conn.close()
+        _log_security_attempt(user_id, "ttt_game_not_owned_or_missing", f"game_id={game_id}")
         raise HTTPException(status_code=404, detail="Игра не найдена")
     game = dict(row)
     if game["status"] != "active":
         conn.close()
-        raise HTTPException(status_code=400, detail="Игра уже завершена")
+        _log_security_attempt(user_id, "ttt_replayed_finished_game", f"game_id={game_id}; status={game['status']}")
+        raise HTTPException(status_code=409, detail="Игра уже завершена")
     if game["turn"] != user_id:
         conn.close()
+        _log_security_attempt(user_id, "ttt_wrong_turn", f"game_id={game_id}; expected={game['turn']}")
         raise HTTPException(status_code=400, detail="Сейчас не твой ход")
     board = list(game["board"])
     if board[cell] != "_":
         conn.close()
-        raise HTTPException(status_code=400, detail="Клетка уже занята")
+        _log_security_attempt(user_id, "ttt_replayed_or_occupied_cell", f"game_id={game_id}; cell={cell}; board={game['board']}")
+        raise HTTPException(status_code=409, detail="Клетка уже занята")
 
     board[cell] = "X"
     status, winner_id = "active", None
@@ -1312,10 +1325,18 @@ def ttt_move_web(payload: dict = Body(...)):
             status = "draw"
 
     final_board = "".join(board)
+    # Compare-and-set is the final anti-duplication guard: even if requests race
+    # or a client replays the same move, only one request can settle this board.
     cur.execute(
-        "UPDATE ttt_games SET board = ?, status = ?, winner = ?, turn = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (final_board, status, winner_id, user_id, game_id),
+        "UPDATE ttt_games SET board = ?, status = ?, winner = ?, turn = ?, updated_at = CURRENT_TIMESTAMP "
+        "WHERE id = ? AND player_x = ? AND status = 'active' AND board = ? AND turn = ?",
+        (final_board, status, winner_id, user_id, game_id, user_id, game["board"], user_id),
     )
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        _log_security_attempt(user_id, "ttt_duplicate_or_racing_move", f"game_id={game_id}; cell={cell}")
+        raise HTTPException(status_code=409, detail="Этот ход уже обработан. Обнови поле и попробуй снова.")
     payout = 0
     won = status == "finished" and winner_id == user_id
     lost = status == "finished" and winner_id == 0
