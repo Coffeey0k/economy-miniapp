@@ -4595,7 +4595,9 @@ def _delete_user_full_main(cur, user_id: int):
         "user_settings", "islands",
         "clan_members",
         "music_personal", "music_shared", "music_slots",
-        "rcc_balance", "rcc_transactions", "wheel_tickets", "game_play_limits",
+        "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
+        "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
+        "inventory_items",
     ]
     for t in tables_with_user_id:
         try:
