@@ -1120,6 +1120,51 @@ def clear_all_immunities() -> int:
 
 # === ИГРЫ ===
 
+def register_game_play(user_id: int, game_type: str, limit: int = 5, cooldown_seconds: int = 9000) -> tuple:
+    """Atomically register a game play; after five plays, lock that game for 2h30m."""
+    now = datetime.now()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO game_play_limits (user_id, game_type, plays, cooldown_until) "
+        "VALUES (?, ?, 0, NULL) ON CONFLICT(user_id, game_type) DO NOTHING",
+        (user_id, game_type),
+    )
+    cur.execute(
+        "SELECT plays, cooldown_until FROM game_play_limits WHERE user_id = ? AND game_type = ?",
+        (user_id, game_type),
+    )
+    row = cur.fetchone()
+    plays = int(row[0] or 0)
+    cooldown_until = row[1]
+    if cooldown_until:
+        try:
+            until = cooldown_until if isinstance(cooldown_until, datetime) else datetime.fromisoformat(str(cooldown_until))
+        except (TypeError, ValueError):
+            until = now
+        remaining = int((until - now).total_seconds())
+        if remaining > 0:
+            conn.close()
+            return False, remaining
+        plays = 0
+        cooldown_until = None
+    plays += 1
+    if plays >= limit:
+        until = now + timedelta(seconds=cooldown_seconds)
+        cur.execute(
+            "UPDATE game_play_limits SET plays = 0, cooldown_until = ? WHERE user_id = ? AND game_type = ?",
+            (until.isoformat(), user_id, game_type),
+        )
+    else:
+        cur.execute(
+            "UPDATE game_play_limits SET plays = ?, cooldown_until = NULL WHERE user_id = ? AND game_type = ?",
+            (plays, user_id, game_type),
+        )
+    conn.commit()
+    conn.close()
+    return True, 0
+
+
 def update_game_stats(user_id: int, won: bool, amount: int):
     """Атомарно обновляет статистику, создавая строку для старых пользователей при необходимости."""
     conn = sqlite3.connect(DB_NAME)
