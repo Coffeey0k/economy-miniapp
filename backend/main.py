@@ -45,7 +45,7 @@ init_db()
 bot_db.DB_NAME = os.environ.get("DB_PATH", bot_db.DB_NAME)
 bot_db.init_db()  # Ensure boost/event tables exist even when the API starts before the bot.
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # ========== НАСТРОЙКИ ==========
@@ -165,6 +165,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def audit_rejected_api_requests(request: Request, call_next):
+    """Record every rejected/error API response without logging tokens or request bodies."""
+    client_host = request.client.host if request.client else "unknown"
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(
+            "API_UNHANDLED_ERROR method=%s path=%s client=%s",
+            request.method, request.url.path, client_host,
+        )
+        raise
+    if response.status_code >= 400:
+        logger.warning(
+            "API_REJECTED method=%s path=%s status=%s client=%s",
+            request.method, request.url.path, response.status_code, client_host,
+        )
+    return response
 
 
 # ========== ПРОВЕРКА TELEGRAM INIT DATA ==========
@@ -1011,10 +1030,13 @@ def transfer_coins(payload: dict = Body(...)):
     try:
         amount = int(payload.get("amount") or 0)
     except (TypeError, ValueError):
+        _log_security_attempt(user_id, "transfer_invalid_amount_format", f"amount={payload.get('amount')!r}")
         raise HTTPException(status_code=400, detail="Сумма должна быть целым числом")
     if amount <= 0:
+        _log_security_attempt(user_id, "transfer_invalid_amount", f"amount={amount}")
         raise HTTPException(status_code=400, detail="Сумма должна быть больше нуля")
     if not target_username:
+        _log_security_attempt(user_id, "transfer_missing_recipient", "username is empty")
         raise HTTPException(status_code=400, detail="Укажи username получателя")
 
     conn = db()
@@ -1027,6 +1049,7 @@ def transfer_coins(payload: dict = Body(...)):
     target = cur.fetchone()
     if not target:
         conn.close()
+        _log_security_attempt(user_id, "transfer_unknown_recipient", f"username={target_username[:64]}")
         raise HTTPException(status_code=404, detail="Пользователь с таким username не найден")
 
     target_id = int(target["user_id"])
@@ -1073,7 +1096,7 @@ def play_game(payload: dict = Body(...)):
     if game not in {"slot", "dice", "coin", "dart", "number"}:
         raise HTTPException(status_code=400, detail="Неизвестная игра")
     if bet < 500:
-        _log_security_attempt(user_id, "ttt_invalid_bet", f"bet={bet}")
+        _log_security_attempt(user_id, "game_invalid_bet", f"game={game}; bet={bet}")
         raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     if game in {"dice", "number"}:
         try:
@@ -1220,8 +1243,10 @@ def ttt_start(payload: dict = Body(...)):
     try:
         bet = int(payload.get("bet") or 0)
     except (TypeError, ValueError):
+        _log_security_attempt(user_id, "ttt_invalid_bet_format", f"bet={payload.get('bet')!r}")
         raise HTTPException(status_code=400, detail="Некорректная ставка")
     if bet < 500:
+        _log_security_attempt(user_id, "ttt_invalid_bet", f"bet={bet}")
         raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     conn = db()
     cur = conn.cursor()
