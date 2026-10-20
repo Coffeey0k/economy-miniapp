@@ -561,6 +561,16 @@ def init_db():
             last_game TIMESTAMP
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS lcc_market (
+            id INTEGER PRIMARY KEY,
+            rate REAL NOT NULL DEFAULT 50500,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute(
+        "INSERT INTO lcc_market (id, rate) VALUES (1, 50500) ON CONFLICT(id) DO NOTHING"
+    )
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS rcc_transactions (
@@ -1172,6 +1182,40 @@ def register_game_play(user_id: int, game_type: str, limit: int = 5, cooldown_se
     conn.commit()
     conn.close()
     return True, 0
+
+
+def get_lcc_rate() -> float:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS lcc_market (id INTEGER PRIMARY KEY, rate REAL NOT NULL DEFAULT 50500, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    cur.execute("INSERT INTO lcc_market (id, rate) VALUES (1, 50500) ON CONFLICT(id) DO NOTHING")
+    cur.execute("SELECT rate FROM lcc_market WHERE id = 1")
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return float(row[0] if row and row[0] else 50500.0)
+
+
+def update_lcc_rate(direction: str, amount: float) -> float:
+    """Small supply/demand movement around the initial 50,500 LDC/LCC quote."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS lcc_market (id INTEGER PRIMARY KEY, rate REAL NOT NULL DEFAULT 50500, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    cur.execute("INSERT INTO lcc_market (id, rate) VALUES (1, 50500) ON CONFLICT(id) DO NOTHING")
+    cur.execute("SELECT rate FROM lcc_market WHERE id = 1")
+    row = cur.fetchone()
+    rate = float(row[0] if row and row[0] else 50500.0)
+    # Each 1 LCC traded moves the quote by 0.1%, capped at 2% per transaction.
+    fraction = min(0.02, max(0.00001, abs(float(amount)) * 0.001))
+    if direction == "buy":
+        rate *= 1 + fraction
+    else:
+        rate *= 1 - fraction
+    rate = min(1000000.0, max(100.0, rate))
+    cur.execute("UPDATE lcc_market SET rate = ?, updated_at = ? WHERE id = 1", (rate, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    return rate
 
 
 def update_game_stats(user_id: int, won: bool, amount: int):
