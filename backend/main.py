@@ -1925,7 +1925,14 @@ def _bs_ensure_special_schema(conn):
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
     cur.execute("""CREATE TABLE IF NOT EXISTS battleship_economy (
-        user_id INTEGER PRIMARY KEY, sea_points INTEGER NOT NULL DEFAULT 0)""")
+        user_id BIGINT PRIMARY KEY, sea_points INTEGER NOT NULL DEFAULT 0)""")
+    cur.execute(
+        "SELECT data_type FROM information_schema.columns "
+        "WHERE table_schema = current_schema() AND table_name = 'battleship_economy' AND column_name = 'user_id'"
+    )
+    economy_user_type = cur.fetchone()
+    if economy_user_type and str(economy_user_type[0]).lower() not in {"bigint"}:
+        cur.execute("ALTER TABLE battleship_economy ALTER COLUMN user_id TYPE BIGINT")
     cur.execute(
         "SELECT column_name FROM information_schema.columns "
         "WHERE table_schema = current_schema() AND table_name = 'battleship_games'"
