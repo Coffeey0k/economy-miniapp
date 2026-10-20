@@ -2347,6 +2347,10 @@ def bs_start(payload: dict = Body(...)):
     sea_points = _bs_points(cur, user_id)
     conn.commit()
     conn.close()
+    try:
+        bot_db.log_action(user_id, "game", f"Морской бой: старт game_id={game_id}; ставка={bet}; player_defenses={player_defenses.count('D')}", amount=0)
+    except Exception:
+        logger.exception("Не удалось записать старт морского боя user_id=%s game_id=%s", user_id, game_id)
 
     return {
         "game_id": game_id,
@@ -2539,6 +2543,15 @@ def bs_fire(payload: dict = Body(...)):
     sea_points = _bs_points(cur, user_id)
     conn.commit()
     conn.close()
+    try:
+        bot_db.log_action(
+            user_id, "game",
+            f"Морской бой ход: game_id={game_id}; клетка=({row + 1},{col + 1}); result={result}; "
+            f"status={completed_status}; turn={final['turn']}; sea_reward={sea_reward}",
+            amount=0,
+        )
+    except Exception:
+        logger.exception("Не удалось записать аудит хода морского боя user_id=%s game_id=%s", user_id, game_id)
 
     if completed_status in {"win", "lose"}:
         try:
@@ -2777,6 +2790,15 @@ def bs_special(payload: dict = Body(...)):
     radar_visible = [i for i in range(100) if final["radar_cells"] and final["radar_cells"][i] == "1"] if int(final["radar_until"] or 0) >= int(time.time()) else []
     conn.commit()
     conn.close()
+    try:
+        bot_db.log_action(
+            user_id, "game",
+            f"Морской бой спецдействие: game_id={game_id}; action={action}; result={result}; "
+            f"status={final['status']}; turn={final['turn']}; sea_reward={sea_reward}",
+            amount=0,
+        )
+    except Exception:
+        logger.exception("Не удалось записать аудит спецдействия морского боя user_id=%s game_id=%s", user_id, game_id)
     return {
         "ok": True, "result": result, "bot_msg": bot_msg, "game_id": game_id,
         "bet": final["bet"], "reward": int(final["bet"]) * 2,
