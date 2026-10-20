@@ -785,6 +785,8 @@ def transfer_coins_limited(sender_id: int, recipient_id: int, amount: int, daily
     """
     if amount <= 0 or amount > 9_223_372_036_854_775_807 or sender_id == recipient_id:
         return False, "invalid", 0
+    if amount > 200_000:
+        return False, "max_amount", 0
     today = datetime.utcnow().date().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
