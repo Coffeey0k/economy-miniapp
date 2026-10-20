@@ -1262,7 +1262,7 @@
     <!-- ГЛАВНАЯ LCC -->
     <div id="rcc-main-block">
       <div class="card">
-        <h2>💰 ReefCriptoCoin</h2>
+        <h2>💎 Lavender Crypto Coin (LCC)</h2>
         <div class="label">Баланс LCC: <b id="rcc-balance">0.00</b> LCC</div>
         <div class="label">Всего кликов: <span id="rcc-total-clicks">0</span></div>
         <div class="label">Курс: 1 LCC = <span id="rcc-rate">50,500</span> 🪙</div>
@@ -3190,12 +3190,12 @@
     const size = parseInt(el.dataset.size);
 
     if (type === "coin") {
-      // Размер 30-55, награда 0.05-0.15
+      // Размер 30-55, награда 0.00035-0.00080 LCC
       const reward = 0.00035 + ((size - 30) / 25) * 0.00045;
       rccGame.score += reward;
       playSound("click");
       haptic("light");
-      showFloatingText(el, `+${reward.toFixed(2)}`, "#00ff88");
+      showFloatingText(el, `+${reward.toFixed(5)} LCC`, "#00ff88");
     } else if (type === "ice") {
       rccGame.frozen = true;
       playSound("error");
