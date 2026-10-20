@@ -2869,7 +2869,7 @@ def bs_special(payload: dict = Body(...)):
 
     cur.execute("""
         SELECT player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, plane_available, plane_buys, radar_cells, radar_until, radar_bought
+               player_defenses, plane_available, plane_buys, defenses_bought, radar_cells, radar_until, radar_bought
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     final = cur.fetchone()
