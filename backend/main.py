@@ -66,6 +66,13 @@ PROFESSIONS = {
     "cook": "🍳 Повар",
     "vet": "🩺 Ветеринар",
     "programmer": "💻 Программист",
+    "farmer": "🌾 Фермер",
+    "fisher": "🎣 Рыбак",
+    "miner": "⛏️ Шахтёр",
+    "blacksmith": "⚒️ Кузнец",
+    "engineer": "⚙️ Инженер",
+    "explorer": "🧭 Исследователь",
+    "merchant": "🛒 Торговец",
     "ruler": "👑 Правитель Lavender Dream",
 }
 
