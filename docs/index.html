@@ -925,6 +925,10 @@
       <h2>Ваши питомцы</h2>
       <p class="label">Максимум 2 активных одновременно. Активные приносят доход раз в 4 часа.</p>
       <div id="pets-list"></div>
+      <div class="card" style="margin-top:12px">
+        <div class="section-title">🎒 Инвентарь</div>
+        <div id="inventory-list" class="label">Загрузка…</div>
+      </div>
     </div>
   </div>
 
@@ -1684,11 +1688,31 @@
         ? data.pets.map(p => `
           <div class="item-row">
             <span>${p.name} (${p.rarity})${p.is_active ? '<span class="active-tag">активен</span>' : ''}<br><span class="label">+${p.income} монет / 4ч</span></span>
-            <button class="btn btn-small" onclick="togglePet(${p.id}, ${!p.is_active})">${p.is_active ? "Деактивировать" : "Активировать"}</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-small" onclick="togglePet(${p.id}, ${!p.is_active})">${p.is_active ? "Деактивировать" : "Активировать"}</button>
+              <button class="btn btn-small" onclick="usePetFood(${p.id})">Покормить</button>
+            </div>
           </div>`).join("")
         : `<div class="label">Питомцев пока нет — загляните в Магазин → Яйца</div>`;
+      loadInventory();
     } catch (e) { showMsg("pets-msg", e.message, false); }
   }
+  async function loadInventory() {
+    try {
+      const data = await apiGet("/api/inventory");
+      document.getElementById("inventory-list").innerHTML = data.items.length
+        ? data.items.map(i => `<div class="item-row"><span>${i.item_key.replaceAll("_", " ")}</span><b>×${i.quantity}</b></div>`).join("")
+        : "Инвентарь пуст. Подходящий корм появится после покупки предметов.";
+    } catch (e) { document.getElementById("inventory-list").textContent = e.message; }
+  }
+  async function usePetFood(petId) {
+    try {
+      const res = await apiPost("/api/inventory/use-pet-food", { pet_id: petId });
+      toast(res.message, false);
+      loaded.pets = false; loadPets();
+    } catch (e) { toast(e.message, true); }
+  }
+
   async function togglePet(petId, active) {
     try {
       await apiPost("/api/pets/toggle", { pet_id: petId, active });
