@@ -57,6 +57,7 @@ async def ms_start(message: Message):
     if len(parts) >= 2:
         match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", parts[1].lower())
         if not match:
+            db.log_action(message.from_user.id, "security", f"Некорректная ставка Сапёра: {message.text[:180]!r}")
             await message.answer("❌ Ставка должна быть числом (например, «сапёр 1к»).")
             return
         try:
@@ -67,20 +68,24 @@ async def ms_start(message: Message):
                 raise ValueError
             bet = int(scaled)
         except (ValueError, OverflowError):
+            db.log_action(message.from_user.id, "security", f"Ставка Сапёра вне диапазона: {message.text[:180]!r}")
             await message.answer("❌ Некорректная ставка.")
             return
 
     if bet < 500:
+        db.log_action(message.from_user.id, "security", f"Ставка Сапёра ниже минимума: {bet}")
         await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
 
     user_id = message.from_user.id
     balance = db.get_balance(user_id)
     if balance < bet:
+        db.log_action(user_id, "security", f"Ставка Сапёра превышает баланс: bet={bet}; balance={balance}")
         await message.answer(f"❌ Недостаточно LDC. У тебя {balance:,} LDC.")
         return
     allowed, remaining = db.register_game_play(user_id, "minesweeper")
     if not allowed:
+        db.log_action(user_id, "security", f"Попытка Сапёра во время кулдауна: remaining={remaining}s")
         hours, rem = divmod(remaining, 3600)
         minutes = rem // 60
         await message.answer(f"⏳ Сапёр на перерыве ещё {hours} ч {minutes} мин.")
