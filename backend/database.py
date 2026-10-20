@@ -1803,9 +1803,10 @@ PET_FOOD_BY_NAME = {
     "собака": "dog_food", "щенок": "dog_food",
     "кролик": "rabbit_food", "заяц": "rabbit_food",
     "попугай": "bird_food", "птица": "bird_food",
-    "рыба": "fish_food", "черепаха": "reptile_food",
-    "ящерица": "reptile_food", "хомяк": "small_pet_food",
-    "мышь": "small_pet_food", "крыса": "small_pet_food",
+    "рыб": "fish_food", "дельфин": "fish_food", "осьминог": "fish_food", "краб": "fish_food",
+    "черепаха": "reptile_food", "ящериц": "reptile_food",
+    "хомяк": "small_pet_food", "хомяч": "small_pet_food",
+    "мышь": "small_pet_food", "крыса": "small_pet_food", "морская свинка": "small_pet_food",
 }
 
 
