@@ -1966,21 +1966,32 @@
 
   function renderGameUI() {
     const area = document.getElementById("game-area");
-    const bets = [10, 50, 100, 500, 1000];
+    const bets = [500, 1000, 5000, 10000];
     let extra = "";
     if (currentGame === "dice") extra = `<input type="number" id="game-choice" placeholder="Число 1-6" min="1" max="6">`;
     if (currentGame === "number") extra = `<input type="number" id="game-choice" placeholder="Число 1-10" min="1" max="10">`;
     if (currentGame === "coin") extra = `<select id="game-choice" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;"><option value="Орел">🦅 Орёл</option><option value="Решка">🪙 Решка</option></select>`;
     area.innerHTML = `
       ${extra}
+      <label class="label" for="game-custom-bet">Своя ставка (минимум 500 LDC)</label>
+      <input type="number" id="game-custom-bet" min="500" step="1" placeholder="Введи свою ставку" style="width:100%;margin-bottom:10px;">
       <div class="tabs-sub" style="flex-wrap:wrap;">
-        ${bets.map(b => `<button class="btn btn-small" onclick="playGame(${b})">${b} 🪙</button>`).join("")}
+        ${bets.map(b => `<button class="btn btn-small" onclick="playGame(${b})">${b.toLocaleString()} LDC</button>`).join("")}
       </div>
+      <button class="btn" style="width:100%;margin-top:8px;" onclick="playGame()">🎲 Играть со своей ставкой</button>
       <div id="game-result" style="text-align:center;font-size:18px;margin-top:12px;"></div>
     `;
   }
   function loadGames() { renderGameUI(); }
   async function playGame(bet) {
+    if (bet === undefined || bet === null) {
+      const betEl = document.getElementById("game-custom-bet");
+      bet = betEl ? Number(betEl.value) : 0;
+    }
+    if (!Number.isSafeInteger(bet) || bet < 500) {
+      toast("Минимальная ставка — 500 LDC. Введи целое число.", true);
+      return;
+    }
     const choiceEl = document.getElementById("game-choice");
     const choice = choiceEl ? choiceEl.value : null;
     if (currentGame === "coin") await animateCoin(choice, bet);
