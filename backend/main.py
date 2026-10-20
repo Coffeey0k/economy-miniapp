@@ -1955,6 +1955,35 @@ def _bs_generate_field() -> str:
     return "".join("".join(row) for row in grid)
 
 
+def _bs_count_surviving_ships(field: str, shots: str) -> int:
+    """Count own ships with at least one unhit cell after the bot's shots."""
+    if not isinstance(field, str) or len(field) != BS_SIZE * BS_SIZE:
+        return 0
+    shots = shots if isinstance(shots, str) and len(shots) == BS_SIZE * BS_SIZE else "0" * (BS_SIZE * BS_SIZE)
+    visited = set()
+    surviving = 0
+    for idx, cell in enumerate(field):
+        if cell != "S" or idx in visited:
+            continue
+        stack = [idx]
+        component = []
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            component.append(current)
+            row, col = divmod(current, BS_SIZE)
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = row + dr, col + dc
+                ni = _bs_cell_index(nr, nc) if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE else -1
+                if ni >= 0 and field[ni] == "S" and ni not in visited:
+                    stack.append(ni)
+        if any(shots[pos] not in ("2", "3") for pos in component):
+            surviving += 1
+    return surviving
+
+
 def _bs_validate_field(field) -> bool:
     """Проверяет пользовательскую расстановку флота: 1×4, 2×3, 3×2, 4×1."""
     if not isinstance(field, str) or len(field) != BS_SIZE * BS_SIZE:
@@ -2248,7 +2277,7 @@ def bs_fire(payload: dict = Body(...)):
     if win:
         change_balance(cur, user_id, g["bet"] * 2)
         if not g["sea_reward_paid"]:
-            _bs_change_points(cur, user_id, BS_SEA_WIN_REWARD)
+            _bs_change_points(cur, user_id, 2 * _bs_count_surviving_ships(g["player_field"], g["bot_shots"]))
         cur.execute("""
             UPDATE battleship_games SET player_shots = ?, status = 'win', sea_reward_paid = 1 WHERE id = ?
         """, (shots_str, game_id))
@@ -2548,7 +2577,7 @@ def bs_special(payload: dict = Body(...)):
             if won:
                 change_balance(cur, user_id, int(g["bet"]) * 2)
                 if not g["sea_reward_paid"]:
-                    _bs_change_points(cur, user_id, BS_SEA_WIN_REWARD)
+                    _bs_change_points(cur, user_id, 2 * _bs_count_surviving_ships(g["player_field"], g["bot_shots"]))
                 cur.execute("UPDATE battleship_games SET player_shots = ?, plane_available = 0, status = 'win', turn = 'player', sea_reward_paid = 1 WHERE id = ?", (shots_str, game_id))
                 result = "win"
             else:
