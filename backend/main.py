@@ -4312,7 +4312,7 @@ def _delete_user_full_main(cur, user_id: int):
         "user_settings", "islands",
         "clan_members",
         "music_personal", "music_shared", "music_slots",
-        "rcc_balance", "rcc_transactions",
+        "rcc_balance", "rcc_transactions", "wheel_tickets", "game_play_limits",
     ]
     for t in tables_with_user_id:
         try:
