@@ -651,6 +651,14 @@ def init_db():
         )
     """)
 
+    # === ПОКУПКА БИЛЕТОВ КОЛЕСА РАЗ В НЕДЕЛЮ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS wheel_ticket_weekly_purchases (
+            user_id BIGINT PRIMARY KEY,
+            purchased_at TIMESTAMP NOT NULL
+        )
+    """)
+
     # === АУДИТ ОТКЛОНЁННЫХ API-ЗАПРОСОВ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS security_events (
