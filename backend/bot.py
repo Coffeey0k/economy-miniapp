@@ -549,6 +549,9 @@ async def handle_bet(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     _, game_type, bet_str = callback.data.split("_")
     bet = int(bet_str)
+    if bet < 500:
+        await callback.answer("❌ Минимальная ставка — 500 LDC.", show_alert=True)
+        return
     if db.get_balance(user_id) < bet:
         await callback.answer(f"❌ Недостаточно монет", show_alert=True)
         return
