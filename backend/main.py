@@ -776,7 +776,7 @@ def get_tasks(init_data: str = Query(..., alias="initData")):
 
 # ========== API: КОЛЕСО ФОРТУНЫ ==========
 
-WHEEL_COST = 200
+WHEEL_TICKET_COST = 10
 WHEEL_COOLDOWN = 10800  # 3 часа
 
 
@@ -787,6 +787,7 @@ def get_wheel(init_data: str = Query(..., alias="initData")):
     cur = conn.cursor()
     cur.execute("SELECT id, label, chance FROM wheel_sectors")
     sectors = [dict(r) for r in cur.fetchall()]
+    tickets = bot_db.get_wheel_tickets(user_id)
 
     cur.execute("INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,))
     # Serialize spins for this user; otherwise concurrent requests can both win.
@@ -801,7 +802,7 @@ def get_wheel(init_data: str = Query(..., alias="initData")):
         if delta < WHEEL_COOLDOWN:
             can_spin, remaining = False, int(WHEEL_COOLDOWN - delta)
 
-    return {"sectors": sectors, "cost": WHEEL_COST, "can_spin": can_spin, "remaining_seconds": remaining}
+    return {"sectors": sectors, "ticket_cost": WHEEL_TICKET_COST, "tickets": tickets, "can_spin": can_spin, "remaining_seconds": remaining}
 
 
 @app.post("/api/wheel/spin")
@@ -820,9 +821,13 @@ def spin_wheel(payload: dict = Body(...)):
             conn.close()
             raise HTTPException(status_code=400, detail="Колесо ещё не готово к следующему кручению")
 
-    if not change_balance(cur, user_id, -WHEEL_COST):
+    cur.execute("INSERT INTO wheel_tickets (user_id, tickets) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING", (user_id,))
+    cur.execute("SELECT tickets FROM wheel_tickets WHERE user_id = ? FOR UPDATE", (user_id,))
+    ticket_row = cur.fetchone()
+    if not ticket_row or int(ticket_row["tickets"] or 0) < WHEEL_TICKET_COST:
         conn.close()
-        raise HTTPException(status_code=400, detail="Недостаточно монет")
+        raise HTTPException(status_code=400, detail="Нужно 10 билетов колеса")
+    cur.execute("UPDATE wheel_tickets SET tickets = tickets - ? WHERE user_id = ?", (WHEEL_TICKET_COST, user_id))
 
     cur.execute("SELECT label, reward_type, reward_value, chance FROM wheel_sectors")
     sectors = cur.fetchall()
@@ -876,12 +881,12 @@ def spin_wheel(payload: dict = Body(...)):
             user_id,
             "wheel",
             f"Колесо (Mini App): {result_text}",
-            amount=-WHEEL_COST,
+            amount=-WHEEL_TICKET_COST,
         )
     except Exception:
         # Успешный спин не должен завершаться ошибкой из-за логирования.
         pass
-    return {"ok": True, "result": result_text}
+    return {"ok": True, "result": result_text, "tickets": bot_db.get_wheel_tickets(user_id)}
 
 
 # ========== API: БОНУС ==========
