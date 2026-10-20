@@ -1230,22 +1230,11 @@ async def games_word_trigger(message: Message):
     await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
 
 
-@dp.message(F.text.lower().regexp(r"^(?:монетка|казино|слот|слоты|кубик|кости|дротик|дартс|угадай число|число)(?:\s+[0-9]+(?:[.,][0-9]+)?(?:к{1,3})?)?$"))
+@dp.message(F.text.lower().regexp(r"^(?:монетка|казино|слот|слоты|кубик|кости|дротик|дартс|угадай число|число)(?:\s+.*)?$"))
 async def game_word_trigger(message: Message):
-    raw = message.text.lower().strip()
-    bet = None
-    word = raw
-    tail = raw.rsplit(maxsplit=1)
-    if len(tail) == 2:
-        word, bet_text = tail[0], tail[1]
-        amount_match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", bet_text)
-        if amount_match:
-            number = float(amount_match.group(1).replace(",", "."))
-            suffix = amount_match.group(2) or ""
-            multiplier = {"": 1, "к": 1_000, "кк": 1_000_000, "ккк": 1_000_000_000}[suffix]
-            scaled = number * multiplier
-            if scaled.is_integer():
-                bet = int(scaled)
+    raw = message.text.strip().lower()
+    parts = raw.split()
+    word = parts[0]
     aliases = {
         "монетка": ("coin", "🪙 Монетка"), "казино": ("slot", "🎰 Казино / слот"),
         "слот": ("slot", "🎰 Слот"), "слоты": ("slot", "🎰 Слоты"),
@@ -1253,37 +1242,82 @@ async def game_word_trigger(message: Message):
         "дротик": ("dart", "🎯 Дартс"), "дартс": ("dart", "🎯 Дартс"),
         "угадай число": ("number", "🃏 Угадай число"), "число": ("number", "🃏 Угадай число"),
     }
+    # Support multi-word aliases before parsing arguments.
+    if raw.startswith("угадай число"):
+        word, parts = "угадай число", ["угадай число"] + raw[len("угадай число"):].strip().split()
+    elif raw.startswith("слоты"):
+        word = "слоты"
     game_type, title = aliases.get(word, ("slot", "🎰 Слот"))
+    choice = None
+    bet = None
+    args = parts[1:] if word != "угадай число" else parts[1:]
+
+    def parse_bet(value):
+        match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", value)
+        if not match:
+            return None
+        number = float(match.group(1).replace(",", "."))
+        multiplier = {"": 1, "к": 1_000, "кк": 1_000_000, "ккк": 1_000_000_000}[match.group(2) or ""]
+        scaled = number * multiplier
+        return int(scaled) if scaled.is_integer() and scaled <= 9_223_372_036_854_775_807 else None
+
+    if game_type == "coin" and args and args[0] in {"о", "орел", "орёл", "р", "решка"}:
+        choice = "Орел" if args.pop(0) in {"о", "орел", "орёл"} else "Решка"
+    elif game_type == "dice" and args and args[0].isdigit() and 1 <= int(args[0]) <= 6:
+        choice = int(args.pop(0))
+    elif game_type == "number" and args and args[0].isdigit() and 1 <= int(args[0]) <= 10:
+        choice = int(args.pop(0))
+
+    if args:
+        bet = parse_bet(args[-1])
     if bet is None:
-        await message.answer(f"{title}\nИспользуй «{word} [ставка]» для мгновенной игры или выбери ставку:", reply_markup=game_bet_menu(game_type))
+        if game_type in {"coin", "dice", "number"} and choice is None:
+            hint = "Формат: монетка о 500 (или монетка р 1к)." if game_type == "coin" else ("Формат: кубик 4 500." if game_type == "dice" else "Формат: число 7 500.")
+            await message.answer(f"{title}\n{hint}\nМинимальная ставка — 500 LDC.")
+        else:
+            await message.answer(f"{title}\nИспользуй «{word} [выбор] [ставка]» для игры. Минимальная ставка — 500 LDC.")
         return
     if bet < 500:
         await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
+
     user_id = message.from_user.id
-    if db.get_balance(user_id) < bet:
-        await message.answer(f"❌ Недостаточно монет. Твой баланс: {db.get_balance(user_id):,} 🪙.")
+    balance = db.get_balance(user_id)
+    if balance < bet:
+        await message.answer(f"❌ Недостаточно LDC. Твой баланс: {balance:,} LDC.")
         return
     if game_type == "slot":
         net_change, result_text = play_slot(bet)
     elif game_type == "dice":
-        net_change, result_text = play_dice(bet, random.randint(1, 6))
+        if choice is None:
+            await message.answer("🎲 Укажи число от 1 до 6: «кубик 4 500».")
+            return
+        net_change, result_text = play_dice(bet, choice)
     elif game_type == "coin":
-        net_change, result_text = play_coin(bet, random.choice(["Орел", "Решка"]))
+        if choice is None:
+            await message.answer("🪙 Укажи сторону: «монетка о 500» или «монетка р 500».")
+            return
+        net_change, result_text = play_coin(bet, choice)
     elif game_type == "dart":
         net_change, result_text = play_dart(bet)
     else:
-        net_change, result_text = play_number(bet, random.randint(1, 10))
+        if choice is None:
+            await message.answer("🃏 Укажи число от 1 до 10: «число 7 500».")
+            return
+        net_change, result_text = play_number(bet, choice)
+
     if not db.update_balance(user_id, net_change):
         await message.answer("❌ Не удалось обновить баланс. Попробуй ещё раз.")
         return
     db.update_game_stats(user_id, net_change > 0, abs(net_change))
     try:
+        db.assign_daily_tasks(user_id)
+        db.update_task_progress(user_id, "games", 1)
         db.log_action(user_id, "game", f"Игра {game_type}; ставка={bet}; изменение баланса={net_change}", amount=net_change)
     except Exception:
-        logger.exception("Не удалось записать лог игры")
+        logger.exception("Не удалось обновить статистику или задание игры")
     await message.answer(
-        f"{title}\n💰 Ставка: {bet:,} 🪙\n{result_text}\n\nБаланс: {db.get_balance(user_id):,} 🪙",
+        f"{title}\n💰 Ставка: {bet:,} LDC\n{result_text}\n\nБаланс: {db.get_balance(user_id):,} LDC",
         reply_markup=game_result_keyboard()
     )
 
