@@ -4087,20 +4087,53 @@
   }
 
   let mandatoryRulesTimer = null;
+  function rulesReadStorageKey() {
+    const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
+    return user && user.id ? "lavender_dream_rules_read_v1_" + user.id : null;
+  }
+  function rulesWereReadLocally() {
+    const key = rulesReadStorageKey();
+    if (!key) return false;
+    try { return localStorage.getItem(key) === "1"; } catch (e) { return false; }
+  }
+  function saveRulesReadLocally() {
+    const key = rulesReadStorageKey();
+    if (!key) return;
+    try { localStorage.setItem(key, "1"); } catch (e) {}
+  }
   async function checkRulesNotice() {
     const overlay = document.getElementById("mandatory-rules-overlay");
     if (!overlay || !initData) return;
-    const result = await apiGet("/api/rules/read-status");
-    if (result.read) return;
+
+    // Local persistence prevents the dialog flashing again if the WebApp is reopened
+    // before the server acknowledgement finishes. The server remains the cross-device source of truth.
+    if (rulesWereReadLocally()) {
+      apiPost("/api/rules/read", {}).catch((e) => console.warn("Не удалось синхронизировать прочтение правил:", e));
+      return;
+    }
+
+    let alreadyRead = false;
+    try {
+      const result = await apiGet("/api/rules/read-status");
+      alreadyRead = Boolean(result && result.read);
+    } catch (e) {
+      console.warn("Не удалось проверить правила на сервере; показываем их безопасно:", e);
+    }
+    if (alreadyRead) {
+      saveRulesReadLocally();
+      return;
+    }
 
     const countdown = document.getElementById("mandatory-rules-countdown");
     const progress = document.querySelector("#mandatory-rules-progress span");
+    if (!countdown || !progress) return;
     overlay.classList.add("visible");
     document.body.style.overflow = "hidden";
     let secondsLeft = 15;
     countdown.textContent = "Пожалуйста, прочитай правила. Окно закроется через " + secondsLeft + " секунд.";
     progress.style.transform = "scaleX(1)";
-    mandatoryRulesTimer = setInterval(() => {
+    if (mandatoryRulesTimer) clearInterval(mandatoryRulesTimer);
+    mandatoryRulesTimer = setInterval(async () => {
       secondsLeft -= 1;
       countdown.textContent = secondsLeft > 0
         ? "Пожалуйста, прочитай правила. Окно закроется через " + secondsLeft + " секунд."
@@ -4109,10 +4142,11 @@
       if (secondsLeft <= 0) {
         clearInterval(mandatoryRulesTimer);
         mandatoryRulesTimer = null;
+        // Persist locally synchronously before hiding the modal; a quick reopen cannot show it twice.
+        saveRulesReadLocally();
         overlay.classList.remove("visible");
         document.body.style.overflow = "";
-        // Save acknowledgement in the background; the 15-second auto-close is not delayed by network latency.
-        apiPost("/api/rules/read", {}).catch((e) => console.warn("Не удалось сохранить прочтение правил:", e));
+        apiPost("/api/rules/read", {}).catch((e) => console.warn("Не удалось сохранить прочтение правил на сервере:", e));
       }
     }, 1000);
   }
