@@ -1356,11 +1356,11 @@ def ttt_move_web(payload: dict = Body(...)):
 
     conn = db()
     cur = conn.cursor()
-    # Acquire SQLite write lock before reading game state so concurrent/replayed requests cannot both settle.
-    cur.execute("BEGIN IMMEDIATE")
+    # This backend uses PostgreSQL via db_compat; lock the game row before
+    # reading it so concurrent/replayed requests cannot both settle the same move.
     cur.execute(
         "SELECT id, player_x, player_o, is_vs_bot, board, turn, bet, status, winner "
-        "FROM ttt_games WHERE id = ? AND player_x = ?",
+        "FROM ttt_games WHERE id = ? AND player_x = ? FOR UPDATE",
         (game_id, user_id),
     )
     row = cur.fetchone()
