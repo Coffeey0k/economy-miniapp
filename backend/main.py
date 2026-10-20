@@ -5309,5 +5309,22 @@ def tech_find_user(init_data: str = Query(..., alias="initData"),
     }
 
 @app.get("/")
+@app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Render-friendly health check that also verifies the shared PostgreSQL database."""
+    conn = None
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        conn.close()
+        return {"status": "ok", "database": "ok"}
+    except Exception as exc:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        logger.exception("Health check failed: database unavailable")
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
