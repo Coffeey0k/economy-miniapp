@@ -3896,6 +3896,43 @@
     html += `<h2 style="margin-top:20px">🎒 Ресурсы</h2>`;
     const inventory = islandData.inventory || [];
     html += inventory.length ? `<div class="island-inventory-grid">${inventory.map(r => `<div class="island-resource"><span>${r.name}</span><strong>×${r.quantity}</strong></div>`).join("")}</div>` : `<p class="label">Пока нет ресурсов. Выполни островную работу, чтобы начать собирать материалы.</p>`;
+
+    html += `<h2 style="margin-top:20px">📦 Торговые контракты</h2>`;
+    if (!buildings.market) {
+      html += `<p class="label">Построй рынок, чтобы выполнять ежедневные заказы и получать LDC за ресурсы.</p>`;
+    } else {
+      html += `<div class="island-building-grid">${(islandData.contracts || []).map(c => {
+        const haveQty = (inventory.find(r => r.key === c.item) || {}).quantity || 0;
+        const disabled = c.claimed || haveQty < c.quantity;
+        return `<div class="island-building-card"><div class="island-building-title">${c.name}</div><div class="label">Сдать: ${c.item_name} ×${c.quantity}</div><div class="label">Награда: +${Number(c.reward).toLocaleString()} LDC</div><div class="island-building-footer">${c.claimed ? '<span class="label">Выполнено сегодня</span>' : `<button class="btn btn-small" ${disabled ? "disabled" : ""} onclick="claimIslandContract('${c.key}')">Сдать товары</button>`}</div></div>`;
+      }).join("")}</div>`;
+    }
+
+    html += `<h2 style="margin-top:20px">🧭 Морские экспедиции</h2>`;
+    const expedition = islandData.expedition;
+    const expeditionConfigs = [
+      {key:"nearby", name:"Ближний маршрут", duration:"2 часа", requires:"Корабль", cost:"1 карта и 1 еда"},
+      {key:"distant", name:"Дальний маршрут", duration:"8 часов", requires:"Маяк", cost:"3 карты, 2 еды и 1 механизм"}
+    ];
+    const nowMs = Date.now();
+    const completesMs = expedition && expedition.completes_at ? Date.parse(expedition.completes_at) : NaN;
+    const expeditionReady = Boolean(expedition && expedition.active && Number.isFinite(completesMs) && nowMs >= completesMs);
+    const expeditionRemaining = Number.isFinite(completesMs) ? Math.max(0, Math.ceil((completesMs-nowMs)/1000)) : 0;
+    if (!state.has_ship) {
+      html += `<p class="label">Купи корабль, чтобы отправляться в экспедиции.</p>`;
+    } else {
+      html += `<div class="island-building-grid">${expeditionConfigs.map(e => {
+        const locked = e.key === "distant" && !buildings.lighthouse;
+        let actionButton = "";
+        if (expedition && expedition.active && expedition.key === e.key) {
+          actionButton = expeditionReady ? `<button class="btn btn-small" onclick="claimIslandExpedition()">Забрать награду</button>` : `<span class="label">В пути: ${Math.floor(expeditionRemaining/3600)} ч ${Math.floor((expeditionRemaining%3600)/60)} мин</span>`;
+        } else {
+          const canStart = !locked && (!expedition || !expedition.active);
+          actionButton = `<button class="btn btn-small" ${canStart ? "" : "disabled"} onclick="startIslandExpedition('${e.key}')">Отправить</button>`;
+        }
+        return `<div class="island-building-card"><div class="island-building-title">${e.name}</div><div class="label">Время: ${e.duration} · Требуется: ${e.requires}</div><div class="label">Расход: ${e.cost}</div><div class="island-building-footer">${actionButton}</div></div>`;
+      }).join("")}</div>`;
+    }
     document.getElementById("island-buildings").innerHTML = html;
   }
 
@@ -3916,6 +3953,32 @@
     if (!cfg || currentLevel < 1 || currentLevel >= 3 || !confirm(`Улучшить ${cfg.name} до уровня ${currentLevel + 1}? Будут потрачены LDC и материалы.`)) return;
     try {
       const res = await apiPost("/api/island/upgrade", { building });
+      toast(res.message, false);
+      await loadIsland();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function claimIslandContract(contract) {
+    try {
+      const res = await apiPost("/api/island/contracts/claim", { contract });
+      toast(res.message, false);
+      await loadIsland();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function startIslandExpedition(expedition) {
+    try {
+      const res = await apiPost("/api/island/expeditions/start", { expedition });
+      toast(res.message, false);
+      await loadIsland();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function claimIslandExpedition() {
+    try {
+      const res = await apiPost("/api/island/expeditions/claim", {});
       toast(res.message, false);
       await loadIsland();
       loaded.profile = false; loadProfile();
