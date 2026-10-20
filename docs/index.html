@@ -2469,7 +2469,11 @@
       if (action === "plane") payload.orientation = bsPlaneOrientation;
       const res = await apiPost("/api/battleship/special", payload);
       bsState = res;
-      if (action === "buy_plane") { bsActionMode = "plane"; toast("✈️ Самолёт готов к вылету!", false); }
+      if (res.status === "win") {
+        bsActionMode = "fire";
+        playSound("success");
+        toast(`🏆 Победа! +${res.reward} LDC и +${res.sea_reward || 0} морских очков!`, false);
+      } else if (action === "buy_plane") { bsActionMode = "plane"; toast("✈️ Самолёт готов к вылету!", false); }
       else if (action === "place_defense") { bsActionMode = "fire"; toast("🛡️ ПВО установлено: защита зоны 2×10", false); }
       else if (action === "radar") {
         bsActionMode = "fire";
@@ -2492,8 +2496,10 @@
     try {
       const res = await apiPost("/api/battleship/fire", { game_id: bsState.game_id, row, col });
       bsState = res;
-      if (res.status === "win") { playSound("success"); toast(`🏆 Победа! +${res.reward} 🪙 и +20 морских очков!`, false); }
-      else if (res.status === "lose") { playSound("error"); toast("💀 Поражение", true); }
+      if (res.status === "win") {
+        playSound("success");
+        toast(`🏆 Победа! +${res.reward} LDC и +${res.sea_reward || 0} морских очков!`, false);
+      } else if (res.status === "lose") { playSound("error"); toast("💀 Поражение", true); }
       renderBattleship();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
