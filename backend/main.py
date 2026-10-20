@@ -90,6 +90,13 @@ PROFESSION_INFO = {
     "cook": {"name": "🍳 Повар", "salary": 1000, "cooldown_hours": 3},
     "vet": {"name": "🩺 Ветеринар", "salary": 1200, "cooldown_hours": 4},
     "programmer": {"name": "💻 Программист", "salary": 1400, "cooldown_hours": 5},
+    "farmer": {"name": "🌾 Фермер", "salary": 900, "cooldown_hours": 3},
+    "fisher": {"name": "🎣 Рыбак", "salary": 950, "cooldown_hours": 3},
+    "miner": {"name": "⛏️ Шахтёр", "salary": 1100, "cooldown_hours": 4},
+    "blacksmith": {"name": "⚒️ Кузнец", "salary": 1200, "cooldown_hours": 4},
+    "engineer": {"name": "⚙️ Инженер", "salary": 1350, "cooldown_hours": 5},
+    "explorer": {"name": "🧭 Исследователь", "salary": 1250, "cooldown_hours": 5},
+    "merchant": {"name": "🛒 Торговец", "salary": 1150, "cooldown_hours": 4},
     "ruler": {"name": "👑 Правитель Lavender Dream", "salary": 10000, "cooldown_hours": 12},
 }
 HIRE_COST = 1000
@@ -3408,6 +3415,39 @@ ISLAND_NAMES = {
     "pier": "⚓ Причал",
     "ship": "🚢 Корабль",
 }
+ISLAND_BUILDINGS = {
+    "farm": {"name": "🌾 Ферма", "price": 35000, "requires": "island", "materials": {"wood": 10, "fiber": 3}, "description": "Производство урожая"},
+    "mine": {"name": "⛏️ Шахта", "price": 60000, "requires": "island", "materials": {"wood": 15, "stone": 10}, "description": "Камень, руда и шанс найти кристаллы"},
+    "workshop": {"name": "🛠️ Мастерская", "price": 80000, "requires": "mine", "materials": {"wood": 20, "stone": 15, "ore": 5}, "description": "Нужна для производства инструментов и механизмов"},
+    "market": {"name": "🛒 Рынок", "price": 90000, "requires": "pier", "materials": {"wood": 25, "fiber": 10}, "description": "Открывает торговые контракты в следующих обновлениях"},
+    "lighthouse": {"name": "🗼 Маяк", "price": 150000, "requires": "ship", "materials": {"stone": 40, "ore": 15, "gears": 3}, "description": "Открывает подготовку к дальним экспедициям"},
+}
+ISLAND_RESOURCE_ACTION_COOLDOWN = 3 * 3600
+ISLAND_RESOURCE_ACTIONS = {
+    "farmer": {"outputs": {"crops": (4, 8), "fiber": (1, 3)}, "needs": {}, "message": "Ты собрал урожай и волокно."},
+    "gardener": {"outputs": {"wood": (1, 3), "fiber": (2, 5), "seeds": (1, 3)}, "needs": {}, "message": "Ты собрал древесину, волокно и семена."},
+    "fisher": {"outputs": {"fish": (2, 5)}, "needs": {}, "message": "Ты вернулся с уловом."},
+    "miner": {"outputs": {"stone": (3, 6), "ore": (1, 3), "crystal": (0, 1)}, "needs": {}, "message": "Ты добыл камень и руду."},
+    "blacksmith": {"outputs": {"tools": (1, 2)}, "needs": {"ore": 2, "stone": 1}, "message": "Ты изготовил инструменты."},
+    "engineer": {"outputs": {"gears": (1, 2)}, "needs": {"ore": 1, "wood": 2}, "message": "Ты собрал механические детали."},
+    "explorer": {"outputs": {"maps": (1, 1)}, "needs": {}, "message": "Ты нашёл карту для экспедиций."},
+    "merchant": {"outputs": {"trade_goods": (2, 4)}, "needs": {}, "message": "Ты подготовил товары для торговли."},
+    "cook": {"outputs": {"meals": (1, 3)}, "needs": {"crops": 2, "fish": 1}, "message": "Ты приготовил еду для экспедиций."},
+    "artist": {"outputs": {"decor": (1, 2)}, "needs": {}, "message": "Ты создал предметы декора."},
+    "musician": {"outputs": {"music_tokens": (1, 2)}, "needs": {}, "message": "Ты создал музыкальные жетоны."},
+    "photographer": {"outputs": {"photos": (1, 3)}, "needs": {}, "message": "Ты сделал снимки острова."},
+    "vet": {"outputs": {"pet_treats": (1, 2)}, "needs": {"crops": 1}, "message": "Ты приготовил лакомства для питомцев."},
+    "programmer": {"outputs": {"circuits": (1, 2)}, "needs": {"ore": 1}, "message": "Ты собрал электронные платы."},
+}
+ISLAND_RESOURCE_NAMES = {
+    "wood": "🪵 Дерево", "stone": "🪨 Камень", "ore": "⛓️ Руда",
+    "fiber": "🧵 Волокно", "crops": "🌾 Урожай", "fish": "🐟 Рыба",
+    "seeds": "🌱 Семена", "tools": "🔧 Инструменты", "gears": "⚙️ Механизмы",
+    "maps": "🗺️ Карты", "trade_goods": "📦 Торговые товары", "meals": "🍲 Еда",
+    "decor": "🖼️ Декор", "music_tokens": "🎵 Музыкальные жетоны",
+    "photos": "📸 Фотографии", "pet_treats": "🦴 Лакомства", "circuits": "🔌 Платы",
+    "crystal": "💎 Кристаллы",
+}
 HOUSE_INCOME = 5000
 HOUSE_COOLDOWN = 5 * 3600
 SHIP_INCOME = 75000
@@ -3610,7 +3650,6 @@ def get_island(init_data: str = Query(..., alias="initData")):
     """, (user_id,))
     row = cur.fetchone()
     balance = require_balance(cur, user_id)
-    conn.close()
 
     if not row:
         state = {"has_island": False, "has_house": False, "has_pier": False, "has_ship": False,
@@ -3625,16 +3664,163 @@ def get_island(init_data: str = Query(..., alias="initData")):
             "last_ship_income": row["last_ship_income"],
         }
 
+    cur.execute("SELECT building_key, level, built_at FROM island_buildings WHERE user_id = %s ORDER BY building_key", (user_id,))
+    buildings = {r["building_key"]: {"level": int(r["level"]), "built_at": r["built_at"]} for r in cur.fetchall()}
+    cur.execute("SELECT item_key, quantity FROM island_inventory WHERE user_id = %s AND quantity > 0 ORDER BY item_key", (user_id,))
+    inventory = [{"key": r["item_key"], "name": ISLAND_RESOURCE_NAMES.get(r["item_key"], r["item_key"]), "quantity": int(r["quantity"])} for r in cur.fetchall()]
+    cur.execute("SELECT island_level, experience, last_action_at FROM island_progress WHERE user_id = %s", (user_id,))
+    progress_row = cur.fetchone()
+    progress = {
+        "level": int(progress_row["island_level"]) if progress_row else 1,
+        "experience": int(progress_row["experience"]) if progress_row else 0,
+        "last_action_at": progress_row["last_action_at"] if progress_row else None,
+        "action_cooldown": ISLAND_RESOURCE_ACTION_COOLDOWN,
+    }
+    cur.execute("SELECT profession, level FROM professions WHERE user_id = %s", (user_id,))
+    profession_row = cur.fetchone()
+    profession = None
+    if profession_row and profession_row["profession"] in PROFESSION_INFO:
+        profession = {"key": profession_row["profession"], "name": PROFESSION_INFO[profession_row["profession"]]["name"], "level": int(profession_row["level"] or 1)}
+    conn.close()
+
     return {
         "state": state,
         "prices": ISLAND_PRICES,
         "names": ISLAND_NAMES,
+        "buildings": buildings,
+        "building_catalog": ISLAND_BUILDINGS,
+        "inventory": inventory,
+        "resource_names": ISLAND_RESOURCE_NAMES,
+        "progress": progress,
+        "profession": profession,
         "balance": balance,
         "house_income": HOUSE_INCOME,
         "house_cooldown": HOUSE_COOLDOWN,
         "ship_income": SHIP_INCOME,
         "ship_cooldown": SHIP_COOLDOWN,
     }
+
+
+@app.post("/api/island/build")
+def build_island_building(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    building_key = str(payload.get("building", ""))
+    config = ISLAND_BUILDINGS.get(building_key)
+    if not config:
+        raise HTTPException(status_code=400, detail="Неизвестная постройка")
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT has_island, has_pier, has_ship FROM islands WHERE user_id = %s FOR UPDATE", (user_id,))
+    island = cur.fetchone()
+    if not island or not island["has_island"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала купи остров")
+    if config["requires"] == "pier" and not island["has_pier"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала построй причал")
+    if config["requires"] == "ship" and not island["has_ship"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала купи корабль")
+    if config["requires"] in ISLAND_BUILDINGS:
+        cur.execute("SELECT 1 FROM island_buildings WHERE user_id = %s AND building_key = %s", (user_id, config["requires"]))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Сначала построй {ISLAND_BUILDINGS[config['requires']]['name']}")
+    cur.execute("SELECT 1 FROM island_buildings WHERE user_id = %s AND building_key = %s", (user_id, building_key))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Эта постройка уже есть")
+    for resource_key, needed in config.get("materials", {}).items():
+        cur.execute("SELECT quantity FROM island_inventory WHERE user_id = %s AND item_key = %s FOR UPDATE", (user_id, resource_key))
+        resource = cur.fetchone()
+        if not resource or int(resource["quantity"]) < needed:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Для постройки нужно: {ISLAND_RESOURCE_NAMES.get(resource_key, resource_key)} ×{needed}")
+    if not change_balance(cur, user_id, -int(config["price"])):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно LDC. Нужно: {config['price']:,}")
+    for resource_key, needed in config.get("materials", {}).items():
+        cur.execute("UPDATE island_inventory SET quantity = quantity - %s WHERE user_id = %s AND item_key = %s", (needed, user_id, resource_key))
+    cur.execute("INSERT INTO island_buildings (user_id, building_key, level) VALUES (%s, %s, 1)", (user_id, building_key))
+    cur.execute("""
+        INSERT INTO island_progress (user_id, island_level, experience)
+        VALUES (%s, 1, 25)
+        ON CONFLICT(user_id) DO UPDATE SET experience = island_progress.experience + 25
+    """, (user_id,))
+    cur.execute("SELECT island_level, experience FROM island_progress WHERE user_id = %s FOR UPDATE", (user_id,))
+    progress = cur.fetchone()
+    next_level = min(6, max(int(progress["island_level"]), 1 + int(progress["experience"]) // 100))
+    cur.execute("UPDATE island_progress SET island_level = %s WHERE user_id = %s", (next_level, user_id))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    return {"ok": True, "message": f"Построено: {config['name']}", "balance": balance, "island_level": next_level}
+
+
+@app.post("/api/island/profession-action")
+def island_profession_action(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT has_island FROM islands WHERE user_id = %s", (user_id,))
+    island = cur.fetchone()
+    if not island or not island["has_island"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Сначала купи остров")
+    cur.execute("SELECT profession, level FROM professions WHERE user_id = %s FOR UPDATE", (user_id,))
+    prof = cur.fetchone()
+    if not prof or prof["profession"] not in ISLAND_RESOURCE_ACTIONS:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Твоя профессия пока не может выполнять островные работы")
+    profession_key = prof["profession"]
+    action = ISLAND_RESOURCE_ACTIONS[profession_key]
+    cur.execute("INSERT INTO island_progress (user_id) VALUES (%s) ON CONFLICT(user_id) DO NOTHING", (user_id,))
+    cur.execute("SELECT last_action_at FROM island_progress WHERE user_id = %s FOR UPDATE", (user_id,))
+    progress = cur.fetchone()
+    now = datetime.now()
+    if progress and progress["last_action_at"]:
+        last_action = datetime.fromisoformat(str(progress["last_action_at"]))
+        elapsed = (now - last_action).total_seconds()
+        if elapsed < ISLAND_RESOURCE_ACTION_COOLDOWN:
+            remaining = int(ISLAND_RESOURCE_ACTION_COOLDOWN - elapsed)
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Островная работа восстановится через {remaining // 3600} ч {(remaining % 3600) // 60} мин")
+    for resource_key, needed in action["needs"].items():
+        cur.execute("SELECT quantity FROM island_inventory WHERE user_id = %s AND item_key = %s FOR UPDATE", (user_id, resource_key))
+        item = cur.fetchone()
+        if not item or int(item["quantity"]) < needed:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Не хватает ресурса: {ISLAND_RESOURCE_NAMES.get(resource_key, resource_key)} × {needed}")
+    for resource_key, needed in action["needs"].items():
+        cur.execute("UPDATE island_inventory SET quantity = quantity - %s WHERE user_id = %s AND item_key = %s", (needed, user_id, resource_key))
+    gains = {}
+    for resource_key, bounds in action["outputs"].items():
+        amount = random.randint(bounds[0], bounds[1])
+        if resource_key == "crystal":
+            amount = 1 if random.random() < 0.15 else 0
+        if amount <= 0:
+            continue
+        cur.execute("""
+            INSERT INTO island_inventory (user_id, item_key, quantity) VALUES (%s, %s, %s)
+            ON CONFLICT(user_id, item_key) DO UPDATE SET quantity = island_inventory.quantity + EXCLUDED.quantity
+        """, (user_id, resource_key, amount))
+        gains[resource_key] = amount
+    cur.execute("""
+        INSERT INTO island_progress (user_id, island_level, experience, last_action_at)
+        VALUES (%s, 1, 5, %s)
+        ON CONFLICT(user_id) DO UPDATE SET experience = island_progress.experience + 5, last_action_at = EXCLUDED.last_action_at
+    """, (user_id, now.isoformat()))
+    cur.execute("SELECT island_level, experience FROM island_progress WHERE user_id = %s FOR UPDATE", (user_id,))
+    prog = cur.fetchone()
+    level = min(6, max(int(prog["island_level"]), 1 + int(prog["experience"]) // 100))
+    cur.execute("UPDATE island_progress SET island_level = %s WHERE user_id = %s", (level, user_id))
+    conn.commit()
+    conn.close()
+    gains_text = ", ".join(f"{ISLAND_RESOURCE_NAMES.get(k, k)} ×{v}" for k, v in gains.items())
+    if not gains_text:
+        gains_text = "редкие находки не попались"
+    return {"ok": True, "message": f"{action['message']} Получено: {gains_text}", "gains": gains, "island_level": level, "next_action_seconds": ISLAND_RESOURCE_ACTION_COOLDOWN}
 
 
 @app.post("/api/island/buy")
