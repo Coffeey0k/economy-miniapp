@@ -751,6 +751,8 @@ def work_profession(payload: dict = Body(...)):
 @app.get("/api/tasks")
 def get_tasks(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
+    # Ensure Mini App users receive today's tasks even if they haven't sent a bot message.
+    bot_db.assign_daily_tasks(user_id)
     today = datetime.now().date().isoformat()
     conn = db()
     cur = conn.cursor()
@@ -1014,8 +1016,8 @@ def play_game(payload: dict = Body(...)):
 
     if game not in {"slot", "dice", "coin", "dart", "number"}:
         raise HTTPException(status_code=400, detail="Неизвестная игра")
-    if not 1 <= bet <= 1000000:
-        raise HTTPException(status_code=400, detail="Ставка должна быть от 1 до 1 000 000 🪙")
+    if bet < 500:
+        raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     if game in {"dice", "number"}:
         try:
             choice = int(choice)
