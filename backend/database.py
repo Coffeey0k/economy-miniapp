@@ -270,6 +270,12 @@ def init_db():
     columns = [col[1] for col in cur.fetchall()]
     if "last_wheel_time" not in columns:
         cur.execute("ALTER TABLE user_settings ADD COLUMN last_wheel_time TIMESTAMP")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS wheel_tickets (
+            user_id BIGINT PRIMARY KEY,
+            tickets INTEGER NOT NULL DEFAULT 0
+        )
+    """)
 
     # === ПРОКЛЯТОЕ ЯЙЦО ===
     cur.execute("""
@@ -1546,7 +1552,10 @@ def open_egg(user_id: int, egg_type: str) -> Optional[dict]:
             break
         upto += p[3]
     activated = _add_pet_with_slot_check(user_id, chosen)
-    return {"name": chosen[0], "rarity": chosen[1], "income": chosen[2], "is_active": activated}
+    ticket_bonus = 1 if random.random() < 0.035 else 0
+    if ticket_bonus:
+        change_wheel_tickets(user_id, ticket_bonus)
+    return {"name": chosen[0], "rarity": chosen[1], "income": chosen[2], "is_active": activated, "ticket_bonus": ticket_bonus}
 
 
 def open_cursed_egg(user_id: int) -> Optional[dict]:
@@ -2106,6 +2115,7 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
     completed = []
     completed_reward = 0
     completed_names = []
+    ticket_rewards = 0
     for task_id, task_key, progress, target, reward, is_done in rows:
         task_info = DAILY_TASKS.get(task_key, {})
         if task_info.get("type") != task_type and task_key != task_type:
@@ -2123,10 +2133,14 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
             completed.append(task_id)
             completed_reward += int(reward or task_info.get("reward", 0) or 0)
             completed_names.append(task_info.get("name", task_key))
+            if task_key in {"game_player", "storyteller", "weekend_vibes"}:
+                ticket_rewards += 1
     conn.commit()
     conn.close()
     if completed_reward:
         update_balance(user_id, completed_reward)
+    if ticket_rewards:
+        change_wheel_tickets(user_id, ticket_rewards)
     if not completed:
         return None
     return {"task_type": task_type, "names": completed_names,
@@ -2228,6 +2242,10 @@ def activate_promo(code: str, user_id: int) -> Tuple[bool, str]:
             VALUES (?, ?, ?, ?, ?)
         """, (user_id, pet_name, pet_name.split()[0], "легендарный", 300))
         reward_text = f"питомец {pet_name}"
+    elif promo["reward_type"] == "tickets":
+        tickets = max(1, min(100, int(promo["reward_value"] or 1)))
+        change_wheel_tickets(user_id, tickets)
+        reward_text = f"{tickets} билета(ов) колеса"
     elif promo["reward_type"] == "egg":
         egg_type = promo["reward_value"]
         if egg_type in PET_EGGS:
@@ -2406,6 +2424,33 @@ def set_hints_enabled(user_id: int, enabled: bool):
     cur.execute("UPDATE user_settings SET hints_enabled = ? WHERE user_id = ?", (1 if enabled else 0, user_id))
     conn.commit()
     conn.close()
+
+def get_wheel_tickets(user_id: int) -> int:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO wheel_tickets (user_id, tickets) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING", (user_id,))
+    cur.execute("SELECT tickets FROM wheel_tickets WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return int(row[0] if row else 0)
+
+
+def change_wheel_tickets(user_id: int, delta: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO wheel_tickets (user_id, tickets) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING", (user_id,))
+    if delta < 0:
+        cur.execute("UPDATE wheel_tickets SET tickets = tickets + ? WHERE user_id = ? AND tickets >= ?", (delta, user_id, -delta))
+        if cur.rowcount != 1:
+            conn.close()
+            return False
+    else:
+        cur.execute("UPDATE wheel_tickets SET tickets = tickets + ? WHERE user_id = ?", (delta, user_id))
+    conn.commit()
+    conn.close()
+    return True
+
 
 def can_spin_wheel(user_id: int) -> tuple:
     """Проверяет, можно ли крутить колесо. Возвращает (можно, секунд_осталось)"""
