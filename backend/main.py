@@ -4108,6 +4108,76 @@ def _bot_send_music_moderation(admin_id: int, title: str, author: str, sender: s
 RCC_CLICK_AMOUNT = 0.00001
 RCC_EXCHANGE_RATE = 50500
 RCC_GAME_COOLDOWN = 7200
+RCC_UPGRADE_CONFIG = {
+    "click": {"column": "click_level", "base_cost": 1000, "max_level": 10},
+    "timer": {"column": "timer_level", "base_cost": 2500, "max_level": 5},
+    "freeze": {"column": "freeze_level", "base_cost": 1500, "max_level": 5},
+    "reward": {"column": "reward_level", "base_cost": 5000, "max_level": 5},
+}
+
+
+def _rcc_get_progress(cur, user_id: int) -> dict:
+    """Create/load LCC clicker progress and recover one energy per minute."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS rcc_progress (
+            user_id BIGINT PRIMARY KEY,
+            energy INTEGER NOT NULL DEFAULT 100,
+            energy_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            click_level INTEGER NOT NULL DEFAULT 0,
+            timer_level INTEGER NOT NULL DEFAULT 0,
+            freeze_level INTEGER NOT NULL DEFAULT 0,
+            reward_level INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    cur.execute("INSERT OR IGNORE INTO rcc_progress (user_id) VALUES (?)", (user_id,))
+    cur.execute(
+        "SELECT energy, energy_updated_at, click_level, timer_level, freeze_level, reward_level "
+        "FROM rcc_progress WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cur.fetchone()
+    now = datetime.now()
+    try:
+        updated_at = row["energy_updated_at"] if isinstance(row["energy_updated_at"], datetime) else datetime.fromisoformat(str(row["energy_updated_at"]))
+        elapsed = max(0.0, (now - updated_at).total_seconds())
+    except (TypeError, ValueError, KeyError):
+        elapsed = 0.0
+        updated_at = now
+    energy = max(0, min(100, int(row["energy"] or 0)))
+    recovered = int(elapsed // 60)
+    if recovered:
+        energy = min(100, energy + recovered)
+        updated_at = now - timedelta(seconds=elapsed % 60)
+        cur.execute(
+            "UPDATE rcc_progress SET energy = ?, energy_updated_at = ? WHERE user_id = ?",
+            (energy, updated_at.isoformat(), user_id),
+        )
+    click_level = int(row["click_level"] or 0)
+    timer_level = int(row["timer_level"] or 0)
+    freeze_level = int(row["freeze_level"] or 0)
+    reward_level = int(row["reward_level"] or 0)
+    energy_recovery_in = 0 if energy >= 100 else max(1, 60 - int(elapsed % 60))
+    return {
+        "energy": energy,
+        "energy_max": 100,
+        "energy_recovery_in": energy_recovery_in,
+        "click_level": click_level,
+        "timer_level": timer_level,
+        "freeze_level": freeze_level,
+        "reward_level": reward_level,
+        "click_amount": round(RCC_CLICK_AMOUNT * (1 + click_level), 8),
+        "game_duration": 25 + timer_level * 5,
+        "freeze_bonus": freeze_level,
+        "reward_multiplier": round(1 + reward_level * 0.25, 2),
+    }
+
+
+def _rcc_upgrade_costs(progress: dict) -> dict:
+    result = {}
+    for key, config in RCC_UPGRADE_CONFIG.items():
+        level = int(progress[f"{key}_level"])
+        result[key] = None if level >= config["max_level"] else config["base_cost"] * (level + 1) ** 2
+    return result
 
 
 @app.get("/api/rcc")
@@ -4140,6 +4210,8 @@ def rcc_get(init_data: str = Query(..., alias="initData")):
             remaining = int(RCC_GAME_COOLDOWN - delta)
 
     pc_balance = require_balance(cur, user_id)
+    progress = _rcc_get_progress(cur, user_id)
+    conn.commit()
     conn.close()
     exchange_rate = bot_db.get_lcc_rate()
 
@@ -4147,7 +4219,8 @@ def rcc_get(init_data: str = Query(..., alias="initData")):
         "balance": round(balance, 8),
         "lcc_balance": round(balance, 8),
         "total_clicks": clicks,
-        "click_amount": RCC_CLICK_AMOUNT,
+        **progress,
+        "upgrade_costs": _rcc_upgrade_costs(progress),
         "exchange_rate": exchange_rate,
         "lcc_rate": exchange_rate,
         "can_play": can_play,
@@ -4159,23 +4232,37 @@ def rcc_get(init_data: str = Query(..., alias="initData")):
 @app.post("/api/rcc/click")
 def rcc_click(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    amount = float(payload.get("amount") or 0)
-
-    if abs(amount - RCC_CLICK_AMOUNT) > 1e-10:
-        raise HTTPException(status_code=400, detail="Некорректная награда за клик")
-
     conn = db()
     cur = conn.cursor()
     cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
+    progress = _rcc_get_progress(cur, user_id)
+    if progress["energy"] <= 0:
+        wait = progress["energy_recovery_in"] or 60
+        conn.close()
+        raise HTTPException(status_code=429, detail=f"Энергия закончилась. Следующая единица через {wait} сек.")
+    amount = progress["click_amount"]
+    cur.execute(
+        "UPDATE rcc_progress SET energy = energy - 1 WHERE user_id = ? AND energy > 0",
+        (user_id,),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=429, detail="Энергия закончилась")
     cur.execute(
         "UPDATE rcc_balance SET balance = balance + ?, total_clicks = total_clicks + 1 WHERE user_id = %s",
         (amount, user_id)
     )
-    conn.commit()
     cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
     new_balance = cur.fetchone()["balance"]
+    conn.commit()
+    progress["energy"] -= 1
+    progress["energy_recovery_in"] = progress["energy_recovery_in"] or 60
     conn.close()
-    return {"ok": True, "balance": round(new_balance, 8)}
+    return {
+        "ok": True, "balance": round(new_balance, 8), "reward": amount,
+        "energy": progress["energy"], "energy_recovery_in": progress["energy_recovery_in"],
+    }
 
 
 @app.post("/api/rcc/game_start")
