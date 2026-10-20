@@ -1501,8 +1501,8 @@ async def my_tasks(callback: CallbackQuery):
 async def wheel_menu_handler(callback: CallbackQuery):
     await callback.message.edit_text(
         "🎡 Колесо фортуны\n\n"
-        "Стоимость вращения: 200 🪙\n"
-        "Кулдаун: раз в 3 часа\n\n"
+        "Стоимость вращения: 10 🎟️\n"
+        f"Билеты у тебя: {db.get_wheel_tickets(callback.from_user.id)} 🎟️\nКулдаун: раз в 3 часа\n\n"
         "Испытай удачу!",
         reply_markup=wheel_menu()
     )
@@ -1511,8 +1511,8 @@ async def wheel_menu_handler(callback: CallbackQuery):
 @dp.callback_query(F.data == "wheel_spin")
 async def wheel_spin(callback: CallbackQuery):
     user_id = callback.from_user.id
-    if db.get_balance(user_id) < 200:
-        await callback.answer("❌ Нужно 200 🪙", show_alert=True)
+    if db.get_wheel_tickets(user_id) < 10:
+        await callback.answer("❌ Нужно 10 билетов колеса 🎟️", show_alert=True)
         return
 
     can, remaining = db.can_spin_wheel(user_id)
@@ -1523,7 +1523,9 @@ async def wheel_spin(callback: CallbackQuery):
         )
         return
 
-    db.update_balance(user_id, -200)
+    if not db.change_wheel_tickets(user_id, -10):
+        await callback.answer("❌ Нужно 10 билетов колеса 🎟️", show_alert=True)
+        return
     db.set_wheel_time(user_id)
 
     sectors = db.get_wheel_sectors()
