@@ -1302,6 +1302,17 @@ async def game_word_trigger(message: Message):
     if balance < bet:
         await message.answer(f"❌ Недостаточно LDC. Твой баланс: {balance:,} LDC.")
         return
+    # Validate all required arguments before consuming a play attempt.
+    if game_type == "dice" and choice is None:
+        await message.answer("🎲 Укажи число от 1 до 6: «кубик 4 500».")
+        return
+    if game_type == "coin" and choice is None:
+        await message.answer("🪙 Укажи сторону: «монетка о 500» или «монетка р 500».")
+        return
+    if game_type == "number" and choice is None:
+        await message.answer("🃏 Укажи число от 1 до 10: «число 7 500».")
+        return
+
     allowed, remaining = db.register_game_play(user_id, game_type)
     if not allowed:
         await message.answer(f"⏳ Эта игра на перерыве ещё {format_time(remaining)}")
@@ -1310,21 +1321,12 @@ async def game_word_trigger(message: Message):
     if game_type == "slot":
         net_change, result_text = play_slot(bet)
     elif game_type == "dice":
-        if choice is None:
-            await message.answer("🎲 Укажи число от 1 до 6: «кубик 4 500».")
-            return
         net_change, result_text = play_dice(bet, choice)
     elif game_type == "coin":
-        if choice is None:
-            await message.answer("🪙 Укажи сторону: «монетка о 500» или «монетка р 500».")
-            return
         net_change, result_text = play_coin(bet, choice)
     elif game_type == "dart":
         net_change, result_text = play_dart(bet)
     else:
-        if choice is None:
-            await message.answer("🃏 Укажи число от 1 до 10: «число 7 500».")
-            return
         net_change, result_text = play_number(bet, choice)
 
     if not db.update_balance(user_id, net_change):
