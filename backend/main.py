@@ -1383,6 +1383,16 @@ def ttt_move_web(payload: dict = Body(...)):
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
+    # Keep a server-side audit trail for every accepted move, not just settlements.
+    try:
+        bot_db.log_action(
+            user_id, "game",
+            f"TTT Mini App ход: game_id={game_id}; cell={cell}; bet={game['bet']}; "
+            f"board_before={game['board']}; board_after={final_board}; status={status}; payout={payout}",
+            amount=0,
+        )
+    except Exception:
+        logger.exception("Не удалось записать аудит хода TTT user_id=%s game_id=%s", user_id, game_id)
     if status != "active":
         try:
             bot_db.log_action(
