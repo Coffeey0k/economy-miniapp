@@ -2271,7 +2271,7 @@
     if (!ship && bsDefenseMode) {
       event.preventDefault();
       if (bsDefenses.includes(idx)) bsDefenses = bsDefenses.filter(i => i !== idx);
-      else if (bsDefenses.length < 2 && bsDefenseAllowed(idx)) bsDefenses.push(idx);
+      else if (bsDefenses.length < 3 && bsDefenseAllowed(idx)) bsDefenses.push(idx);
       else { toast("ПВО нельзя ставить рядом с кораблями или друг с другом", true); return; }
       renderBattleshipStart();
       return;
@@ -2359,7 +2359,7 @@
     if (!bet || bet < 500) { toast("Ставка минимум 500 🪙", true); return; }
     const player_field = bsPlacementField();
     try {
-      const player_defenses = ".".repeat(100);
+      const player_defenses = bsDefenseField();
       const res = await apiPost("/api/battleship/start", { bet, player_field, player_defenses });
       bsState = res; bsViewEnemy = true; renderBattleship();
       loaded.profile = false; loadProfile();
