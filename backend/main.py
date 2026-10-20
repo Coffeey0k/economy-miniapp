@@ -2869,7 +2869,7 @@ def bs_special(payload: dict = Body(...)):
 
     cur.execute("""
         SELECT player_field, bot_field, player_shots, bot_shots, bet, status, turn,
-               player_defenses, plane_available, plane_buys, radar_cells, radar_until
+               player_defenses, plane_available, plane_buys, radar_cells, radar_until, radar_bought
         FROM battleship_games WHERE id = ?
     """, (game_id,))
     final = cur.fetchone()
@@ -2898,7 +2898,7 @@ def bs_special(payload: dict = Body(...)):
         "player_defenses": final["player_defenses"], "plane_available": bool(final["plane_available"]),
         "plane_buys": int(final["plane_buys"] or 0),
         "defenses_bought": int(final["defenses_bought"] or 0),
-        "radar_bought": int(g["radar_bought"] or 0) if action == "radar" else int(final.get("radar_bought", 0) or 0),
+        "radar_bought": int(final["radar_bought"] or 0),
         "radar_cells": radar_visible, "radar_until": int(final["radar_until"] or 0),
         "special_costs": {"plane": BS_PLANE_COST, "radar": BS_RADAR_COST, "defense": BS_DEFENSE_COST},
     }
