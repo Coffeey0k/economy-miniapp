@@ -651,6 +651,21 @@ def init_db():
         )
     """)
 
+    # === АУДИТ ОТКЛОНЁННЫХ API-ЗАПРОСОВ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS security_events (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            event_type TEXT NOT NULL,
+            details TEXT,
+            ip_address TEXT,
+            method TEXT,
+            path TEXT,
+            status_code INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # === ТЕХ.АДМИНЫ (флаг тест-режима) ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tech_admins (
@@ -5075,6 +5090,42 @@ def log_action(user_id: int, action_type: str, details: str = "",
         )
     finally:
         conn.close()
+
+
+def log_security_event(event_type: str, details: str = "", ip_address: str = "",
+                       method: str = "", path: str = "", status_code: int = 0,
+                       user_id: int = None):
+    """Persist API rejections/exceptions for review by tech admins."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO security_events (user_id, event_type, details, ip_address, method, path, status_code) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, str(event_type)[:100], str(details)[:2000], str(ip_address)[:100],
+             str(method)[:16], str(path)[:500], int(status_code or 0)),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("Не удалось записать security event type=%s path=%s", event_type, path)
+    finally:
+        conn.close()
+
+
+def get_security_events(limit: int = 100) -> list:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, user_id, event_type, details, ip_address, method, path, status_code, created_at "
+        "FROM security_events ORDER BY id DESC LIMIT ?",
+        (max(1, min(int(limit), 200)),),
+    )
+    rows = cur.fetchall()
+    columns = ["id", "user_id", "event_type", "details", "ip_address", "method", "path", "status_code", "created_at"]
+    result = [dict(zip(columns, tuple(row))) for row in rows]
+    conn.close()
+    return result
 
 
 def get_action_log(filter_user: int = None, filter_type: str = None,
