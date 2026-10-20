@@ -1930,13 +1930,23 @@
       <div class="card">
         <h2>❌ Крестики-нолики против бота</h2>
         <p class="label">Ставка списывается при старте. Победа: выплата 2× ставки (ставка + выигрыш), поражение: ставка теряется, ничья: ставка возвращается.</p>
+        <label class="label" for="ttt-custom-bet">Своя ставка (минимум 500 LDC)</label>
+        <input type="number" id="ttt-custom-bet" min="500" step="1" placeholder="Введи свою ставку" style="width:100%;margin-bottom:10px;">
         <div class="tabs-sub" style="flex-wrap:wrap;">
-          ${[10,50,100,500,1000].map(b => `<button class="btn btn-small" onclick="startTtt(${b})">${b} 🪙</button>`).join("")}
+          ${[500,1000,5000,10000].map(b => `<button class="btn btn-small" onclick="startTtt(${b})">${b.toLocaleString()} LDC</button>`).join("")}
         </div>
+        <button class="btn" style="width:100%;margin-top:8px;" onclick="startTtt()">🎮 Играть со своей ставкой</button>
       </div>`;
   }
 
   async function startTtt(bet) {
+    if (bet === undefined || bet === null) {
+      bet = Number(document.getElementById("ttt-custom-bet")?.value || 0);
+    }
+    if (!Number.isSafeInteger(bet) || bet < 500) {
+      toast("Минимальная ставка — 500 LDC. Введи целое число.", true);
+      return;
+    }
     try {
       const result = await apiPost("/api/ttt/start", { bet });
       tttState = { game_id: result.game_id, board: result.board, status: result.status, bet: result.bet, balance: result.balance };
@@ -2042,15 +2052,15 @@
         <h2>💣 Сапёр 8×8</h2>
         <p class="label">6 мин. Открой все безопасные клетки. Победа возвращает 2× ставку.</p>
         <div style="display:flex;gap:8px;margin-top:10px;">
-          <input type="number" id="ms-bet" value="200" min="1" max="1000000" step="1" aria-label="Ставка в сапёре" style="flex:1;min-width:0;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);">
+          <input type="number" id="ms-bet" value="500" min="500" step="1" aria-label="Ставка в сапёре" style="flex:1;min-width:0;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);">
           <button class="btn" onclick="startMinesweeper()">Начать</button>
         </div>
       </div>
     `;
   }
   async function startMinesweeper() {
-    const bet = Number.parseInt(document.getElementById("ms-bet")?.value || "200", 10);
-    if (!Number.isSafeInteger(bet) || bet < 1 || bet > 1000000) { toast("Ставка должна быть от 1 до 1 000 000 🪙", true); return; }
+    const bet = Number.parseInt(document.getElementById("ms-bet")?.value || "500", 10);
+    if (!Number.isSafeInteger(bet) || bet < 500) { toast("Минимальная ставка — 500 LDC.", true); return; }
     try {
       const res = await apiPost("/api/minesweeper/start", { bet });
       msState = { game_id: res.game_id, board: res.board, revealed: res.revealed, size: res.size, bet: res.bet, reward: res.reward, status: "active" };
