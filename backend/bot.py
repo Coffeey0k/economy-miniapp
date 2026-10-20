@@ -1216,6 +1216,15 @@ async def web_trade_word_trigger(message: Message):
     )
 
 
+@dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "колесо"))
+async def wheel_word_trigger(message: Message):
+    """Word trigger for the fortune wheel."""
+    await message.answer(
+        "🎡 Колесо фортуны\n\nСтоимость вращения: 200 LDC.\nКулдаун: раз в 3 часа.\n\nИспытай удачу!",
+        reply_markup=wheel_menu(),
+    )
+
+
 @dp.message(F.text.lower().strip().in_({"игры", "игра"}))
 async def games_word_trigger(message: Message):
     await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
@@ -1248,8 +1257,8 @@ async def game_word_trigger(message: Message):
     if bet is None:
         await message.answer(f"{title}\nИспользуй «{word} [ставка]» для мгновенной игры или выбери ставку:", reply_markup=game_bet_menu(game_type))
         return
-    if not 1 <= bet <= 1000000:
-        await message.answer("❌ Ставка должна быть от 1 до 1 000 000 🪙.")
+    if bet < 500:
+        await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
     user_id = message.from_user.id
     if db.get_balance(user_id) < bet:
