@@ -11,6 +11,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
+import re
 import database as db
 
 router = Router()
@@ -54,7 +55,7 @@ async def ms_start(message: Message):
     parts = message.text.split()
     bet = db.MS_BET
     if len(parts) >= 2:
-        match = __import__("re").fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", parts[1].lower())
+        match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", parts[1].lower())
         if not match:
             await message.answer("❌ Ставка должна быть числом (например, «сапёр 1к»).")
             return
