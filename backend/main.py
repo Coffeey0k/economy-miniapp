@@ -4309,6 +4309,7 @@ def rcc_game_start(payload: dict = Body(default={})):
         )
     """)
     cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
+    progress = _rcc_get_progress(cur, user_id)
     cur.execute("SELECT last_game FROM rcc_balance WHERE user_id = %s", (user_id,))
     row = cur.fetchone()
     now = datetime.now()
@@ -4330,7 +4331,12 @@ def rcc_game_start(payload: dict = Body(default={})):
     cur.execute("UPDATE rcc_balance SET last_game = %s WHERE user_id = %s", (now.isoformat(), user_id))
     conn.commit()
     conn.close()
-    return {"ok": True, "started_at": now.isoformat(), "duration_seconds": 25}
+    return {
+        "ok": True, "started_at": now.isoformat(),
+        "duration_seconds": progress["game_duration"],
+        "freeze_bonus": progress["freeze_bonus"],
+        "reward_multiplier": progress["reward_multiplier"],
+    }
 
 
 @app.post("/api/rcc/game_finish")
@@ -4343,6 +4349,7 @@ def rcc_game_finish(payload: dict = Body(...)):
     cur = conn.cursor()
 
     # The server must see a reserved round and enforce a plausible duration.
+    progress = _rcc_get_progress(cur, user_id)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS rcc_game_sessions (
             user_id BIGINT PRIMARY KEY,
@@ -4359,18 +4366,20 @@ def rcc_game_finish(payload: dict = Body(...)):
         elapsed = (datetime.now() - started_at).total_seconds()
     except (TypeError, ValueError):
         elapsed = 0
-    if elapsed < 20:
+    duration = progress["game_duration"]
+    if elapsed < duration - 5:
         conn.close()
         raise HTTPException(status_code=400, detail="Раунд ещё не завершён")
-    if elapsed > 90:
+    if elapsed > duration + 65:
         cur.execute("DELETE FROM rcc_game_sessions WHERE user_id = %s", (user_id,))
         conn.commit()
         conn.close()
         raise HTTPException(status_code=400, detail="Раунд истёк. Запусти мини-игру заново")
 
     cur.execute("DELETE FROM rcc_game_sessions WHERE user_id = %s", (user_id,))
-    # One 25-second round can award at most 0.04 LCC, even if the client is modified.
-    amount = max(0.0, min(amount, 0.04))
+    # The reward ceiling scales only with server-owned timer/reward upgrades.
+    max_reward = 0.04 * (duration / 25) * progress["reward_multiplier"]
+    amount = max(0.0, min(amount, max_reward))
 
     cur.execute("INSERT OR IGNORE INTO rcc_balance (user_id) VALUES (%s)", (user_id,))
     cur.execute(
