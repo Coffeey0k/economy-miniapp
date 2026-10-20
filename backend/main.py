@@ -4053,7 +4053,7 @@ def rcc_click(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     amount = float(payload.get("amount") or 0)
 
-    if amount != RCC_CLICK_AMOUNT:
+    if abs(amount - RCC_CLICK_AMOUNT) > 1e-10:
         raise HTTPException(status_code=400, detail="Некорректная награда за клик")
 
     conn = db()
@@ -4067,7 +4067,7 @@ def rcc_click(payload: dict = Body(...)):
     cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
     new_balance = cur.fetchone()["balance"]
     conn.close()
-    return {"ok": True, "balance": round(new_balance, 4)}
+    return {"ok": True, "balance": round(new_balance, 8)}
 
 
 @app.post("/api/rcc/game_finish")
@@ -4107,7 +4107,7 @@ def rcc_game_finish(payload: dict = Body(...)):
     cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
     new_balance = cur.fetchone()["balance"]
     conn.close()
-    return {"ok": True, "balance": round(new_balance, 4), "earned": round(amount, 4)}
+    return {"ok": True, "balance": round(new_balance, 8), "earned": round(amount, 8)}
 
 
 @app.post("/api/rcc/exchange")
