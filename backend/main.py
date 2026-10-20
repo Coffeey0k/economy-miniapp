@@ -5276,7 +5276,7 @@ def tech_logs(init_data: str = Query(..., alias="initData"),
         entries = bot_db.get_action_log(
             filter_user=filter_user,
             filter_type=filter_type,
-            limit=min(limit, 200),
+            limit=max(1, min(limit, 200)),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка чтения логов: {e}")
