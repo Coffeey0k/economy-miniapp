@@ -1739,10 +1739,24 @@ def _bs_change_points(cur, user_id: int, delta: int) -> int:
 
 
 def _bs_validate_defenses(defenses, field: str) -> bool:
-    if not isinstance(defenses, str) or len(defenses) != BS_SIZE * BS_SIZE or any(c not in {".", "D"} for c in defenses):
+    if (
+        not isinstance(defenses, str)
+        or len(defenses) != BS_SIZE * BS_SIZE
+        or any(c not in {".", "D"} for c in defenses)
+        or not _bs_validate_field(field)
+    ):
         return False
     positions = [i for i, cell in enumerate(defenses) if cell == "D"]
-    return len(positions) <= BS_DEFENSE_MAX and all(field[idx] != "S" for idx in positions)
+    if len(positions) > BS_DEFENSE_MAX or any(field[idx] == "S" for idx in positions):
+        return False
+    # Match the placement UI and generated layouts: batteries may not touch,
+    # including diagonally, so their protected zones remain distinct.
+    coords = [divmod(idx, BS_SIZE) for idx in positions]
+    for i, (row, col) in enumerate(coords):
+        for other_row, other_col in coords[i + 1:]:
+            if max(abs(row - other_row), abs(col - other_col)) <= 1:
+                return False
+    return True
 
 
 def _bs_generate_defenses(field: str, count: int = BS_BOT_DEFENSE_COUNT) -> str:
@@ -2000,7 +2014,7 @@ def bs_start(payload: dict = Body(...)):
     player_field = requested_field if requested_field is not None else _bs_generate_field()
     requested_defenses = payload.get("player_defenses")
     if requested_defenses is not None and not _bs_validate_defenses(requested_defenses, player_field):
-        raise HTTPException(status_code=400, detail="Размести ровно две ПВО вне кораблей и не рядом друг с другом")
+        raise HTTPException(status_code=400, detail="Можно разместить до 3 ПВО: вне кораблей и не рядом друг с другом")
     player_defenses = requested_defenses if requested_defenses is not None else _bs_generate_defenses(player_field)
     bot_field = _bs_generate_field()
     bot_defenses = _bs_generate_defenses(bot_field)
