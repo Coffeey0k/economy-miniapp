@@ -267,7 +267,7 @@ async def tech_logs_user_show(message: Message, state: FSMContext):
         return
 
     uid = user["user_id"]
-    entries = db.get_user_actions(uid, limit=30)
+    entries = db.get_user_actions(uid, limit=200)
 
     uname = f"@{user['username']}" if user["username"] else f"ID {uid}"
     if not entries:
