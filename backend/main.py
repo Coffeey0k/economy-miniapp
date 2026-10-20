@@ -4125,7 +4125,7 @@ def rcc_exchange_endpoint(payload: dict = Body(...)):
     row = cur.fetchone()
     if not row or (row["balance"] or 0) < amount:
         conn.close()
-        raise HTTPException(status_code=400, detail="Недостаточно RCC")
+        raise HTTPException(status_code=400, detail="Недостаточно LCC")
 
     exchange_rate = bot_db.get_lcc_rate()
     pc_amount = int(amount * exchange_rate)
@@ -4157,7 +4157,8 @@ def rcc_exchange_endpoint(payload: dict = Body(...)):
     return {
         "ok": True,
         "message": f"Обменяно {amount:.8f} LCC → {pc_amount:,} LDC по курсу {exchange_rate:,.2f} LDC/LCC",
-        "rcc_balance": round(new_rcc, 4),
+        "rcc_balance": round(new_rcc, 8),
+        "lcc_balance": round(new_rcc, 8),
         "pc_balance": pc_balance,
     }
 
