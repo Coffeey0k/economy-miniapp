@@ -554,7 +554,7 @@ async def handle_bet(callback: CallbackQuery, state: FSMContext):
         return
     if game_type == "slot":
         win, msg = play_slot(bet)
-        await _process_game(callback, user_id, win, msg)
+        await _process_game(callback, user_id, win, msg, game_type)
     elif game_type == "dice":
         await callback.message.edit_text("🎲 Введите число 1–6:", reply_markup=cancel_button())
         await state.update_data(bet=bet)
@@ -573,7 +573,11 @@ async def handle_bet(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
 
-async def _process_game(callback: CallbackQuery, user_id: int, net_change: int, msg: str):
+async def _process_game(callback: CallbackQuery, user_id: int, net_change: int, msg: str, game_type: str = "slot"):
+    allowed, remaining = db.register_game_play(user_id, game_type)
+    if not allowed:
+        await callback.answer(f"⏳ Эта игра на перерыве ещё {format_time(remaining)}", show_alert=True)
+        return
     # Игровые функции возвращают чистое изменение баланса.
     if not db.update_balance(user_id, net_change):
         await callback.answer("❌ Не удалось обновить баланс.", show_alert=True)
@@ -597,7 +601,7 @@ async def handle_coin_choice(callback: CallbackQuery):
     choice, bet_str = data.rsplit("_", 1)
     bet = int(bet_str)
     win, msg = play_coin(bet, choice)
-    await _process_game(callback, callback.from_user.id, win, msg)
+    await _process_game(callback, callback.from_user.id, win, msg, "coin")
 
 
 @dp.message(GameStates.waiting_dice_guess)
@@ -608,8 +612,13 @@ async def handle_dice(message: Message, state: FSMContext):
             await message.answer("❌ Число от 1 до 6")
             return
         bet = (await state.get_data()).get("bet")
-        win, msg = play_dice(bet, guess)
         uid = message.from_user.id
+        allowed, remaining = db.register_game_play(uid, "dice")
+        if not allowed:
+            await message.answer(f"⏳ Кубик на перерыве ещё {format_time(remaining)}")
+            await state.clear()
+            return
+        win, msg = play_dice(bet, guess)
         if win > 0:
             db.update_balance(uid, win)
             db.update_game_stats(uid, True, win)
@@ -630,8 +639,13 @@ async def handle_number(message: Message, state: FSMContext):
             await message.answer("❌ Число от 1 до 10")
             return
         bet = (await state.get_data()).get("bet")
-        win, msg = play_number(bet, guess)
         uid = message.from_user.id
+        allowed, remaining = db.register_game_play(uid, "number")
+        if not allowed:
+            await message.answer(f"⏳ Угадай число на перерыве ещё {format_time(remaining)}")
+            await state.clear()
+            return
+        win, msg = play_number(bet, guess)
         if win > 0:
             db.update_balance(uid, win)
             db.update_game_stats(uid, True, win)
@@ -1281,6 +1295,11 @@ async def game_word_trigger(message: Message):
     if balance < bet:
         await message.answer(f"❌ Недостаточно LDC. Твой баланс: {balance:,} LDC.")
         return
+    allowed, remaining = db.register_game_play(user_id, game_type)
+    if not allowed:
+        await message.answer(f"⏳ Эта игра на перерыве ещё {format_time(remaining)}")
+        return
+
     if game_type == "slot":
         net_change, result_text = play_slot(bet)
     elif game_type == "dice":
