@@ -1272,8 +1272,6 @@ def ttt_start(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     conn = db()
     cur = conn.cursor()
-    # Serialize starts before checking active games; SQLite ignores SELECT FOR UPDATE.
-    cur.execute("BEGIN IMMEDIATE")
     # Make start requests idempotent: retries return the current active game
     # instead of charging the same player for multiple parallel games.
     cur.execute(
