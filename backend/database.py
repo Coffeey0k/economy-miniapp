@@ -783,7 +783,7 @@ def transfer_coins_limited(sender_id: int, recipient_id: int, amount: int, daily
     if both balance updates succeed; concurrent transfers serialize on the user's
     (UTC date) usage row.
     """
-    if amount <= 0 or sender_id == recipient_id:
+    if amount <= 0 or amount > 9_223_372_036_854_775_807 or sender_id == recipient_id:
         return False, "invalid", 0
     today = datetime.utcnow().date().isoformat()
     conn = sqlite3.connect(DB_NAME)
