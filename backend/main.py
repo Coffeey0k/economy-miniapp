@@ -1176,8 +1176,8 @@ def ttt_start(payload: dict = Body(...)):
         bet = int(payload.get("bet") or 0)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Некорректная ставка")
-    if bet <= 0 or bet > 100000:
-        raise HTTPException(status_code=400, detail="Ставка должна быть от 1 до 100000")
+    if bet < 500:
+        raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     conn = db()
     cur = conn.cursor()
     if not change_balance(cur, user_id, -bet):
@@ -1480,7 +1480,7 @@ def admin_ping(init_data: str = Query(..., alias="initData")):
 
 MS_FIELD_SIZE = 8
 MS_MINES = 6
-MS_BET = 200
+MS_BET = 500
 MS_REWARD = 400
 
 
@@ -1491,8 +1491,8 @@ def ms_start_api(payload: dict = Body(...)):
         bet = int(payload.get("bet") or MS_BET)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Некорректная ставка")
-    if not 1 <= bet <= 1000000:
-        raise HTTPException(status_code=400, detail="Ставка должна быть от 1 до 1 000 000 🪙")
+    if bet < 500:
+        raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
 
     conn = db()
     cur = conn.cursor()
