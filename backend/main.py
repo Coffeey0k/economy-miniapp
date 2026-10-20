@@ -4265,6 +4265,37 @@ def rcc_click(payload: dict = Body(...)):
     }
 
 
+@app.post("/api/rcc/upgrade")
+def rcc_upgrade(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    upgrade = str(payload.get("upgrade") or "")
+    config = RCC_UPGRADE_CONFIG.get(upgrade)
+    if not config:
+        raise HTTPException(status_code=400, detail="Неизвестное улучшение")
+    conn = db()
+    cur = conn.cursor()
+    progress = _rcc_get_progress(cur, user_id)
+    level = int(progress[f"{upgrade}_level"])
+    if level >= config["max_level"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Это улучшение уже максимального уровня")
+    price = config["base_cost"] * (level + 1) ** 2
+    if not change_balance(cur, user_id, -price):
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Недостаточно LDC. Нужно {price:,} LDC.")
+    column = config["column"]
+    cur.execute(f"UPDATE rcc_progress SET {column} = {column} + 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    progress = _rcc_get_progress(cur, user_id)
+    conn.commit()
+    conn.close()
+    return {
+        "ok": True, "message": f"Улучшение куплено за {price:,} LDC.",
+        "balance": balance, **progress, "upgrade_costs": _rcc_upgrade_costs(progress),
+    }
+
+
 @app.post("/api/rcc/game_start")
 def rcc_game_start(payload: dict = Body(default={})):
     """Reserve one LCC mini-game round on the server before the client starts."""
