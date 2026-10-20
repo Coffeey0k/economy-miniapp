@@ -2490,6 +2490,7 @@ CHEST_REWARDS = [
     ("pet_random", "", 10),    # 10% - случайный обычный питомец
     ("egg_ordinary", "", 4),   # 4% - обычное яйцо
     ("item_immunity", "", 1),  # 1% - иммунитет
+    ("wheel_tickets", "1", 3), # tickets for the fortune wheel
 ]
 
 
@@ -2542,6 +2543,10 @@ def give_chest_reward(user_id: int, reward: dict) -> str:
     if rtype == "egg_ordinary":
         # Питомец из обычного яйца
         return give_chest_reward(user_id, {"type": "pet_random", "value": ""})
+
+    if rtype == "wheel_tickets":
+        change_wheel_tickets(user_id, max(1, int(value or 1)))
+        return f"🎟️ Билет колеса фортуны: +{max(1, int(value or 1))}"
 
     if rtype == "item_immunity":
         conn = sqlite3.connect(DB_NAME)
