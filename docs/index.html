@@ -4106,10 +4106,10 @@
       if (secondsLeft <= 0) {
         clearInterval(mandatoryRulesTimer);
         mandatoryRulesTimer = null;
-        apiPost("/api/rules/read", {}).catch(() => {}).finally(() => {
-          overlay.classList.remove("visible");
-          document.body.style.overflow = "";
-        });
+        overlay.classList.remove("visible");
+        document.body.style.overflow = "";
+        // Save acknowledgement in the background; the 15-second auto-close is not delayed by network latency.
+        apiPost("/api/rules/read", {}).catch((e) => console.warn("Не удалось сохранить прочтение правил:", e));
       }
     }, 1000);
   }
