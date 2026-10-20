@@ -5214,6 +5214,35 @@ def send_gift(payload: dict = Body(...)):
         """, (user_id, item_type, item_key))
         gift_data = json.dumps({"item_type": item_type, "item_key": item_key})
 
+    # Reserve a shared daily gift slot in the same transaction as the gift.
+    # If the quota is exhausted, roll back any pending balance/inventory changes.
+    gift_day = datetime.utcnow().date().isoformat()
+    cur.execute(
+        "INSERT INTO daily_gift_usage (user_id, gift_date, gift_count) "
+        "VALUES (%s, %s, 0) ON CONFLICT(user_id, gift_date) DO NOTHING",
+        (user_id, gift_day),
+    )
+    cur.execute(
+        "SELECT gift_count FROM daily_gift_usage WHERE user_id = %s AND gift_date = %s FOR UPDATE",
+        (user_id, gift_day),
+    )
+    gift_row = cur.fetchone()
+    gift_count = int(gift_row["gift_count"] if gift_row else 0)
+    if gift_count >= 5:
+        conn.rollback()
+        conn.close()
+        _log_security_attempt(user_id, "daily_gift_limit", f"target_id={target_id}; type={gift_type}; count={gift_count}")
+        raise HTTPException(status_code=429, detail="Лимит подарков исчерпан: максимум 5 успешных отправок в сутки (UTC), общий для бота и веба.")
+    cur.execute(
+        "UPDATE daily_gift_usage SET gift_count = gift_count + 1 "
+        "WHERE user_id = %s AND gift_date = %s AND gift_count < 5",
+        (user_id, gift_day),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=429, detail="Лимит подарков исчерпан: максимум 5 в сутки.")
+
     # Создаём подарок
     cur.execute("""
         INSERT INTO gifts (from_user, to_user, gift_type, gift_data, expires_at)
