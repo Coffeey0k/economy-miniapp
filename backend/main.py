@@ -177,12 +177,28 @@ async def audit_rejected_api_requests(request: Request, call_next):
             "API_UNHANDLED_ERROR method=%s path=%s client=%s",
             request.method, request.url.path, client_host,
         )
+        try:
+            bot_db.log_security_event(
+                "api_exception", "Unhandled server exception",
+                ip_address=client_host, method=request.method,
+                path=request.url.path, status_code=500,
+            )
+        except Exception:
+            logger.exception("Не удалось сохранить API exception audit")
         raise
     if response.status_code >= 400:
         logger.warning(
             "API_REJECTED method=%s path=%s status=%s client=%s",
             request.method, request.url.path, response.status_code, client_host,
         )
+        try:
+            bot_db.log_security_event(
+                "api_rejected", f"HTTP {response.status_code}",
+                ip_address=client_host, method=request.method,
+                path=request.url.path, status_code=response.status_code,
+            )
+        except Exception:
+            logger.exception("Не удалось сохранить API rejection audit")
     return response
 
 
@@ -5075,6 +5091,37 @@ def tech_toggle_test_mode(payload: dict = Body(...)):
     enabled = bool(payload.get("enabled"))
     bot_db.set_test_mode(user_id, enabled, added_by=user_id)
     return {"ok": True, "test_mode": enabled}
+
+
+@app.get("/api/tech/security-logs")
+def tech_security_logs(init_data: str = Query(..., alias="initData"),
+                       limit: int = Query(50)):
+    """Rejected API requests and exceptions; restricted to tech admins."""
+    requester_id = get_telegram_user_id(init_data)
+    _require_tech_admin(requester_id)
+    try:
+        events = bot_db.get_security_events(limit=min(max(limit, 1), 200))
+    except Exception as exc:
+        logger.exception("Не удалось прочитать security events")
+        raise HTTPException(status_code=500, detail="Ошибка чтения журнала безопасности") from exc
+    logs = []
+    for event in events:
+        details = (
+            f"{event.get('event_type', 'api_event')} | "
+            f"{event.get('method', '')} {event.get('path', '')} | "
+            f"HTTP {event.get('status_code', 0)} | IP {event.get('ip_address', 'unknown')} | "
+            f"{event.get('details', '')}"
+        )
+        logs.append({
+            "id": event.get("id"),
+            "user_id": event.get("user_id") or "unknown",
+            "action_type": "security",
+            "details": details,
+            "amount": 0,
+            "target_user_id": None,
+            "created_at": str(event.get("created_at") or ""),
+        })
+    return {"logs": logs, "types": bot_db.LOG_TYPES}
 
 
 @app.get("/api/tech/logs")
