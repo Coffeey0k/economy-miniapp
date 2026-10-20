@@ -5099,12 +5099,14 @@ def tech_security_logs(init_data: str = Query(..., alias="initData"),
     """Rejected API requests and exceptions; restricted to tech admins."""
     requester_id = get_telegram_user_id(init_data)
     _require_tech_admin(requester_id)
+    safe_limit = min(max(limit, 1), 200)
     try:
-        events = bot_db.get_security_events(limit=min(max(limit, 1), 200))
+        events = bot_db.get_security_events(limit=safe_limit)
+        action_logs = bot_db.get_action_log(filter_type="security", limit=safe_limit)
     except Exception as exc:
         logger.exception("Не удалось прочитать security events")
         raise HTTPException(status_code=500, detail="Ошибка чтения журнала безопасности") from exc
-    logs = []
+    logs = list(action_logs)
     for event in events:
         details = (
             f"{event.get('event_type', 'api_event')} | "
@@ -5121,7 +5123,8 @@ def tech_security_logs(init_data: str = Query(..., alias="initData"),
             "target_user_id": None,
             "created_at": str(event.get("created_at") or ""),
         })
-    return {"logs": logs, "types": bot_db.LOG_TYPES}
+    logs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return {"logs": logs[:safe_limit], "types": bot_db.LOG_TYPES}
 
 
 @app.get("/api/tech/logs")
