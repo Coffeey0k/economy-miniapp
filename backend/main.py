@@ -2308,7 +2308,7 @@ def bs_fire(payload: dict = Body(...)):
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots,
                bet, status, turn, sea_reward_paid
-        FROM battleship_games WHERE id = ?
+        FROM battleship_games WHERE id = ? FOR UPDATE
     """, (game_id,))
     g = cur.fetchone()
     if not g or g["user_id"] != user_id:
@@ -2346,18 +2346,35 @@ def bs_fire(payload: dict = Body(...)):
         for i in range(BS_SIZE * BS_SIZE)
     )
 
+    sea_reward = 0
     if win:
-        change_balance(cur, user_id, g["bet"] * 2)
-        if not g["sea_reward_paid"]:
-            _bs_change_points(cur, user_id, BS_SEA_POINTS_PER_SURVIVING_SHIP * _bs_count_surviving_ships(g["player_field"], g["bot_shots"]))
         cur.execute("""
-            UPDATE battleship_games SET player_shots = ?, status = 'win', sea_reward_paid = 1 WHERE id = ?
-        """, (shots_str, game_id))
+            UPDATE battleship_games SET player_shots = ?, status = 'win', sea_reward_paid = 1
+            WHERE id = ? AND status = 'active' AND turn = 'player' AND player_shots = ?
+        """, (shots_str, game_id, g["player_shots"]))
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            _log_security_attempt(user_id, "battleship_duplicate_or_racing_fire", f"game_id={game_id}; row={row}; col={col}")
+            raise HTTPException(status_code=409, detail="Выстрел уже обработан. Обнови поле.")
+        if not change_balance(cur, user_id, g["bet"] * 2):
+            conn.rollback()
+            conn.close()
+            raise HTTPException(status_code=500, detail="Не удалось зачислить награду за победу")
+        if not g["sea_reward_paid"]:
+            sea_reward = BS_SEA_POINTS_PER_SURVIVING_SHIP * _bs_count_surviving_ships(g["player_field"], g["bot_shots"])
+            _bs_change_points(cur, user_id, sea_reward)
     else:
         next_turn = "bot" if result == "miss" else "player"
         cur.execute("""
-            UPDATE battleship_games SET player_shots = ?, turn = ? WHERE id = ?
-        """, (shots_str, next_turn, game_id))
+            UPDATE battleship_games SET player_shots = ?, turn = ?
+            WHERE id = ? AND status = 'active' AND turn = 'player' AND player_shots = ?
+        """, (shots_str, next_turn, game_id, g["player_shots"]))
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            _log_security_attempt(user_id, "battleship_duplicate_or_racing_fire", f"game_id={game_id}; row={row}; col={col}")
+            raise HTTPException(status_code=409, detail="Выстрел уже обработан. Обнови поле.")
     conn.commit()
 
     bot_msg = ""
@@ -2486,7 +2503,7 @@ def bs_fire(payload: dict = Body(...)):
         "status": final["status"],
         "balance": balance,
         "sea_points": sea_points,
-        "sea_reward": BS_SEA_WIN_REWARD if completed_status == "win" else 0,
+        "sea_reward": sea_reward,
         "player_defenses": final["player_defenses"],
         "plane_available": bool(final["plane_available"]),
         "plane_buys": int(final["plane_buys"] or 0),
@@ -2515,7 +2532,7 @@ def bs_special(payload: dict = Body(...)):
     cur.execute("""
         SELECT user_id, player_field, bot_field, player_shots, bot_shots, bet, status, turn,
                player_defenses, bot_defenses, plane_available, plane_buys, defenses_bought, sea_reward_paid, radar_bought
-        FROM battleship_games WHERE id = ?
+        FROM battleship_games WHERE id = ? FOR UPDATE
     """, (game_id,))
     g = cur.fetchone()
     if not g or g["user_id"] != user_id:
@@ -2530,6 +2547,7 @@ def bs_special(payload: dict = Body(...)):
 
     result = action
     bot_msg = ""
+    sea_reward = 0
     if action == "buy_plane":
         if g["plane_available"] or int(g["plane_buys"] or 0) >= BS_PLANE_MAX:
             conn.close()
@@ -2647,13 +2665,35 @@ def bs_special(payload: dict = Body(...)):
             shots_str = "".join(shots)
             won = all(g["bot_field"][i] != "S" or shots_str[i] == "3" for i in range(100))
             if won:
-                change_balance(cur, user_id, int(g["bet"]) * 2)
+                cur.execute(
+                    "UPDATE battleship_games SET player_shots = ?, plane_available = 0, status = 'win', turn = 'player', sea_reward_paid = 1 "
+                    "WHERE id = ? AND status = 'active' AND turn = 'player' AND player_shots = ? AND plane_available = 0",
+                    (shots_str, game_id, g["player_shots"]),
+                )
+                if cur.rowcount != 1:
+                    conn.rollback()
+                    conn.close()
+                    _log_security_attempt(user_id, "battleship_duplicate_or_racing_plane", f"game_id={game_id}")
+                    raise HTTPException(status_code=409, detail="Атака самолёта уже обработана")
+                if not change_balance(cur, user_id, int(g["bet"]) * 2):
+                    conn.rollback()
+                    conn.close()
+                    raise HTTPException(status_code=500, detail="Не удалось зачислить награду за победу")
                 if not g["sea_reward_paid"]:
-                    _bs_change_points(cur, user_id, BS_SEA_POINTS_PER_SURVIVING_SHIP * _bs_count_surviving_ships(g["player_field"], g["bot_shots"]))
-                cur.execute("UPDATE battleship_games SET player_shots = ?, plane_available = 0, status = 'win', turn = 'player', sea_reward_paid = 1 WHERE id = ?", (shots_str, game_id))
+                    sea_reward = BS_SEA_POINTS_PER_SURVIVING_SHIP * _bs_count_surviving_ships(g["player_field"], g["bot_shots"])
+                    _bs_change_points(cur, user_id, sea_reward)
                 result = "win"
             else:
-                cur.execute("UPDATE battleship_games SET player_shots = ?, plane_available = 0, turn = ? WHERE id = ?", (shots_str, "player" if hit_any else "bot", game_id))
+                cur.execute(
+                    "UPDATE battleship_games SET player_shots = ?, plane_available = 0, turn = ? "
+                    "WHERE id = ? AND status = 'active' AND turn = 'player' AND player_shots = ? AND plane_available = 0",
+                    (shots_str, "player" if hit_any else "bot", game_id, g["player_shots"]),
+                )
+                if cur.rowcount != 1:
+                    conn.rollback()
+                    conn.close()
+                    _log_security_attempt(user_id, "battleship_duplicate_or_racing_plane", f"game_id={game_id}")
+                    raise HTTPException(status_code=409, detail="Атака самолёта уже обработана")
                 result = "hit" if hit_any else "miss"
         conn.commit()
         if result in ("intercepted", "miss"):
@@ -2680,7 +2720,7 @@ def bs_special(payload: dict = Body(...)):
         **({"bot_field": final["bot_field"]} if final["status"] in {"win", "lose"} else {}),
         "player_shots": final["player_shots"], "bot_shots": final["bot_shots"],
         "turn": final["turn"], "status": final["status"], "balance": balance,
-        "sea_points": sea_points, "sea_reward": BS_SEA_WIN_REWARD if final["status"] == "win" else 0,
+        "sea_points": sea_points, "sea_reward": sea_reward,
         "player_defenses": final["player_defenses"], "plane_available": bool(final["plane_available"]),
         "plane_buys": int(final["plane_buys"] or 0),
         "defenses_bought": int(final["defenses_bought"] or 0),
