@@ -242,9 +242,9 @@ async def cmd_start(message: Message):
 
     settings = db.get_user_settings(user_id)
 
-    # Очистка старых записей
-    if len(message_owners) > 5000:
-        message_owners.clear()
+    # Keep the most recent owner mappings instead of clearing all protections at once.
+    while len(message_owners) > 5000:
+        message_owners.pop(next(iter(message_owners)), None)
 
     # Назначаем ежедневные задания
     db.assign_daily_tasks(user_id)
