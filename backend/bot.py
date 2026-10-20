@@ -311,12 +311,14 @@ async def cmd_start(message: Message):
 
 @dp.message(Command("rules"))
 async def rules_command(message: Message):
-    await message.answer(RULES_TEXT, reply_markup=back_to_main_menu())
+    sent = await message.answer(RULES_TEXT, reply_markup=back_to_main_menu())
+    message_owners[sent.message_id] = message.from_user.id
 
 
 @dp.callback_query(F.data == "show_rules")
 async def rules_callback(callback: CallbackQuery):
-    await callback.message.answer(RULES_TEXT, reply_markup=back_to_main_menu())
+    sent = await callback.message.answer(RULES_TEXT, reply_markup=back_to_main_menu())
+    message_owners[sent.message_id] = callback.from_user.id
     await callback.answer()
 
 
@@ -343,7 +345,8 @@ async def feedback_start_callback(callback: CallbackQuery, state: FSMContext):
 async def feedback_receive(message: Message, state: FSMContext):
     if message.text and message.text.strip().lower() in {"/cancel", "отмена"}:
         await state.clear()
-        await message.answer("Обращение отменено.", reply_markup=main_menu(message.from_user.id))
+        sent = await message.answer("Обращение отменено.", reply_markup=main_menu(message.from_user.id))
+        message_owners[sent.message_id] = message.from_user.id
         return
     user = message.from_user
     username = f"@{user.username}" if user.username else "(без username)"
@@ -357,7 +360,8 @@ async def feedback_receive(message: Message, state: FSMContext):
         await bot.send_message(config.OWNER_ID, header)
         await bot.copy_message(config.OWNER_ID, message.chat.id, message.message_id)
         db.log_action(user.id, "feedback", f"Обращение отправлено владельцу; username={username}", amount=0)
-        await message.answer("✅ Сообщение отправлено владельцу Lavender Dream. Спасибо!", reply_markup=main_menu(user.id))
+        sent = await message.answer("✅ Сообщение отправлено владельцу Lavender Dream. Спасибо!", reply_markup=main_menu(user.id))
+        message_owners[sent.message_id] = user.id
     except Exception:
         logger.exception("Не удалось доставить обратную связь user_id=%s", user.id)
         await message.answer("❌ Не получилось доставить сообщение. Попробуй позже или отправь /feedback ещё раз.")
