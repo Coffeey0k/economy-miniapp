@@ -1854,6 +1854,7 @@ def _bs_ensure_special_schema(conn):
         ("player_defenses", "TEXT DEFAULT NULL"), ("bot_defenses", "TEXT DEFAULT NULL"),
         ("plane_available", "INTEGER NOT NULL DEFAULT 0"), ("plane_buys", "INTEGER NOT NULL DEFAULT 0"), ("defenses_bought", "INTEGER NOT NULL DEFAULT 0"), ("radar_cells", "TEXT DEFAULT NULL"),
         ("radar_until", "INTEGER NOT NULL DEFAULT 0"), ("radar_bought", "INTEGER NOT NULL DEFAULT 0"), ("sea_reward_paid", "INTEGER NOT NULL DEFAULT 0"),
+        ("bot_plane_buys", "INTEGER NOT NULL DEFAULT 0"), ("bot_radar_bought", "INTEGER NOT NULL DEFAULT 0"),
     ):
         try:
             cur.execute(f"ALTER TABLE battleship_games ADD COLUMN {column} {definition}")
@@ -1896,17 +1897,15 @@ def _bs_validate_defenses(defenses, field: str) -> bool:
     positions = [i for i, cell in enumerate(defenses) if cell == "D"]
     if len(positions) > BS_DEFENSE_MAX or any(field[idx] == "S" for idx in positions):
         return False
-    # Match the placement UI and generated layouts: batteries may not touch,
-    # including diagonally, so their protected zones remain distinct.
-    coords = [divmod(idx, BS_SIZE) for idx in positions]
-    for i, (row, col) in enumerate(coords):
-        for other_row, other_col in coords[i + 1:]:
-            if max(abs(row - other_row), abs(col - other_col)) <= 1:
-                return False
+    # Each installation occupies one distinct cell; adjacent installations are allowed.
     return True
 
 
 def _bs_generate_defenses(field: str, count: int = BS_BOT_DEFENSE_COUNT) -> str:
+    count = max(0, min(BS_DEFENSE_MAX, int(count)))
+    out = ["."] * (BS_SIZE * BS_SIZE)
+    if count == 0:
+        return "".join(out)
     candidates = [i for i, cell in enumerate(field) if cell == "."]
     random.shuffle(candidates)
     selected = []
@@ -1914,9 +1913,8 @@ def _bs_generate_defenses(field: str, count: int = BS_BOT_DEFENSE_COUNT) -> str:
         r, c = divmod(idx, BS_SIZE)
         if all(max(abs(r - divmod(o, BS_SIZE)[0]), abs(c - divmod(o, BS_SIZE)[1])) > 1 for o in selected):
             selected.append(idx)
-            if len(selected) == count:
+            if len(selected) >= count:
                 break
-    out = ["."] * 100
     for idx in selected:
         out[idx] = "D"
     return "".join(out)
@@ -1935,28 +1933,129 @@ def _bs_defense_at(defenses: str, idx: int):
 
 
 def _bs_run_bot_turn(cur, game_id: int) -> str:
-    """Resolve the bot's turn server-side, continuing after hits as in normal play."""
+    """Resolve bot turns server-side; randomized radar/aircraft use and player AA interception."""
     bot_msg = ""
-    cur.execute("SELECT status, turn, player_field, bot_shots FROM battleship_games WHERE id = ?", (game_id,))
+    radar_note = ""
+    plane_checked_this_turn = False
+    cur.execute(
+        "SELECT status, turn, player_field, bot_shots, player_defenses, bot_plane_buys, bot_radar_bought "
+        "FROM battleship_games WHERE id = ? FOR UPDATE",
+        (game_id,),
+    )
     state = cur.fetchone()
     while state and state["status"] == "active" and state["turn"] == "bot":
-        field, shots = state["player_field"], list(state["bot_shots"])
+        field = state["player_field"]
+        shots = list(state["bot_shots"])
+        defenses = list(state["player_defenses"] or "." * 100)
+        plane_buys = int(state["bot_plane_buys"] or 0)
+
+        # A plane is a separate, randomized action and always ends the bot's turn.
+        if not plane_checked_this_turn:
+            plane_checked_this_turn = True
+            if plane_buys < BS_PLANE_MAX and random.random() < 0.10:
+                orientation = random.choice(("horizontal", "vertical"))
+                if orientation == "horizontal":
+                    ar, ac = random.randrange(BS_SIZE), random.randrange(BS_SIZE - 4)
+                    line = [_bs_cell_index(ar, ac + n) for n in range(5)]
+                else:
+                    ar, ac = random.randrange(BS_SIZE - 4), random.randrange(BS_SIZE)
+                    line = [_bs_cell_index(ar + n, ac) for n in range(5)]
+                intercepted = next(
+                    (battery for target in line
+                     if (battery := _bs_defense_at("".join(defenses), target)) is not None),
+                    None,
+                )
+                if intercepted is not None:
+                    defenses[intercepted] = "."
+                    cur.execute(
+                        "UPDATE battleship_games SET player_defenses = ?, bot_plane_buys = bot_plane_buys + 1, turn = 'player' "
+                        "WHERE id = ? AND status = 'active' AND turn = 'bot' AND bot_plane_buys < ?",
+                        ("".join(defenses), game_id, BS_PLANE_MAX),
+                    )
+                    if cur.rowcount == 1:
+                        bot_msg = "🛡️ ПВО перехватило самолёт бота; ход возвращается тебе."
+                        break
+                    cur.execute(
+                        "SELECT status, turn, player_field, bot_shots, player_defenses, bot_plane_buys, bot_radar_bought "
+                        "FROM battleship_games WHERE id = ? FOR UPDATE", (game_id,)
+                    )
+                    state = cur.fetchone()
+                    continue
+
+                for target in line:
+                    if shots[target] in ("1", "2", "3"):
+                        continue
+                    if field[target] == "S":
+                        shots[target] = "2"
+                for target in line:
+                    if shots[target] == "2":
+                        rr, cc = divmod(target, BS_SIZE)
+                        if _bs_check_sunk(field, "".join(shots), rr, cc):
+                            _bs_mark_sunk(field, shots, rr, cc)
+                encoded = "".join(shots)
+                lose = all(field[i] != "S" or encoded[i] == "3" for i in range(BS_SIZE * BS_SIZE))
+                cur.execute(
+                    "UPDATE battleship_games SET bot_shots = ?, bot_plane_buys = bot_plane_buys + 1, "
+                    "status = ?, turn = 'player' WHERE id = ? AND status = 'active' AND turn = 'bot' "
+                    "AND bot_plane_buys < ? AND bot_shots = ?",
+                    (encoded, "lose" if lose else "active", game_id, BS_PLANE_MAX, state["bot_shots"]),
+                )
+                if cur.rowcount == 1:
+                    bot_msg = "✈️ Самолёт бота атаковал пять клеток: " + ("флот уничтожен!" if lose else "ход переходит к тебе.")
+                    break
+                cur.execute(
+                    "SELECT status, turn, player_field, bot_shots, player_defenses, bot_plane_buys, bot_radar_bought "
+                    "FROM battleship_games WHERE id = ? FOR UPDATE", (game_id,)
+                )
+                state = cur.fetchone()
+                continue
+
+        # Radar is used at most once per game and only occasionally.
+        radar_target = None
+        if not int(state["bot_radar_bought"] or 0) and random.random() < 0.12:
+            radar_options = []
+            for center in range(BS_SIZE * BS_SIZE):
+                cr, cc = divmod(center, BS_SIZE)
+                zone = [
+                    _bs_cell_index(rr, co)
+                    for rr in range(max(0, cr - 1), min(BS_SIZE, cr + 2))
+                    for co in range(max(0, cc - 1), min(BS_SIZE, cc + 2))
+                ]
+                targets = [idx for idx in zone if field[idx] == "S" and shots[idx] not in ("1", "2", "3")]
+                if targets:
+                    radar_options.append((center, targets))
+            if radar_options:
+                _, targets = random.choice(radar_options)
+                radar_target = random.choice(targets)
+                cur.execute(
+                    "UPDATE battleship_games SET bot_radar_bought = 1 "
+                    "WHERE id = ? AND status = 'active' AND turn = 'bot' AND bot_radar_bought = 0",
+                    (game_id,),
+                )
+                if cur.rowcount == 1:
+                    radar_note = "📡 Бот использовал радар. "
+
         candidates = []
-        for i, value in enumerate(shots):
-            if value == "2":
-                r, c = divmod(i, BS_SIZE)
-                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    nr, nc = r + dr, c + dc
-                    if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE and shots[_bs_cell_index(nr, nc)] == "0":
-                        candidates.append((nr, nc))
-        if candidates:
-            br, bc = random.choice(candidates)
+        if radar_target is None:
+            for i, value in enumerate(shots):
+                if value == "2":
+                    r, co = divmod(i, BS_SIZE)
+                    for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        nr, nc = r + dr, co + dc
+                        if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE and shots[_bs_cell_index(nr, nc)] == "0":
+                            candidates.append((nr, nc))
+            if candidates:
+                br, bc = random.choice(candidates)
+            else:
+                remaining = [i for i, value in enumerate(shots) if value == "0"]
+                if not remaining:
+                    break
+                br, bc = divmod(random.choice(remaining), BS_SIZE)
+            idx = _bs_cell_index(br, bc)
         else:
-            remaining = [i for i, value in enumerate(shots) if value == "0"]
-            if not remaining:
-                break
-            br, bc = divmod(random.choice(remaining), BS_SIZE)
-        idx = _bs_cell_index(br, bc)
+            idx = radar_target
+            br, bc = divmod(idx, BS_SIZE)
+
         if field[idx] == "S":
             shots[idx] = "2"
             if _bs_check_sunk(field, "".join(shots), br, bc):
@@ -1968,19 +2067,38 @@ def _bs_run_bot_turn(cur, game_id: int) -> str:
             shots[idx] = "1"
             result = "miss"
         encoded = "".join(shots)
-        lose = all(field[i] != "S" or encoded[i] == "3" for i in range(100))
+        lose = all(field[i] != "S" or encoded[i] == "3" for i in range(BS_SIZE * BS_SIZE))
         if lose:
-            cur.execute("UPDATE battleship_games SET bot_shots = ?, status = 'lose' WHERE id = ?", (encoded, game_id))
-            bot_msg = f"Бот попал в ({br + 1}, {bc + 1}) и уничтожил твой флот!"
+            cur.execute(
+                "UPDATE battleship_games SET bot_shots = ?, status = 'lose', turn = 'player' "
+                "WHERE id = ? AND status = 'active' AND turn = 'bot' AND bot_shots = ?",
+                (encoded, game_id, state["bot_shots"]),
+            )
+            shot_message = f"Бот попал в ({br + 1}, {bc + 1}) и уничтожил твой флот!"
         else:
-            cur.execute("UPDATE battleship_games SET bot_shots = ?, turn = ? WHERE id = ?", (encoded, "bot" if result in ("hit", "sunk") else "player", game_id))
-            bot_msg = f"Бот стреляет в ({br + 1}, {bc + 1}): {result}"
-        cur.execute("SELECT status, turn, player_field, bot_shots FROM battleship_games WHERE id = ?", (game_id,))
+            cur.execute(
+                "UPDATE battleship_games SET bot_shots = ?, turn = ? "
+                "WHERE id = ? AND status = 'active' AND turn = 'bot' AND bot_shots = ?",
+                (encoded, "bot" if result in ("hit", "sunk") else "player", game_id, state["bot_shots"]),
+            )
+            shot_message = f"Бот стреляет в ({br + 1}, {bc + 1}): {result}"
+        if cur.rowcount != 1:
+            cur.execute(
+                "SELECT status, turn, player_field, bot_shots, player_defenses, bot_plane_buys, bot_radar_bought "
+                "FROM battleship_games WHERE id = ? FOR UPDATE", (game_id,)
+            )
+            state = cur.fetchone()
+            continue
+        bot_msg = radar_note + shot_message
+        cur.execute(
+            "SELECT status, turn, player_field, bot_shots, player_defenses, bot_plane_buys, bot_radar_bought "
+            "FROM battleship_games WHERE id = ? FOR UPDATE",
+            (game_id,),
+        )
         state = cur.fetchone()
         if result == "miss" or (state and state["status"] != "active"):
             break
     return bot_msg
-
 
 def _bs_generate_field() -> str:
     grid = [["." for _ in range(BS_SIZE)] for _ in range(BS_SIZE)]
@@ -2193,7 +2311,8 @@ def bs_start(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Можно разместить до 3 ПВО: вне кораблей и не рядом друг с другом")
     player_defenses = requested_defenses if requested_defenses is not None else _bs_generate_defenses(player_field)
     bot_field = _bs_generate_field()
-    bot_defenses = _bs_generate_defenses(bot_field)
+    # The bot does not start with air defense every game; its defensive loadout is randomized.
+    bot_defenses = _bs_generate_defenses(bot_field, count=random.choice([0, 0, 1, 2]))
     conn = db()
     _bs_ensure_special_schema(conn)
     cur = conn.cursor()
@@ -2378,71 +2497,10 @@ def bs_fire(payload: dict = Body(...)):
     conn.commit()
 
     bot_msg = ""
-    # Ход бота (если передан ему и игра идёт)
-    cur.execute("SELECT status, turn, player_field, bot_shots FROM battleship_games WHERE id = ?", (game_id,))
-    g2 = cur.fetchone()
-    if g2 and g2["status"] == "active" and g2["turn"] == "bot":
-        while True:
-            bot_field_local = g2["player_field"]
-            bot_shots = list(g2["bot_shots"])
-
-            candidates = []
-            for i in range(BS_SIZE * BS_SIZE):
-                if bot_shots[i] == "2":
-                    r, c = divmod(i, BS_SIZE)
-                    for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                        nr, nc = r + dr, c + dc
-                        if 0 <= nr < BS_SIZE and 0 <= nc < BS_SIZE:
-                            ni = _bs_cell_index(nr, nc)
-                            if bot_shots[ni] == "0":
-                                candidates.append((nr, nc))
-            if not candidates:
-                remaining = [i for i in range(BS_SIZE * BS_SIZE) if bot_shots[i] == "0"]
-                if not remaining:
-                    break
-                ii = random.choice(remaining)
-                br, bc = divmod(ii, BS_SIZE)
-            else:
-                br, bc = random.choice(candidates)
-
-            bidx = _bs_cell_index(br, bc)
-            if bot_field_local[bidx] == "S":
-                bot_shots[bidx] = "2"
-                if _bs_check_sunk(bot_field_local, "".join(bot_shots), br, bc):
-                    _bs_mark_sunk(bot_field_local, bot_shots, br, bc)
-                    bot_result = "sunk"
-                else:
-                    bot_result = "hit"
-            else:
-                bot_shots[bidx] = "1"
-                bot_result = "miss"
-
-            bot_shots_str = "".join(bot_shots)
-
-            lose = all(
-                bot_field_local[i] != "S" or bot_shots[i] == "3"
-                for i in range(BS_SIZE * BS_SIZE)
-            )
-
-            if lose:
-                cur.execute("""
-                    UPDATE battleship_games SET bot_shots = ?, status = 'lose' WHERE id = ?
-                """, (bot_shots_str, game_id))
-                conn.commit()
-                bot_msg = f"Бот попал в ({br + 1}, {bc + 1}) и уничтожил твой флот!"
-                break
-            else:
-                next_turn = "bot" if bot_result in ("hit", "sunk") else "player"
-                cur.execute("""
-                    UPDATE battleship_games SET bot_shots = ?, turn = ? WHERE id = ?
-                """, (bot_shots_str, next_turn, game_id))
-                conn.commit()
-                bot_msg = f"Бот стреляет в ({br + 1}, {bc + 1}): {bot_result}"
-                if bot_result == "miss":
-                    break
-                # если попал — бот ходит ещё, обновляем g2
-                cur.execute("SELECT status, turn, player_field, bot_shots FROM battleship_games WHERE id = ?", (game_id,))
-                g2 = cur.fetchone()
+    cur.execute("SELECT status, turn FROM battleship_games WHERE id = ?", (game_id,))
+    bot_turn_state = cur.fetchone()
+    if bot_turn_state and bot_turn_state["status"] == "active" and bot_turn_state["turn"] == "bot":
+        bot_msg = _bs_run_bot_turn(cur, game_id)
 
     # Финальное состояние
     cur.execute("""
@@ -2684,10 +2742,11 @@ def bs_special(payload: dict = Body(...)):
                     _bs_change_points(cur, user_id, sea_reward)
                 result = "win"
             else:
+                # An aircraft action consumes the player's turn even when it hits.
                 cur.execute(
-                    "UPDATE battleship_games SET player_shots = ?, plane_available = 0, turn = ? "
+                    "UPDATE battleship_games SET player_shots = ?, plane_available = 0, turn = 'bot' "
                     "WHERE id = ? AND status = 'active' AND turn = 'player' AND player_shots = ? AND plane_available = 0",
-                    (shots_str, "player" if hit_any else "bot", game_id, g["player_shots"]),
+                    (shots_str, game_id, g["player_shots"]),
                 )
                 if cur.rowcount != 1:
                     conn.rollback()
@@ -2696,7 +2755,7 @@ def bs_special(payload: dict = Body(...)):
                     raise HTTPException(status_code=409, detail="Атака самолёта уже обработана")
                 result = "hit" if hit_any else "miss"
         conn.commit()
-        if result in ("intercepted", "miss"):
+        if result in ("intercepted", "miss", "hit"):
             bot_msg = _bs_run_bot_turn(cur, game_id)
     else:
         conn.close()
