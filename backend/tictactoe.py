@@ -57,6 +57,7 @@ async def ttt_create(message: Message):
     print(f">>> ttt_create вызван! text={message.text!r}")
     parts = message.text.split()
     if len(parts) < 3:
+        db.log_action(message.from_user.id, "security", f"Неполная команда КН: {message.text[:180]!r}")
         await message.answer(
             "❌ Неверный формат.\n"
             "Используй: `кн @username 500` или `кн бот 500`",
@@ -67,6 +68,7 @@ async def ttt_create(message: Message):
     target_raw = parts[1].strip().lstrip("@").lower()
     match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", parts[2].lower())
     if not match:
+        db.log_action(message.from_user.id, "security", f"Некорректная ставка КН: {message.text[:180]!r}")
         await message.answer("❌ Ставка должна быть числом (например, 1к или 1кк).")
         return
     try:
@@ -81,6 +83,7 @@ async def ttt_create(message: Message):
         return
 
     if bet < 500:
+        db.log_action(message.from_user.id, "security", f"Ставка КН ниже минимума: {bet}")
         await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
 
@@ -88,6 +91,7 @@ async def ttt_create(message: Message):
 
     # Проверка баланса
     if db.get_balance(from_user) < bet:
+        db.log_action(from_user, "security", f"Ставка КН превышает баланс: bet={bet}; balance={db.get_balance(from_user)}")
         await message.answer(f"❌ Недостаточно монет. У тебя {db.get_balance(from_user)} 🪙.")
         return
 
