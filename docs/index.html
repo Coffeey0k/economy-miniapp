@@ -2777,7 +2777,11 @@
     const el = document.getElementById("tech-logs-list");
     el.innerHTML = "Загрузка…";
     try {
-      const url = filter === "all" ? "/api/tech/logs?limit=50" : `/api/tech/logs?filter_type=${filter}&limit=50`;
+      const url = filter === "security"
+        ? "/api/tech/security-logs?limit=50"
+        : filter === "all"
+          ? "/api/tech/logs?limit=50"
+          : `/api/tech/logs?filter_type=${encodeURIComponent(filter)}&limit=50`;
       const data = await apiGet(url);
       if (!data.logs || data.logs.length === 0) {
         el.innerHTML = `<div class="label">Логов нет</div>`;
@@ -2786,13 +2790,13 @@
       el.innerHTML = data.logs.map(l => `
         <div class="item-row" style="flex-direction:column;align-items:flex-start;">
           <div style="display:flex;justify-content:space-between;width:100%;">
-            <span>${(data.types && data.types[l.action_type]) || l.action_type}</span>
-            <span class="label">${(l.created_at || "").slice(0,16)}</span>
+            <span>${escapeHtml((data.types && data.types[l.action_type]) || l.action_type || "Лог")}</span>
+            <span class="label">${escapeHtml(String(l.created_at || "").slice(0,16))}</span>
           </div>
-          <div class="label">ID: ${l.user_id}${l.target_user_id ? " → " + l.target_user_id : ""}
-            ${l.amount ? " • " + (l.amount > 0 ? "+" : "") + l.amount + " 🪙" : ""}
+          <div class="label">ID: ${escapeHtml(String(l.user_id ?? "unknown"))}${l.target_user_id ? " → " + escapeHtml(String(l.target_user_id)) : ""}
+            ${l.amount ? " • " + (l.amount > 0 ? "+" : "") + escapeHtml(String(l.amount)) + " 🪙" : ""}
           </div>
-          ${l.details ? `<div style="font-size:12px;">${l.details}</div>` : ""}
+          ${l.details ? `<div style="font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(l.details)}</div>` : ""}
         </div>
       `).join("");
     } catch (e) { el.innerHTML = `<div class="msg err">${e.message}</div>`; }
