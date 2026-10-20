@@ -4671,10 +4671,15 @@ def rcc_game_finish(payload: dict = Body(...)):
 @app.post("/api/rcc/exchange")
 def rcc_exchange_endpoint(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    amount = float(payload.get("amount") or 0)
+    try:
+        amount = float(payload.get("amount") or 0)
+    except (TypeError, ValueError, OverflowError):
+        _log_security_attempt(user_id, "rcc_invalid_exchange_amount", f"amount={payload.get('amount')!r}")
+        raise HTTPException(status_code=400, detail="Некорректная сумма LCC")
 
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+    if not math.isfinite(amount) or amount <= 0:
+        _log_security_attempt(user_id, "rcc_invalid_exchange_amount", f"amount={payload.get('amount')!r}")
+        raise HTTPException(status_code=400, detail="Сумма должна быть конечным числом больше нуля")
 
     conn = db()
     cur = conn.cursor()
@@ -5098,10 +5103,10 @@ def send_gift(payload: dict = Body(...)):
             conn.close()
             _log_security_attempt(user_id, "money_gift_invalid_amount", f"amount={gift_data_raw!r}")
             raise HTTPException(status_code=400, detail="Сумма должна быть целым числом")
-        if amount <= 0:
+        if amount <= 0 or amount > 9_223_372_036_854_775_807:
             conn.close()
             _log_security_attempt(user_id, "money_gift_invalid_amount", f"amount={amount}")
-            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+            raise HTTPException(status_code=400, detail="Сумма должна быть от 1 до максимального значения LDC")
         slot_ok, transfer_count = bot_db.reserve_daily_transfer_slot(cur, user_id, daily_limit=5)
         if not slot_ok:
             conn.close()
@@ -5113,10 +5118,16 @@ def send_gift(payload: dict = Body(...)):
         gift_data = json.dumps({"amount": amount})
 
     elif gift_type == "rcc":
-        amount = float(gift_data_raw)
-        if amount <= 0:
+        try:
+            amount = float(gift_data_raw)
+        except (TypeError, ValueError, OverflowError):
             conn.close()
-            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+            _log_security_attempt(user_id, "rcc_gift_invalid_amount", f"amount={gift_data_raw!r}")
+            raise HTTPException(status_code=400, detail="Некорректная сумма LCC")
+        if not math.isfinite(amount) or amount <= 0:
+            conn.close()
+            _log_security_attempt(user_id, "rcc_gift_invalid_amount", f"amount={gift_data_raw!r}")
+            raise HTTPException(status_code=400, detail="Сумма должна быть конечным числом больше нуля")
         cur.execute("SELECT balance FROM rcc_balance WHERE user_id = %s", (user_id,))
         r = cur.fetchone()
         if not r or r["balance"] < amount:
