@@ -2142,6 +2142,9 @@ async def transfer_amount(message: Message, state: FSMContext):
         if amount <= 0:
             await message.answer("❌ Сумма > 0")
             return
+        if amount > 200_000:
+            await message.answer("❌ Максимум за один перевод — 200 000 LDC.")
+            return
         uid = message.from_user.id
         if amount > db.get_balance(uid):
             await message.answer("❌ Недостаточно")
@@ -2174,6 +2177,8 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
         if reason == "limit":
             db.log_action(sid, "security", f"Попытка перевода сверх суточного лимита; target_id={rid}; amount={amount}; count={count}")
             error_text = "🚫 Лимит исчерпан: максимум 5 успешных переводов в сутки (UTC)."
+        elif reason == "max_amount":
+            error_text = "❌ Максимум за один перевод — 200 000 LDC."
         elif reason == "balance":
             error_text = "❌ Недостаточно монет."
         elif reason == "recipient":
