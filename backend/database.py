@@ -146,6 +146,14 @@ def init_db():
             last_care TEXT
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS inventory_items (
+            user_id BIGINT NOT NULL,
+            item_key TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, item_key)
+        )
+    """)
 
     cur.execute("""
         INSERT INTO pet_care (pet_id)
@@ -1790,6 +1798,75 @@ def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
     conn.close()
     return {"energy": int(energy), "mood": int(mood), "health": int(health),
             "level": int(level), "experience": int(experience)}
+PET_FOOD_BY_NAME = {
+    "кот": "cat_food", "кошка": "cat_food", "котёнок": "cat_food",
+    "собака": "dog_food", "щенок": "dog_food",
+    "кролик": "rabbit_food", "заяц": "rabbit_food",
+    "попугай": "bird_food", "птица": "bird_food",
+    "рыба": "fish_food", "черепаха": "reptile_food",
+    "ящерица": "reptile_food", "хомяк": "small_pet_food",
+    "мышь": "small_pet_food", "крыса": "small_pet_food",
+}
+
+
+def pet_food_key(pet_name: str) -> str:
+    name = (pet_name or "").casefold()
+    for prefix, key in PET_FOOD_BY_NAME.items():
+        if prefix in name:
+            return key
+    return "universal_pet_food"
+
+
+def get_inventory(user_id: int) -> list:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT item_key, quantity FROM inventory_items WHERE user_id = ? AND quantity > 0 ORDER BY item_key", (user_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return [{"item_key": row[0], "quantity": int(row[1])} for row in rows]
+
+
+def add_inventory_item(user_id: int, item_key: str, quantity: int = 1) -> bool:
+    if quantity <= 0:
+        return False
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO inventory_items (user_id, item_key, quantity) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, item_key) DO UPDATE SET quantity = quantity + excluded.quantity",
+        (user_id, item_key, quantity),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def use_pet_food(user_id: int, pet_id: int) -> tuple:
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT pet_name FROM pets WHERE id = ? AND user_id = ?", (pet_id, user_id))
+    pet = cur.fetchone()
+    if not pet:
+        conn.close()
+        return False, "Питомец не найден."
+    food_key = pet_food_key(pet[0])
+    cur.execute("SELECT quantity FROM inventory_items WHERE user_id = ? AND item_key = ?", (user_id, food_key))
+    item = cur.fetchone()
+    if not item or int(item[0]) < 1:
+        conn.close()
+        return False, f"Нет корма: {food_key}. Купи его в магазине."
+    cur.execute("UPDATE inventory_items SET quantity = quantity - 1 WHERE user_id = ? AND item_key = ? AND quantity >= 1", (user_id, food_key))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return False, "Корм уже использован."
+    cur.execute("INSERT INTO pet_care (pet_id) VALUES (?) ON CONFLICT(pet_id) DO NOTHING", (pet_id,))
+    cur.execute("UPDATE pet_care SET energy = MIN(100, energy + 35), health = MIN(100, health + 5), experience = experience + 5, last_care = ? WHERE pet_id = ?", (datetime.now().isoformat(), pet_id))
+    conn.commit()
+    conn.close()
+    return True, f"Питомец накормлен подходящим кормом (+35 энергии): {food_key}."
+
+
 def care_for_pet(user_id: int, pet_id: int, action: str) -> tuple:
     """Уход за своим питомцем; списание и обновление состояния выполняются одной транзакцией."""
     # Apply inactivity decay before an action can restore a stat.
