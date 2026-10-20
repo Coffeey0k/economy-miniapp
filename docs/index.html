@@ -1314,9 +1314,9 @@
     <div id="rcc-game-block" style="display:none;">
       <div class="card">
         <h2>🎮 Ловля монет</h2>
-        <p class="label">Падают монеты — кликай по ним! Размер монеты = разный приз (0.00035–0.00080 LCC).</p>
-        <p class="label">❄️ Лёд — замораживает на 5–7 сек. 💣 Бомба — минус 0.00050 LCC.</p>
-        <p class="label">Раунд 25 секунд, кулдаун 2 часа.</p>
+        <p class="label">Падающие монеты дают 0.00035–0.00080 LCC до бонуса улучшений.</p>
+        <p class="label">❄️ Лёд замораживает на 5–7 сек. плюс уровень заморозки. 💣 Бомба — минус 0.00050 LCC.</p>
+        <p class="label">Раунд от 25 секунд (+5 секунд за уровень таймера), кулдаун 2 часа.</p>
         <div id="rcc-game-status" class="label" style="text-align:center;margin:10px 0;">Загрузка…</div>
         <button class="btn" id="rcc-game-btn" style="width:100%;" onclick="rccStartGame()">▶️ Начать</button>
       </div>
@@ -3136,8 +3136,11 @@
 
   async function rccClick() {
     if (!rccData || rccData.energy <= 0) {
-      toast("Энергия закончилась — дождись восстановления.", true);
-      return;
+      await loadRcc();
+      if (!rccData || rccData.energy <= 0) {
+        toast("Энергия закончилась — дождись восстановления.", true);
+        return;
+      }
     }
     const area = document.getElementById("rcc-click-area");
     area.style.transform = "scale(0.95)";
