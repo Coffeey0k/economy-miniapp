@@ -1228,7 +1228,7 @@
         <input type="text" id="gift-username" placeholder="Username получателя (без @)">
         <select id="gift-type" onchange="renderGiftFields()" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
           <option value="money">💰 Монеты (LDC — Lavender Dream Coin)</option>
-          <option value="lcc">💎 LCC</option>
+          <option value="rcc">💎 LCC</option>
           <option value="pet">🐾 Питомец</option>
           <option value="cosmetic">🎨 Косметика</option>
         </select>
@@ -1247,57 +1247,57 @@
   </div>
   
   <!-- LCC -->
-  <div class="tab" id="tab-lcc">
-    <div id="lcc-msg"></div>
+  <div class="tab" id="tab-rcc">
+    <div id="rcc-msg"></div>
 
     <div class="tabs-sub">
-      <button class="lcc-tab active" onclick="lccShowTab('main', event)">💰 LCC</button>
-      <button class="lcc-tab" onclick="lccShowTab('game', event)">🎮 Мини-игра</button>
+      <button class="rcc-tab active" onclick="rccShowTab('main', event)">💰 RCC</button>
+      <button class="rcc-tab" onclick="rccShowTab('game', event)">🎮 Мини-игра</button>
     </div>
 
     <!-- ГЛАВНАЯ LCC -->
-    <div id="lcc-main-block">
+    <div id="rcc-main-block">
       <div class="card">
         <h2>💰 ReefCriptoCoin</h2>
-        <div class="label">Баланс LCC: <b id="lcc-balance">0.00000</b> LCC</div>
-        <div class="label">Всего кликов: <span id="lcc-total-clicks">0</span></div>
-        <div class="label">Курс: 1 LCC = <span id="lcc-rate">5</span> 🪙</div>
+        <div class="label">Баланс LCC: <b id="rcc-balance">0.00</b> LCC</div>
+        <div class="label">Всего кликов: <span id="rcc-total-clicks">0</span></div>
+        <div class="label">Курс: 1 LCC = <span id="rcc-rate">50,500</span> 🪙</div>
       </div>
 
       <div class="card">
         <h2>🖱️ Кликер</h2>
         <p class="label">Жми по кнопке — получай LCC. Без ограничений!</p>
-        <div id="lcc-click-area" onclick="lccClick()" style="cursor:pointer;user-select:none;text-align:center;padding:30px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:20px;margin:12px 0;transition:transform 0.1s;">
+        <div id="rcc-click-area" onclick="rccClick()" style="cursor:pointer;user-select:none;text-align:center;padding:30px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:20px;margin:12px 0;transition:transform 0.1s;">
           <div style="font-size:60px;line-height:1;">💎</div>
-          <div style="font-size:20px;font-weight:700;color:#fff;margin-top:8px;">+0.00000001 LCC</div>
+          <div style="font-size:20px;font-weight:700;color:#fff;margin-top:8px;">+0.00001 LCC</div>
         </div>
         <div class="label" style="text-align:center;">Тапни по монете</div>
       </div>
 
       <div class="card">
         <h2>💱 Обмен LCC → Lavender Dream Coin</h2>
-        <input type="number" id="lcc-exchange-amount" placeholder="Количество LCC" min="0.00000001" step="0.00000001">
-        <button class="btn" style="width:100%;" onclick="lccExchange()">Обменять</button>
-        <p class="label" style="margin-top:8px;">Твой LDC-баланс: <span id="lcc-pc-balance">0</span> 🪙</p>
+        <input type="number" id="rcc-exchange-amount" placeholder="Количество LCC" min="0.00002" step="0.00001">
+        <button class="btn" style="width:100%;" onclick="rccExchange()">Обменять</button>
+        <p class="label" style="margin-top:8px;">Твой LDC-баланс: <span id="rcc-pc-balance">0</span> 🪙</p>
       </div>
     </div>
 
     <!-- МИНИ-ИГРА -->
-    <div id="lcc-game-block" style="display:none;">
+    <div id="rcc-game-block" style="display:none;">
       <div class="card">
         <h2>🎮 Ловля монет</h2>
-        <p class="label">Падают монеты — кликай по ним! Размер монеты = разный приз (0.00000035–0.00000080 LCC).</p>
-        <p class="label">❄️ Лёд — замораживает на 5–7 сек. 💣 Бомба — минус 0.5 LCC.</p>
+        <p class="label">Падают монеты — кликай по ним! Размер монеты = разный приз (0.00035–0.00080 LCC).</p>
+        <p class="label">❄️ Лёд — замораживает на 5–7 сек. 💣 Бомба — минус 0.00050 LCC.</p>
         <p class="label">Раунд 25 секунд, кулдаун 2 часа.</p>
-        <div id="lcc-game-status" class="label" style="text-align:center;margin:10px 0;">Загрузка…</div>
-        <button class="btn" id="lcc-game-btn" style="width:100%;" onclick="lccStartGame()">▶️ Начать</button>
+        <div id="rcc-game-status" class="label" style="text-align:center;margin:10px 0;">Загрузка…</div>
+        <button class="btn" id="rcc-game-btn" style="width:100%;" onclick="rccStartGame()">▶️ Начать</button>
       </div>
-      <div class="card" id="lcc-game-canvas-card" style="display:none;">
+      <div class="card" id="rcc-game-canvas-card" style="display:none;">
         <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-          <span>⏱️ <b id="lcc-game-timer">25</b> сек</span>
-          <span>💰 <b id="lcc-game-score">0.00000</b> LCC</span>
+          <span>⏱️ <b id="rcc-game-timer">25</b> сек</span>
+          <span>💰 <b id="rcc-game-score">0.00</b> LCC</span>
         </div>
-        <div id="lcc-game-canvas" style="position:relative;width:100%;height:400px;background:var(--bg);border:2px solid var(--accent);border-radius:12px;overflow:hidden;"></div>
+        <div id="rcc-game-canvas" style="position:relative;width:100%;height:400px;background:var(--bg);border:2px solid var(--accent);border-radius:12px;overflow:hidden;"></div>
       </div>
     </div>
   </div>
@@ -1396,7 +1396,7 @@
         <button class="tile" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
         <button class="tile" onclick="switchTab('clans')"><span class="ic">🏛️</span>Кланы</button>
         <button class="tile" onclick="switchTab('music')"><span class="ic">🎵</span>Музыка</button>
-        <button class="tile" onclick="switchTab('lcc')"><span class="ic">💰</span>LCC</button>
+        <button class="tile" onclick="switchTab('rcc')"><span class="ic">💰</span>LCC</button>
         <button class="tile" onclick="switchTab('gifts')"><span class="ic">🎁</span>Подарки</button>
         <button class="tile" onclick="switchTab('trades')"><span class="ic">🔁</span>Трейды</button>
       </div>
@@ -1551,7 +1551,7 @@
     if (name === "island") loadIsland();
     if (name === "clans") loadClans();
     if (name === "music") loadMusic();
-    if (name === "lcc") loadRcc();
+    if (name === "rcc") loadRcc();
     if (name === "users") loadUsers();
     if (name === "gifts") loadGifts();
     if (name === "trades") loadTrades();
@@ -2855,7 +2855,7 @@
   function giftTypeLabel(t) {
     return {
       money: "💰 Монеты",
-      lcc: "💎 LCC",
+      rcc: "💎 LCC",
       pet: "🐾 Питомец",
       cosmetic: "🎨 Косметика"
     }[t] || t;
@@ -2869,9 +2869,9 @@
     if (type === "money") {
       box.innerHTML = `<input type="number" id="gift-money-amount" placeholder="Сумма 🪙" min="1" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
         <div class="label">Твой баланс: ${giftsData.balance.toLocaleString()} 🪙</div>`;
-    } else if (type === "lcc") {
-      box.innerHTML = `<input type="number" id="gift-lcc-amount" placeholder="Сумма LCC" min="0.00000001" step="0.00000001" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
-        <div class="label">Твой баланс LCC: ${giftsData.lcc_balance.toFixed(4)}</div>`;
+    } else if (type === "rcc") {
+      box.innerHTML = `<input type="number" id="gift-rcc-amount" placeholder="Сумма LCC" min="0.01" step="0.01" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
+        <div class="label">Твой баланс LCC: ${giftsData.rcc_balance.toFixed(8)}</div>`;
     } else if (type === "pet") {
       if (giftsData.pets.length === 0) {
         box.innerHTML = `<div class="label">У тебя нет питомцев</div>`;
@@ -2902,8 +2902,8 @@
       const el = document.getElementById("gift-money-amount");
       gift_data = el ? el.value : null;
       if (!gift_data || parseInt(gift_data) <= 0) { toast("Введи сумму", true); return; }
-    } else if (gift_type === "lcc") {
-      const el = document.getElementById("gift-lcc-amount");
+    } else if (gift_type === "rcc") {
+      const el = document.getElementById("gift-rcc-amount");
       gift_data = el ? el.value : null;
       if (!gift_data || parseFloat(gift_data) <= 0) { toast("Введи сумму", true); return; }
     } else if (gift_type === "pet") {
@@ -2984,10 +2984,10 @@
     }, 3500);
   }
   
-  // ===== LCC =====
-  let lccData = null;
-  let lccTab = "main";
-  let lccGame = {
+  // ===== RCC =====
+  let rccData = null;
+  let rccTab = "main";
+  let rccGame = {
     active: false,
     frozen: false,
     score: 0,
@@ -2999,42 +2999,42 @@
 
   async function loadRcc() {
     try {
-      lccData = await apiGet("/api/lcc");
+      rccData = await apiGet("/api/rcc");
       renderRcc();
-    } catch (e) { showMsg("lcc-msg", e.message, false); }
+    } catch (e) { showMsg("rcc-msg", e.message, false); }
   }
 
-  function lccShowTab(tab, ev) {
-    lccTab = tab;
-    document.querySelectorAll(".lcc-tab").forEach(b => b.classList.remove("active"));
+  function rccShowTab(tab, ev) {
+    rccTab = tab;
+    document.querySelectorAll(".rcc-tab").forEach(b => b.classList.remove("active"));
     if (ev) ev.target.classList.add("active");
-    document.getElementById("lcc-main-block").style.display = tab === "main" ? "block" : "none";
-    document.getElementById("lcc-game-block").style.display = tab === "game" ? "block" : "none";
+    document.getElementById("rcc-main-block").style.display = tab === "main" ? "block" : "none";
+    document.getElementById("rcc-game-block").style.display = tab === "game" ? "block" : "none";
     renderRcc();
   }
 
   function renderRcc() {
-    if (!lccData) return;
-    document.getElementById("lcc-balance").textContent = lccData.balance.toFixed(4);
-    document.getElementById("lcc-total-clicks").textContent = lccData.total_clicks;
-    document.getElementById("lcc-rate").textContent = lccData.exchange_rate;
-    document.getElementById("lcc-pc-balance").textContent = lccData.pc_balance.toLocaleString();
+    if (!rccData) return;
+    document.getElementById("rcc-balance").textContent = rccData.balance.toFixed(8);
+    document.getElementById("rcc-total-clicks").textContent = rccData.total_clicks;
+    document.getElementById("rcc-rate").textContent = rccData.exchange_rate;
+    document.getElementById("rcc-pc-balance").textContent = rccData.pc_balance.toLocaleString();
 
-    const status = document.getElementById("lcc-game-status");
-    const btn = document.getElementById("lcc-game-btn");
-    if (lccData.can_play) {
+    const status = document.getElementById("rcc-game-status");
+    const btn = document.getElementById("rcc-game-btn");
+    if (rccData.can_play) {
       status.textContent = "✅ Игра доступна!";
       btn.disabled = false;
     } else {
-      const h = Math.floor(lccData.remaining_seconds / 3600);
-      const m = Math.floor((lccData.remaining_seconds % 3600) / 60);
+      const h = Math.floor(rccData.remaining_seconds / 3600);
+      const m = Math.floor((rccData.remaining_seconds % 3600) / 60);
       status.textContent = `⏳ Кулдаун: ${h} ч ${m} мин`;
       btn.disabled = true;
     }
   }
 
-  async function lccClick() {
-    const area = document.getElementById("lcc-click-area");
+  async function rccClick() {
+    const area = document.getElementById("rcc-click-area");
     area.style.transform = "scale(0.95)";
     setTimeout(() => area.style.transform = "scale(1)", 100);
 
@@ -3042,38 +3042,38 @@
     haptic("light");
 
     // Мгновенно обновляем локально
-    if (lccData) {
-      lccData.balance += 0.00000001;
-      lccData.total_clicks += 1;
-      document.getElementById("lcc-balance").textContent = lccData.balance.toFixed(4);
-      document.getElementById("lcc-total-clicks").textContent = lccData.total_clicks;
+    if (rccData) {
+      rccData.balance += 0.00001;
+      rccData.total_clicks += 1;
+      document.getElementById("rcc-balance").textContent = rccData.balance.toFixed(8);
+      document.getElementById("rcc-total-clicks").textContent = rccData.total_clicks;
     }
 
     // Отправляем на сервер
     try {
-      const res = await apiPost("/api/lcc/click", { amount: 0.00000001 });
-      if (lccData) lccData.balance = res.balance;
-      document.getElementById("lcc-balance").textContent = res.balance.toFixed(4);
+      const res = await apiPost("/api/rcc/click", { amount: 0.00001 });
+      if (rccData) rccData.balance = res.balance;
+      document.getElementById("rcc-balance").textContent = res.balance.toFixed(8);
     } catch (e) {}
   }
 
-  async function lccExchange() {
-    const amount = parseFloat(document.getElementById("lcc-exchange-amount").value);
-    if (!amount || amount <= 0) { toast("Введи количество LCC", true); return; }
+  async function rccExchange() {
+    const amount = parseFloat(document.getElementById("rcc-exchange-amount").value);
+    if (!amount || amount <= 0) { toast("Введи количество RCC", true); return; }
     try {
-      const res = await apiPost("/api/lcc/exchange", { amount });
+      const res = await apiPost("/api/rcc/exchange", { amount });
       toast(res.message, false);
-      document.getElementById("lcc-exchange-amount").value = "";
+      document.getElementById("rcc-exchange-amount").value = "";
       await loadRcc();
       loaded.profile = false; loadProfile();
     } catch (e) { toast(e.message, true); }
   }
 
   // ===== МИНИ-ИГРА =====
-  async function lccStartGame() {
-    if (!lccData.can_play) { toast("Кулдаун ещё не прошёл", true); return; }
+  async function rccStartGame() {
+    if (!rccData.can_play) { toast("Кулдаун ещё не прошёл", true); return; }
 
-    lccGame = {
+    rccGame = {
       active: true,
       frozen: false,
       score: 0,
@@ -3083,34 +3083,34 @@
       intervalTimer: null,
     };
 
-    document.getElementById("lcc-game-canvas-card").style.display = "block";
-    document.getElementById("lcc-game-btn").style.display = "none";
-    document.getElementById("lcc-game-timer").textContent = "25";
-    document.getElementById("lcc-game-score").textContent = "0.00000";
+    document.getElementById("rcc-game-canvas-card").style.display = "block";
+    document.getElementById("rcc-game-btn").style.display = "none";
+    document.getElementById("rcc-game-timer").textContent = "25";
+    document.getElementById("rcc-game-score").textContent = "0.00000";
 
-    const canvas = document.getElementById("lcc-game-canvas");
+    const canvas = document.getElementById("rcc-game-canvas");
     canvas.innerHTML = "";
 
     // Спавн объектов
-    lccGame.intervalSpawn = setInterval(() => {
-      if (!lccGame.active || lccGame.frozen) return;
+    rccGame.intervalSpawn = setInterval(() => {
+      if (!rccGame.active || rccGame.frozen) return;
       spawnRccObject();
     }, 500);
 
     // Таймер
-    lccGame.intervalTimer = setInterval(() => {
-      if (!lccGame.active || lccGame.frozen) return;
-      lccGame.timeLeft -= 1;
-      document.getElementById("lcc-game-timer").textContent = lccGame.timeLeft;
-      if (lccGame.timeLeft <= 0) finishRccGame();
+    rccGame.intervalTimer = setInterval(() => {
+      if (!rccGame.active || rccGame.frozen) return;
+      rccGame.timeLeft -= 1;
+      document.getElementById("rcc-game-timer").textContent = rccGame.timeLeft;
+      if (rccGame.timeLeft <= 0) finishRccGame();
     }, 1000);
 
     // Игровой цикл (движение)
-    lccLoop();
+    rccLoop();
   }
 
   function spawnRccObject() {
-    const canvas = document.getElementById("lcc-game-canvas");
+    const canvas = document.getElementById("rcc-game-canvas");
     const rand = Math.random();
     let type, size, emoji;
     if (rand < 0.05) { type = "bomb"; size = 40; emoji = "💣"; }
@@ -3136,17 +3136,17 @@
     };
 
     canvas.appendChild(el);
-    lccGame.spawned.push(el);
+    rccGame.spawned.push(el);
   }
 
-  function lccLoop() {
-    if (!lccGame.active) return;
-    const canvas = document.getElementById("lcc-game-canvas");
+  function rccLoop() {
+    if (!rccGame.active) return;
+    const canvas = document.getElementById("rcc-game-canvas");
 
-    lccGame.spawned = lccGame.spawned.filter(el => {
+    rccGame.spawned = rccGame.spawned.filter(el => {
       if (!el.parentNode) return false;
       let top = parseFloat(el.style.top) || -50;
-      if (!lccGame.frozen) {
+      if (!rccGame.frozen) {
         top += parseFloat(el.dataset.speed);
         el.style.top = top + "px";
       }
@@ -3157,41 +3157,41 @@
       return true;
     });
 
-    requestAnimationFrame(lccLoop);
+    requestAnimationFrame(rccLoop);
   }
 
   function handleRccClick(el) {
-    if (!lccGame.active) return;
+    if (!rccGame.active) return;
     const type = el.dataset.type;
     const size = parseInt(el.dataset.size);
 
     if (type === "coin") {
-      // Размер 30-55, награда 0.00000035-0.00000080
-      const reward = 0.00000035 + ((size - 30) / 25) * 0.00000045;
-      lccGame.score += reward;
+      // Размер 30-55, награда 0.05-0.15
+      const reward = 0.00035 + ((size - 30) / 25) * 0.00045;
+      rccGame.score += reward;
       playSound("click");
       haptic("light");
-      showFloatingText(el, `+${reward.toFixed(5)}`, "#00ff88");
+      showFloatingText(el, `+${reward.toFixed(2)}`, "#00ff88");
     } else if (type === "ice") {
-      lccGame.frozen = true;
+      rccGame.frozen = true;
       playSound("error");
       haptic("warning");
       showFloatingText(el, "❄️ Заморозка!", "#00ccff");
       const freezeTime = 5 + Math.floor(Math.random() * 3); // 5-7 сек
-      setTimeout(() => { lccGame.frozen = false; }, freezeTime * 1000);
+      setTimeout(() => { rccGame.frozen = false; }, freezeTime * 1000);
     } else if (type === "bomb") {
-      lccGame.score -= 0.5;
+      rccGame.score = Math.max(0, rccGame.score - 0.0005);
       playSound("error");
       haptic("error");
-      showFloatingText(el, "-0.00000050", "#ff4444");
+      showFloatingText(el, "-0.00050", "#ff4444");
     }
 
-    document.getElementById("lcc-game-score").textContent = lccGame.score.toFixed(5);
+    document.getElementById("rcc-game-score").textContent = rccGame.score.toFixed(5);
     el.remove();
   }
 
   function showFloatingText(el, text, color) {
-    const canvas = document.getElementById("lcc-game-canvas");
+    const canvas = document.getElementById("rcc-game-canvas");
     const float = document.createElement("div");
     float.style.position = "absolute";
     float.style.left = el.style.left;
@@ -3211,27 +3211,27 @@
   }
 
   async function finishRccGame() {
-    lccGame.active = false;
-    clearInterval(lccGame.intervalSpawn);
-    clearInterval(lccGame.intervalTimer);
+    rccGame.active = false;
+    clearInterval(rccGame.intervalSpawn);
+    clearInterval(rccGame.intervalTimer);
 
-    const canvas = document.getElementById("lcc-game-canvas");
+    const canvas = document.getElementById("rcc-game-canvas");
     canvas.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;">
       <div style="font-size:48px;">🏁</div>
       <div style="font-size:20px;font-weight:700;margin-top:12px;">Раунд завершён!</div>
-      <div style="font-size:24px;color:var(--link);margin-top:8px;">+${lccGame.score.toFixed(5)} LCC</div>
+      <div style="font-size:24px;color:var(--link);margin-top:8px;">+${rccGame.score.toFixed(2)} RCC</div>
     </div>`;
 
     try {
-      const res = await apiPost("/api/lcc/game_finish", { amount: lccGame.score });
-      toast(`🎉 Заработано ${res.earned.toFixed(5)} LCC`, false);
+      const res = await apiPost("/api/rcc/game_finish", { amount: rccGame.score });
+      toast(`🎉 Заработано ${res.earned.toFixed(5)} RCC`, false);
     } catch (e) {
       toast(e.message, true);
     }
 
-    document.getElementById("lcc-game-btn").style.display = "block";
-    document.getElementById("lcc-game-btn").disabled = true;
-    document.getElementById("lcc-game-status").textContent = "⏳ Кулдаун 2 часа";
+    document.getElementById("rcc-game-btn").style.display = "block";
+    document.getElementById("rcc-game-btn").disabled = true;
+    document.getElementById("rcc-game-status").textContent = "⏳ Кулдаун 2 часа";
 
     setTimeout(() => loadRcc(), 2000);
   }
@@ -3847,7 +3847,7 @@
       osc.connect(gain);
       gain.connect(ctx.destination);
       gain.gain.setValueAtTime(0.08, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.000001, ctx.currentTime + 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
       osc.frequency.value = type === "success" ? 880 : (type === "error" ? 220 : 550);
       osc.type = "sine";
       osc.start();
