@@ -641,6 +641,16 @@ def init_db():
         )
     """)
 
+    # === ЛИМИТ ПЕРЕВОДОВ: 5 успешных переводов в UTC-день ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_transfer_usage (
+            user_id BIGINT NOT NULL,
+            transfer_date TEXT NOT NULL,
+            transfer_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, transfer_date)
+        )
+    """)
+
     # === ТЕХ.АДМИНЫ (флаг тест-режима) ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tech_admins (
@@ -713,6 +723,73 @@ def update_balance(user_id: int, amount: int) -> bool:
         conn.close()
         logger.exception("Не удалось изменить баланс user_id=%s amount=%s", user_id, amount)
         return False
+
+
+def transfer_coins_limited(sender_id: int, recipient_id: int, amount: int, daily_limit: int = 5) -> tuple:
+    """Atomically transfer LDC and enforce one shared daily quota for bot + Mini App.
+
+    Returns (success, reason, successful_transfers_today). The quota increments only
+    if both balance updates succeed; concurrent transfers serialize on the user's
+    (UTC date) usage row.
+    """
+    if amount <= 0 or sender_id == recipient_id:
+        return False, "invalid", 0
+    today = datetime.utcnow().date().isoformat()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO daily_transfer_usage (user_id, transfer_date, transfer_count) "
+            "VALUES (?, ?, 0) ON CONFLICT(user_id, transfer_date) DO NOTHING",
+            (sender_id, today),
+        )
+        cur.execute(
+            "SELECT transfer_count FROM daily_transfer_usage "
+            "WHERE user_id = ? AND transfer_date = ? FOR UPDATE",
+            (sender_id, today),
+        )
+        row = cur.fetchone()
+        count = int(row[0] or 0) if row else 0
+        if count >= daily_limit:
+            conn.rollback()
+            conn.close()
+            return False, "limit", count
+
+        cur.execute(
+            "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+            (amount, sender_id, amount),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            return False, "balance", count
+
+        cur.execute(
+            "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+            (amount, recipient_id),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            return False, "recipient", count
+
+        count += 1
+        cur.execute(
+            "UPDATE daily_transfer_usage SET transfer_count = ? "
+            "WHERE user_id = ? AND transfer_date = ?",
+            (count, sender_id, today),
+        )
+        conn.commit()
+        conn.close()
+        return True, "ok", count
+    except Exception:
+        conn.rollback()
+        conn.close()
+        logger.exception(
+            "Transfer transaction failed sender_id=%s recipient_id=%s amount=%s",
+            sender_id, recipient_id, amount,
+        )
+        return False, "error", 0
 
 
 def transfer_coins(sender_id: int, recipient_id: int, amount: int) -> bool:
@@ -4954,6 +5031,8 @@ def gift_cleanup_expired() -> int:
 # ==================== ЛОГ ДЕЙСТВИЙ ====================
 
 LOG_TYPES = {
+    "security":      "🚨 Подозрительное действие",
+    "feedback":      "✉️ Обратная связь",
     "purchase":      "🛍️ Покупка",
     "transfer":      "💸 Перевод",
     "game":          "🎮 Игра",
