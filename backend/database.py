@@ -83,6 +83,13 @@ def init_db():
         )
     """)
 
+    # Use a 64-bit balance column so large, valid LDC stakes are not capped at 32-bit.
+    try:
+        cur.execute("ALTER TABLE users ALTER COLUMN balance TYPE BIGINT")
+    except Exception:
+        # SQLite and already-compatible databases do not support/need this migration.
+        pass
+
     # Покупки
     cur.execute("""
         CREATE TABLE IF NOT EXISTS purchases (
