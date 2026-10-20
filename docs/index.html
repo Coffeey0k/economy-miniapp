@@ -3864,11 +3864,20 @@
       const materialsMet = Object.entries(cfg.materials || {}).every(([resource, qty]) => (have[resource] || 0) >= qty);
       const materialText = Object.entries(cfg.materials || {}).map(([resource, qty]) => `${islandData.resource_names[resource] || resource} ×${qty}`).join(" · ");
       const disabled = owned || !reqMet || !materialsMet || Number(balance) < cfg.price;
+      const currentLevel = owned ? Number(buildings[key].level) : 0;
+      const upgradePrice = Math.max(1, Math.floor(Number(cfg.price) * 0.6 * currentLevel));
+      const upgradeMaterials = {wood: currentLevel * 10, stone: currentLevel * 5, ...(key === "workshop" || key === "lighthouse" ? {ore: currentLevel * 3} : {})};
+      const upgradeMaterialsMet = Object.entries(upgradeMaterials).every(([resource, qty]) => (have[resource] || 0) >= qty);
+      const upgradeDisabled = !owned || currentLevel >= 3 || !upgradeMaterialsMet || Number(balance) < upgradePrice;
+      const upgradeMaterialText = Object.entries(upgradeMaterials).map(([resource, qty]) => `${islandData.resource_names[resource] || resource} ×${qty}`).join(" · ");
       html += `<div class="island-building-card">
         <div class="island-building-title">${cfg.name}</div>
         <div class="label">${cfg.description}</div>
         <div class="label island-materials">Материалы: ${materialText}</div>
-        <div class="island-building-footer">${owned ? `<span class="label">Построено · ур. ${buildings[key].level}</span>` : `<span class="island-price">${Number(cfg.price).toLocaleString()} LDC</span><button class="btn btn-small" ${disabled ? "disabled" : ""} onclick="buildIslandBuilding('${key}')">Построить</button>`}</div>
+        <div class="island-building-footer">${owned
+          ? `<span class="label">Уровень ${currentLevel}/3</span><button class="btn btn-small" ${upgradeDisabled ? "disabled" : ""} onclick="upgradeIslandBuilding('${key}')">${currentLevel >= 3 ? "Максимум" : "Улучшить · " + upgradePrice.toLocaleString() + " LDC"}</button>`
+          : `<span class="island-price">${Number(cfg.price).toLocaleString()} LDC</span><button class="btn btn-small" ${disabled ? "disabled" : ""} onclick="buildIslandBuilding('${key}')">Построить</button>`}</div>
+        ${owned && currentLevel < 3 ? `<div class="label island-materials">Для улучшения: ${upgradeMaterialText}</div>` : ""}
       </div>`;
     });
     html += `</div><h2 style="margin-top:20px">🧑‍🌾 Работа по профессии</h2>`;
@@ -3895,6 +3904,18 @@
     if (!cfg || !confirm(`Построить ${cfg.name} за ${Number(cfg.price).toLocaleString()} LDC и необходимые материалы?`)) return;
     try {
       const res = await apiPost("/api/island/build", { building });
+      toast(res.message, false);
+      await loadIsland();
+      loaded.profile = false; loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function upgradeIslandBuilding(building) {
+    const cfg = islandData && islandData.building_catalog && islandData.building_catalog[building];
+    const currentLevel = islandData && islandData.buildings && islandData.buildings[building] ? Number(islandData.buildings[building].level) : 0;
+    if (!cfg || currentLevel < 1 || currentLevel >= 3 || !confirm(`Улучшить ${cfg.name} до уровня ${currentLevel + 1}? Будут потрачены LDC и материалы.`)) return;
+    try {
+      const res = await apiPost("/api/island/upgrade", { building });
       toast(res.message, false);
       await loadIsland();
       loaded.profile = false; loadProfile();
