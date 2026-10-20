@@ -4156,7 +4156,7 @@ def _rcc_get_progress(cur, user_id: int) -> dict:
     timer_level = int(row["timer_level"] or 0)
     freeze_level = int(row["freeze_level"] or 0)
     reward_level = int(row["reward_level"] or 0)
-    energy_recovery_in = 0 if energy >= 100 else max(1, 60 - int(elapsed % 60))
+    energy_recovery_in = max(1, 60 - int(elapsed % 60))
     return {
         "energy": energy,
         "energy_max": 100,
