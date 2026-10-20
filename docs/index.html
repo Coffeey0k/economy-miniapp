@@ -3166,8 +3166,8 @@
         rccData.balance = res.balance;
         rccData.energy = res.energy;
         rccData.energy_recovery_in = res.energy_recovery_in;
+        renderRcc();
       }
-      await loadRcc();
     } catch (e) {
       toast(e.message, true);
       await loadRcc();
