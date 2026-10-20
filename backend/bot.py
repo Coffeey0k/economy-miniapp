@@ -1164,15 +1164,17 @@ async def gift_pet_start(callback: CallbackQuery):
 
 @dp.message(F.text.lower().strip().in_({"питомцы", "питомец"}))
 async def pets_word_trigger(message: Message):
-    await message.answer(
+    sent = await message.answer(
         f"🐾 Питомцы\nАктивные слоты: {db.count_active_pets(message.from_user.id)}/{db.get_pet_slot_limit(message.from_user.id)}\nВыбери действие:",
         reply_markup=pets_menu(),
     )
+    message_owners[sent.message_id] = message.from_user.id
 
 
 @dp.message(F.text.lower().strip() == "каталог")
 async def catalog_word_trigger(message: Message):
-    await message.answer("📦 Каталог Lavender Dream\nВыбери товар:", reply_markup=catalog_menu())
+    sent = await message.answer("📦 Каталог Lavender Dream\nВыбери товар:", reply_markup=catalog_menu())
+    message_owners[sent.message_id] = message.from_user.id
 
 
 @dp.callback_query(F.data == "pet_slot_buy")
@@ -1198,10 +1200,11 @@ async def pet_slot_buy_handler(callback: CallbackQuery):
 
 @dp.message(F.text.lower().strip().in_({"пэй", "перевести", "перевод"}))
 async def transfer_word_trigger(message: Message, state: FSMContext):
-    await message.answer(
+    sent = await message.answer(
         "💸 Перевод LDC\nВведите username получателя без @:",
         reply_markup=cancel_button(),
     )
+    message_owners[sent.message_id] = message.from_user.id
     await state.set_state(TransferStates.waiting_recipient)
 
 
@@ -1210,7 +1213,8 @@ async def tasks_word_trigger(message: Message):
     db.assign_daily_tasks(message.from_user.id)
     tasks = db.get_user_tasks(message.from_user.id)
     if not tasks:
-        await message.answer("📋 Заданий пока нет. Загляни позже!", reply_markup=tasks_menu())
+        sent = await message.answer("📋 Заданий пока нет. Загляни позже!", reply_markup=tasks_menu())
+        message_owners[sent.message_id] = message.from_user.id
         return
     from database import DAILY_TASKS
     lines = ["📋 Ежедневные задания:", ""]
@@ -1221,7 +1225,8 @@ async def tasks_word_trigger(message: Message):
         if info.get("desc"):
             lines.append(f"   {info['desc']}")
         lines.append("")
-    await message.answer("\n".join(lines), reply_markup=tasks_menu())
+    sent = await message.answer("\n".join(lines), reply_markup=tasks_menu())
+    message_owners[sent.message_id] = message.from_user.id
 
 
 @dp.message(F.text.lower().strip().in_({"топ", "банк топ"}))
@@ -1264,7 +1269,8 @@ async def wheel_word_trigger(message: Message):
 
 @dp.message(F.text.lower().strip().in_({"игры", "игра"}))
 async def games_word_trigger(message: Message):
-    await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
+    sent = await message.answer("🎮 Выбери игру:", reply_markup=games_menu())
+    message_owners[sent.message_id] = message.from_user.id
 
 
 @dp.message(F.text.lower().regexp(r"^(?:монетка|казино|слот|слоты|кубик|кости|дротик|дартс|угадай число|число)(?:\s+.*)?$"))
