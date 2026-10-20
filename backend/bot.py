@@ -1238,7 +1238,7 @@ async def lcc_rate_word_trigger(message: Message):
 async def wheel_word_trigger(message: Message):
     """Word trigger for the fortune wheel."""
     sent = await message.answer(
-        "🎡 Колесо фортуны\n\nСтоимость вращения: 200 LDC.\nКулдаун: раз в 3 часа.\n\nИспытай удачу!",
+        "🎡 Колесо фортуны\n\nСтоимость вращения: 10 билетов колеса.\nКулдаун: раз в 3 часа.\nБилеты можно получить из сундуков, заданий, яиц питомцев и промокодов.\n\nИспытай удачу!",
         reply_markup=wheel_menu(),
     )
     message_owners[sent.message_id] = message.from_user.id
