@@ -421,7 +421,7 @@ def init_db():
             mines_count INTEGER DEFAULT 6,
             board TEXT,
             revealed TEXT,
-            bet BIGINT DEFAULT 200,
+            bet BIGINT DEFAULT 500,
             status TEXT DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
