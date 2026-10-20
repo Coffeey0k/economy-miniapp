@@ -3453,7 +3453,7 @@ ISLAND_RESOURCE_NAMES = {
     "maps": "🗺️ Карты", "trade_goods": "📦 Торговые товары", "meals": "🍲 Еда",
     "decor": "🖼️ Декор", "music_tokens": "🎵 Музыкальные жетоны",
     "photos": "📸 Фотографии", "pet_treats": "🦴 Лакомства", "circuits": "🔌 Платы",
-    "crystal": "💎 Кристаллы",
+    "crystal": "💎 Кристаллы", "artifacts": "🏺 Артефакты",
 }
 ISLAND_CONTRACTS = {
     "harvest": {"name": "Поставка урожая", "item": "crops", "quantity": 5, "reward": 4000, "experience": 10},
