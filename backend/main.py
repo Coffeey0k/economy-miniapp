@@ -48,6 +48,7 @@ bot_db.DB_NAME = os.environ.get("DB_PATH", bot_db.DB_NAME)
 bot_db.init_db()  # Ensure boost/event tables exist even when the API starts before the bot.
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # ========== НАСТРОЙКИ ==========
@@ -160,17 +161,10 @@ DAILY_TASK_DESCS = {
 
 app = FastAPI()
 
-# Разреши запросы со своего домена (когда захостишь фронтенд, впиши его сюда вместо "*")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 @app.middleware("http")
 async def audit_rejected_api_requests(request: Request, call_next):
-    """Record every rejected/error API response without logging tokens or request bodies."""
+    """Record rejected requests and return CORS-compatible 500 responses."""
     client_host = request.client.host if request.client else "unknown"
     try:
         response = await call_next(request)
@@ -187,7 +181,9 @@ async def audit_rejected_api_requests(request: Request, call_next):
             )
         except Exception:
             logger.exception("Не удалось сохранить API exception audit")
-        raise
+        # Returning a response instead of re-raising keeps the response inside
+        # the outer CORS middleware, so browsers receive the actual 500 status.
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
     if response.status_code >= 400:
         logger.warning(
             "API_REJECTED method=%s path=%s status=%s client=%s",
@@ -203,6 +199,14 @@ async def audit_rejected_api_requests(request: Request, call_next):
             logger.exception("Не удалось сохранить API rejection audit")
     return response
 
+
+# CORS must wrap the audit middleware so even server-error responses include CORS headers.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ========== ПРОВЕРКА TELEGRAM INIT DATA ==========
 
