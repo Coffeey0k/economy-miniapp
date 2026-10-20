@@ -1,8 +1,8 @@
 """
 Сапёр для Lavender Dream Coin.
 
-Поле 8x8, 6 мин. Ставка 200 монет.
-Победа: открыть все безопасные клетки → +400 монет.
+Поле 8x8, 6 мин. Минимальная ставка — 500 LDC.
+Победа: открыть все безопасные клетки → выплата 2× ставки.
 Проигрыш: попасть на мину → теряешь ставку.
 """
 
@@ -52,21 +52,37 @@ def ms_keyboard(game_id: int, board: str, revealed: str, size: int) -> InlineKey
 async def ms_start(message: Message):
     """Команда: 'сапёр' или 'сапёр 200' — начать игру."""
     parts = message.text.split()
-    bet = db.MS_BET  # 200 по умолчанию
+    bet = db.MS_BET
     if len(parts) >= 2:
+        match = __import__("re").fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", parts[1].lower())
+        if not match:
+            await message.answer("❌ Ставка должна быть числом (например, «сапёр 1к»).")
+            return
         try:
-            bet = int(parts[1])
-        except ValueError:
-            await message.answer("❌ Ставка должна быть числом.")
+            number = float(match.group(1).replace(",", "."))
+            multiplier = {"": 1, "к": 1_000, "кк": 1_000_000, "ккк": 1_000_000_000}[match.group(2) or ""]
+            scaled = number * multiplier
+            if not scaled.is_integer() or scaled > 9_223_372_036_854_775_807:
+                raise ValueError
+            bet = int(scaled)
+        except (ValueError, OverflowError):
+            await message.answer("❌ Некорректная ставка.")
             return
 
-    if not 1 <= bet <= 1000000:
-        await message.answer("❌ Ставка должна быть от 1 до 1 000 000 🪙.")
+    if bet < 500:
+        await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
 
     user_id = message.from_user.id
-    if db.get_balance(user_id) < bet:
-        await message.answer(f"❌ Недостаточно монет. У тебя {db.get_balance(user_id)} 🪙.")
+    balance = db.get_balance(user_id)
+    if balance < bet:
+        await message.answer(f"❌ Недостаточно LDC. У тебя {balance:,} LDC.")
+        return
+    allowed, remaining = db.register_game_play(user_id, "minesweeper")
+    if not allowed:
+        hours, rem = divmod(remaining, 3600)
+        minutes = rem // 60
+        await message.answer(f"⏳ Сапёр на перерыве ещё {hours} ч {minutes} мин.")
         return
 
     game_id = db.ms_create_game(user_id, bet)
