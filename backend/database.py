@@ -4912,63 +4912,66 @@ def delete_user_full(user_id: int) -> bool:
     return True
 
 
+def _safe_cleanup_query(cur, query: str, params=(), fetch: bool = False, context: str = ""):
+    """Run a cleanup query in its own savepoint so one optional table cannot cancel all cleanup."""
+    cur.execute("SAVEPOINT ld_user_cleanup")
+    try:
+        cur.execute(query, params)
+        rows = cur.fetchall() if fetch else None
+        cur.execute("RELEASE SAVEPOINT ld_user_cleanup")
+        return rows
+    except Exception:
+        try:
+            cur.execute("ROLLBACK TO SAVEPOINT ld_user_cleanup")
+            cur.execute("RELEASE SAVEPOINT ld_user_cleanup")
+        except Exception:
+            logger.exception("Не удалось откатить cleanup savepoint context=%s", context)
+        logger.exception("Не удалось очистить пользовательские данные context=%s", context)
+        return None
+
+
 def _delete_user_full(cur, user_id: int):
     """Внутренняя — удаляет пользовательские данные, сохраняя аудит безопасности."""
-    # These tables refer to a user through columns other than user_id.
+    # Pet care uses pet_id rather than user_id, so remove it before deleting pets.
     related_deletes = [
-        ("pet_care", "pet_id IN (SELECT id FROM pets WHERE user_id = ?)"),
-        ("ttt_games", "(player_x = ? OR player_o = ?)"),
-        ("ttt_invites", "(from_user = ? OR to_user = ?)"),
-        ("web_trades", "(from_user = ? OR to_user = ?)"),
-        ("pet_trades", "(from_user = ? OR to_user = ?)"),
-        ("gifts", "(from_user = ? OR to_user = ?)"),
+        ("pet_care", "pet_id IN (SELECT id FROM pets WHERE user_id = ?)", (user_id,)),
+        ("ttt_games", "(player_x = ? OR player_o = ?)", (user_id, user_id)),
+        ("ttt_invites", "(from_user = ? OR to_user = ?)", (user_id, user_id)),
+        ("web_trades", "(from_user = ? OR to_user = ?)", (user_id, user_id)),
+        ("pet_trades", "(from_user = ? OR to_user = ?)", (user_id, user_id)),
+        ("gifts", "(from_user = ? OR to_user = ?)", (user_id, user_id)),
     ]
-    for table, condition in related_deletes:
-        try:
-            params = (user_id, user_id) if condition.count("?") == 2 else (user_id,)
-            cur.execute(f"DELETE FROM {table} WHERE {condition}", params)
-        except Exception:
-            logger.exception("Не удалось очистить связанные данные user_id=%s table=%s", user_id, table)
+    for table, condition, params in related_deletes:
+        _safe_cleanup_query(cur, f"DELETE FROM {table} WHERE {condition}", params, context=table)
 
     tables_with_user_id = [
         "purchases", "warns", "game_stats", "new_members",
-        "pets", "professions", "profession_progress",
-        "daily_tasks", "promo_activations",
-        "user_cosmetics", "user_badges", "user_cosmetics_owned",
-        "user_settings", "islands",
-        "friends", "friend_requests",
-        "clan_members", "clan_requests",
+        "pets", "professions", "profession_progress", "daily_tasks", "promo_activations",
+        "user_cosmetics", "user_badges", "user_cosmetics_owned", "user_settings", "islands",
+        "friends", "friend_requests", "clan_members", "clan_requests",
         "music_personal", "music_shared", "music_slots",
         "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
         "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
         "daily_transfer_usage", "inventory_items", "minesweeper_games", "battleship_games",
     ]
-    for t in tables_with_user_id:
-        try:
-            cur.execute(f"DELETE FROM {t} WHERE user_id = ?", (user_id,))
-        except Exception:
-            logger.exception("Не удалось выполнить необязательную операцию")
+    for table in tables_with_user_id:
+        _safe_cleanup_query(
+            cur, f"DELETE FROM {table} WHERE user_id = ?", (user_id,), context=table
+        )
 
-    # Друзья, где он друг
-    try:
-        cur.execute("DELETE FROM friends WHERE friend_id = ?", (user_id,))
-        cur.execute("DELETE FROM friend_requests WHERE to_user = ?", (user_id,))
-    except Exception:
-        logger.exception("Не удалось выполнить необязательную операцию")
+    # Remove clan memberships and dissolve clans led by this user.
+    _safe_cleanup_query(cur, "DELETE FROM friends WHERE friend_id = ?", (user_id,), context="friends.friend_id")
+    _safe_cleanup_query(cur, "DELETE FROM friend_requests WHERE to_user = ?", (user_id,), context="friend_requests.to_user")
+    clan_rows = _safe_cleanup_query(
+        cur, "SELECT id FROM clans WHERE leader_id = ?", (user_id,), fetch=True, context="clans.leader_id"
+    ) or []
+    for row in clan_rows:
+        clan_id = row[0]
+        for table in ("clan_members", "clan_requests"):
+            _safe_cleanup_query(cur, f"DELETE FROM {table} WHERE clan_id = ?", (clan_id,), context=f"{table}.clan_id")
+        _safe_cleanup_query(cur, "DELETE FROM clans WHERE id = ?", (clan_id,), context="clans.id")
 
-    # Кланы, где он лидер
-    try:
-        cur.execute("SELECT id FROM clans WHERE leader_id = ?", (user_id,))
-        clan_ids = [r[0] for r in cur.fetchall()]
-        for cid in clan_ids:
-            cur.execute("DELETE FROM clan_members WHERE clan_id = ?", (cid,))
-            cur.execute("DELETE FROM clan_requests WHERE clan_id = ?", (cid,))
-            cur.execute("DELETE FROM clans WHERE id = ?", (cid,))
-    except Exception:
-        logger.exception("Не удалось выполнить необязательную операцию")
-
-    cur.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
-
+    _safe_cleanup_query(cur, "DELETE FROM users WHERE user_id = ?", (user_id,), context="users")
 
 def mark_user_blocked_bot(user_id: int):
     """Помечает пользователя как заблокировавшего бота (is_banned = 2)."""
