@@ -119,7 +119,7 @@ def transfer_menu() -> InlineKeyboardMarkup:
 
 def game_bet_menu(game_type: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for amount in [10, 50, 100, 500, 1000]:
+    for amount in [500, 1000]:
         builder.row(
             InlineKeyboardButton(text=f"{amount} 🪙", callback_data=f"bet_{game_type}_{amount}")
         )
