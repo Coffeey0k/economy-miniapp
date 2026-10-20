@@ -53,6 +53,14 @@ def init_db():
                 it
             )
 
+    # Набор билетов колеса доступен в каталоге раз в 7 дней.
+    cur.execute(
+        "INSERT INTO catalog_items (item_type, name, price, description) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(item_type) DO NOTHING",
+        ("wheel_tickets_weekly", "🎡 10 билетов колеса (раз в неделю)", 25000,
+         "10 билетов колеса фортуны; повторная покупка доступна через 7 дней"),
+    )
+
     # Бусты по умолчанию. Они добавляются и в уже заполненный каталог.
     for boost in [
         ("boost_bonus_50", "🎁 Буст бонуса −50%", 1500, "Одноразово сокращает текущий или следующий кулдаун бонуса на 50%"),
@@ -2502,6 +2510,54 @@ def set_hints_enabled(user_id: int, enabled: bool):
     cur.execute("UPDATE user_settings SET hints_enabled = ? WHERE user_id = ?", (1 if enabled else 0, user_id))
     conn.commit()
     conn.close()
+
+def buy_weekly_wheel_tickets(user_id: int) -> tuple:
+    """Buy 10 wheel tickets for 25,000 LDC, once every seven days."""
+    price = 25000
+    quantity = 10
+    now = datetime.now()
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS wheel_ticket_weekly_purchases (
+            user_id BIGINT PRIMARY KEY,
+            purchased_at TIMESTAMP NOT NULL
+        )
+    """)
+    cur.execute("SELECT purchased_at FROM wheel_ticket_weekly_purchases WHERE user_id = ?", (user_id,))
+    previous = cur.fetchone()
+    if previous and previous[0]:
+        try:
+            purchased_at = previous[0] if isinstance(previous[0], datetime) else datetime.fromisoformat(str(previous[0]))
+            remaining = int(7 * 86400 - (now - purchased_at).total_seconds())
+        except (TypeError, ValueError):
+            remaining = 0
+        if remaining > 0:
+            days, rem = divmod(remaining, 86400)
+            hours = rem // 3600
+            conn.close()
+            return False, f"Повторная покупка доступна через {days} дн. {hours} ч."
+    cur.execute(
+        "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+        (price, user_id, price),
+    )
+    if cur.rowcount != 1:
+        conn.close()
+        return False, f"Нужно {price:,} LDC для покупки 10 билетов."
+    cur.execute(
+        "INSERT INTO wheel_tickets (user_id, tickets) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET tickets = tickets + excluded.tickets",
+        (user_id, quantity),
+    )
+    cur.execute(
+        "INSERT INTO wheel_ticket_weekly_purchases (user_id, purchased_at) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET purchased_at = excluded.purchased_at",
+        (user_id, now.isoformat()),
+    )
+    conn.commit()
+    conn.close()
+    return True, f"Куплено 10 билетов колеса за {price:,} LDC. Повторная покупка — через 7 дней."
+
 
 def get_wheel_tickets(user_id: int) -> int:
     conn = sqlite3.connect(DB_NAME)
