@@ -3895,8 +3895,7 @@
     html += `</div><h2 style="margin-top:20px">🧑‍🌾 Работа по профессии</h2>`;
     const supported = new Set(["artist","musician","photographer","gardener","cook","vet","programmer","farmer","fisher","miner","blacksmith","engineer","explorer","merchant"]);
     const prof = islandData.profession;
-    const lastAction = progress.last_action_at ? Date.parse(progress.last_action_at) : NaN;
-    const remaining = Number.isFinite(lastAction) ? Math.max(0, Math.ceil((lastAction + (progress.action_cooldown || 10800) * 1000 - Date.now()) / 1000)) : 0;
+    const remaining = Math.max(0, Number(progress.action_remaining_seconds || 0));
     const fmtTime = (s) => `${Math.floor(s/3600)} ч ${Math.floor((s%3600)/60)} мин`;
     if (!prof) {
       html += `<p class="label">Сначала выбери профессию в разделе «Профессии» — она определяет, какие ресурсы ты можешь добывать.</p>`;
@@ -3932,10 +3931,8 @@
       {key:"nearby", name:"Ближний маршрут", duration:"2 часа", requires:"Корабль", cost:"1 карта и 1 еда"},
       {key:"distant", name:"Дальний маршрут", duration:"8 часов", requires:"Маяк", cost:"3 карты, 2 еды и 1 механизм"}
     ];
-    const nowMs = Date.now();
-    const completesMs = expedition && expedition.completes_at ? Date.parse(expedition.completes_at) : NaN;
-    const expeditionReady = Boolean(expedition && expedition.active && Number.isFinite(completesMs) && nowMs >= completesMs);
-    const expeditionRemaining = Number.isFinite(completesMs) ? Math.max(0, Math.ceil((completesMs-nowMs)/1000)) : 0;
+    const expeditionRemaining = Math.max(0, Number(expedition && expedition.remaining_seconds || 0));
+    const expeditionReady = Boolean(expedition && expedition.active && expeditionRemaining <= 0);
     if (!state.has_ship) {
       html += `<p class="label">Купи корабль, чтобы отправляться в экспедиции.</p>`;
     } else {
