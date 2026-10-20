@@ -1272,6 +1272,8 @@ def ttt_start(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Минимальная ставка — 500 LDC")
     conn = db()
     cur = conn.cursor()
+    # Serialize starts before checking active games; SQLite ignores SELECT FOR UPDATE.
+    cur.execute("BEGIN IMMEDIATE")
     # Make start requests idempotent: retries return the current active game
     # instead of charging the same player for multiple parallel games.
     cur.execute(
@@ -1347,9 +1349,11 @@ def ttt_move_web(payload: dict = Body(...)):
 
     conn = db()
     cur = conn.cursor()
+    # Acquire SQLite write lock before reading game state so concurrent/replayed requests cannot both settle.
+    cur.execute("BEGIN IMMEDIATE")
     cur.execute(
         "SELECT id, player_x, player_o, is_vs_bot, board, turn, bet, status, winner "
-        "FROM ttt_games WHERE id = ? AND player_x = ? FOR UPDATE",
+        "FROM ttt_games WHERE id = ? AND player_x = ?",
         (game_id, user_id),
     )
     row = cur.fetchone()
@@ -1449,6 +1453,48 @@ def ttt_move_web(payload: dict = Body(...)):
 
 
 # ========== API: НАСТРОЙКИ ==========
+
+# ========== ПРАВИЛА WEB MINI APP ==========
+
+@app.get("/api/rules/read-status")
+def get_rules_read_status(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS web_rules_read (
+            user_id INTEGER PRIMARY KEY,
+            read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("SELECT 1 FROM web_rules_read WHERE user_id = ?", (user_id,))
+    read = cur.fetchone() is not None
+    conn.commit()
+    conn.close()
+    return {"read": read}
+
+
+@app.post("/api/rules/read")
+def mark_rules_read(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS web_rules_read (
+            user_id INTEGER PRIMARY KEY,
+            read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute(
+        "INSERT OR IGNORE INTO web_rules_read (user_id) VALUES (?)",
+        (user_id,),
+    )
+    conn.commit()
+    cur.execute("SELECT read_at FROM web_rules_read WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return {"ok": True, "read_at": row["read_at"] if row else None}
+
 
 @app.get("/api/settings")
 def get_settings(init_data: str = Query(..., alias="initData")):
