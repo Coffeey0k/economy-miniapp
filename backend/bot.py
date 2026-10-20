@@ -770,7 +770,8 @@ async def open_egg_handler(callback: CallbackQuery):
         f"Внутри: {result['name']}\n"
         f"Редкость: {result['rarity']}\n"
         f"Доход: {result['income']} 🪙 раз в 4 часа\n"
-        f"Статус: {'✅ активирован' if result.get('is_active') else '💤 сохранён в коллекции — нет свободного слота'}\n\n"
+        f"Статус: {'✅ активирован' if result.get('is_active') else '💤 сохранён в коллекции — нет свободного слота'}\n"
+        f"{'🎟️ Бонус: +1 билет колеса!' if result.get('ticket_bonus') else ''}\n"
         f"💰 Баланс: {db.get_balance(user_id)} 🪙",
         reply_markup=back_to_catalog_keyboard()
     )
