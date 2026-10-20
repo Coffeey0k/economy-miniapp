@@ -1748,7 +1748,7 @@ BS_BET_MIN = 500
 BS_SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
 
 
-BS_SEA_WIN_REWARD = 20
+BS_SEA_POINTS_PER_SURVIVING_SHIP = 2
 BS_PLANE_COST = 25
 BS_RADAR_COST = 20
 BS_DEFENSE_COST = 15
@@ -2277,7 +2277,7 @@ def bs_fire(payload: dict = Body(...)):
     if win:
         change_balance(cur, user_id, g["bet"] * 2)
         if not g["sea_reward_paid"]:
-            _bs_change_points(cur, user_id, 2 * _bs_count_surviving_ships(g["player_field"], g["bot_shots"]))
+            _bs_change_points(cur, user_id, BS_SEA_POINTS_PER_SURVIVING_SHIP * _bs_count_surviving_ships(g["player_field"], g["bot_shots"]))
         cur.execute("""
             UPDATE battleship_games SET player_shots = ?, status = 'win', sea_reward_paid = 1 WHERE id = ?
         """, (shots_str, game_id))
@@ -2577,7 +2577,7 @@ def bs_special(payload: dict = Body(...)):
             if won:
                 change_balance(cur, user_id, int(g["bet"]) * 2)
                 if not g["sea_reward_paid"]:
-                    _bs_change_points(cur, user_id, 2 * _bs_count_surviving_ships(g["player_field"], g["bot_shots"]))
+                    _bs_change_points(cur, user_id, BS_SEA_POINTS_PER_SURVIVING_SHIP * _bs_count_surviving_ships(g["player_field"], g["bot_shots"]))
                 cur.execute("UPDATE battleship_games SET player_shots = ?, plane_available = 0, status = 'win', turn = 'player', sea_reward_paid = 1 WHERE id = ?", (shots_str, game_id))
                 result = "win"
             else:
