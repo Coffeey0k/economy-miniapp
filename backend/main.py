@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import random
+import re
 import time
 import httpx
 import config
@@ -4775,18 +4776,19 @@ def admin_delete_user(payload: dict = Body(...)):
 def _delete_user_full_main(cur, user_id: int):
     """Удаляет пользовательские данные, сохраняя журналы действий и безопасности."""
     def safe_query(query, params=(), fetch=False, context=""):
-        cur.execute("SAVEPOINT ld_web_user_cleanup")
+        table_match = re.search(r"\b(?:DELETE\s+FROM|FROM)\s+([a-zA-Z_][a-zA-Z0-9_]*)", query, re.I)
+        if table_match:
+            table = table_match.group(1).lower()
+            cur.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = %s LIMIT 1",
+                (table,),
+            )
+            if not cur.fetchone():
+                return None
         try:
             cur.execute(query, params)
-            rows = cur.fetchall() if fetch else None
-            cur.execute("RELEASE SAVEPOINT ld_web_user_cleanup")
-            return rows
+            return cur.fetchall() if fetch else None
         except Exception:
-            try:
-                cur.execute("ROLLBACK TO SAVEPOINT ld_web_user_cleanup")
-                cur.execute("RELEASE SAVEPOINT ld_web_user_cleanup")
-            except Exception:
-                logger.exception("Не удалось откатить cleanup savepoint context=%s", context)
             logger.exception("Не удалось очистить пользовательские данные context=%s user_id=%s", context, user_id)
             return None
 
