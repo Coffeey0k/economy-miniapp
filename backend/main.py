@@ -4976,7 +4976,13 @@ RCC_UPGRADE_CONFIG = {
 
 
 def _rcc_get_progress(cur, user_id: int) -> dict:
-    """Create/load LCC clicker progress and recover one energy per minute."""
+    """Load LCC clicker progress and regenerate one energy per minute.
+
+    Normalize timestamps before subtraction: PostgreSQL drivers can return an
+    aware datetime while older rows / SQLite return a naive datetime. Mixing
+    those forms raises TypeError and used to silently reset elapsed time to 0,
+    preventing energy from regenerating.
+    """
     cur.execute("""
         CREATE TABLE IF NOT EXISTS rcc_progress (
             user_id BIGINT PRIMARY KEY,
@@ -4995,22 +5001,41 @@ def _rcc_get_progress(cur, user_id: int) -> dict:
         (user_id,),
     )
     row = cur.fetchone()
-    now = datetime.now()
+
+    # Use UTC-naive timestamps consistently with the TIMESTAMP column and
+    # with existing rows written by the app on Render (UTC).
+    now = datetime.utcnow()
+    timestamp_was_invalid = False
     try:
-        updated_at = row["energy_updated_at"] if isinstance(row["energy_updated_at"], datetime) else datetime.fromisoformat(str(row["energy_updated_at"]))
+        raw_updated_at = row["energy_updated_at"]
+        if isinstance(raw_updated_at, datetime):
+            updated_at = raw_updated_at
+        else:
+            raw_value = str(raw_updated_at or "").strip()
+            if raw_value.endswith("Z"):
+                raw_value = raw_value[:-1] + "+00:00"
+            updated_at = datetime.fromisoformat(raw_value)
+        if updated_at.tzinfo is not None:
+            updated_at = updated_at.astimezone(__import__("datetime").timezone.utc).replace(tzinfo=None)
         elapsed = max(0.0, (now - updated_at).total_seconds())
-    except (TypeError, ValueError, KeyError):
+    except (TypeError, ValueError, KeyError, OverflowError):
+        # Repair malformed/missing timestamps so future requests can recover.
         elapsed = 0.0
         updated_at = now
+        timestamp_was_invalid = True
+
     energy = max(0, min(100, int(row["energy"] or 0)))
     recovered = int(elapsed // 60)
     if recovered:
         energy = min(100, energy + recovered)
         updated_at = now - timedelta(seconds=elapsed % 60)
+
+    if recovered or timestamp_was_invalid:
         cur.execute(
             "UPDATE rcc_progress SET energy = ?, energy_updated_at = ? WHERE user_id = ?",
             (energy, updated_at.isoformat(), user_id),
         )
+
     click_level = int(row["click_level"] or 0)
     timer_level = int(row["timer_level"] or 0)
     freeze_level = int(row["freeze_level"] or 0)
