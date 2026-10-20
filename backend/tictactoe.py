@@ -9,6 +9,7 @@
 """
 
 from aiogram import Router, F
+import re
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -64,14 +65,23 @@ async def ttt_create(message: Message):
         return
 
     target_raw = parts[1].strip().lstrip("@").lower()
+    match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", parts[2].lower())
+    if not match:
+        await message.answer("❌ Ставка должна быть числом (например, 1к или 1кк).")
+        return
     try:
-        bet = int(parts[2])
-    except ValueError:
-        await message.answer("❌ Ставка должна быть числом.")
+        number = float(match.group(1).replace(",", "."))
+        multiplier = {"": 1, "к": 1_000, "кк": 1_000_000, "ккк": 1_000_000_000}[match.group(2) or ""]
+        scaled = number * multiplier
+        if not scaled.is_integer() or scaled > 9_223_372_036_854_775_807:
+            raise ValueError
+        bet = int(scaled)
+    except (ValueError, OverflowError):
+        await message.answer("❌ Некорректная ставка.")
         return
 
-    if bet <= 0:
-        await message.answer("❌ Ставка должна быть больше нуля.")
+    if bet < 500:
+        await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
 
     from_user = message.from_user.id
@@ -83,6 +93,11 @@ async def ttt_create(message: Message):
 
     # === Игра с ботом ===
     if target_raw in ("бот", "bot"):
+        allowed, remaining = db.register_game_play(from_user, "ttt")
+        if not allowed:
+            hours, rem = divmod(remaining, 3600)
+            await message.answer(f"⏳ Крестики-нолики на перерыве ещё {hours} ч {rem // 60} мин.")
+            return
         if not db.update_balance(from_user, -bet):
             await message.answer("❌ Не удалось списать ставку. Попробуй ещё раз.")
             return
@@ -161,6 +176,20 @@ async def ttt_accept(callback: CallbackQuery):
         await callback.answer("❌ Это приглашение не для тебя.", show_alert=True)
         return
 
+    # Check both players before consuming either player's attempt.
+    for player_id in (invite["from_user"], invite["to_user"]):
+        allowed, remaining = db.can_play_game(player_id, "ttt")
+        if not allowed:
+            hours, rem = divmod(remaining, 3600)
+            await callback.answer(f"Игрок на перерыве ещё {hours} ч {rem // 60} мин.", show_alert=True)
+            return
+    for player_id in (invite["from_user"], invite["to_user"]):
+        allowed, remaining = db.register_game_play(player_id, "ttt")
+        if not allowed:
+            hours, rem = divmod(remaining, 3600)
+            await callback.answer(f"Игрок на перерыве ещё {hours} ч {rem // 60} мин.", show_alert=True)
+            return
+
     # Списание обеих ставок, смена статуса вызова и создание партии атомарны.
     ok, result = db.ttt_accept_invite_atomic(invite_id, callback.from_user.id)
     if not ok:
@@ -170,11 +199,12 @@ async def ttt_accept(callback: CallbackQuery):
 
     game = db.ttt_get_game(game_id)
 
+    bet = invite["bet"]
     text = (
         f"🎮 Игра началась!\n\n"
         f"❌ X: @{_get_username(invite['from_user'])}\n"
         f"⭕ O: @{_get_username(invite['to_user'])}\n"
-        f"💰 Ставка: {bet} 🪙\n\n"
+        f"💰 Ставка: {bet} LDC\n\n"
         f"Ход X!"
     )
     kb = board_keyboard(game_id, game["board"]).as_markup()
