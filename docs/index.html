@@ -928,6 +928,21 @@
       <div class="card" style="margin-top:12px">
         <div class="section-title">🎒 Инвентарь</div>
         <div id="inventory-list" class="label">Загрузка…</div>
+        <div class="label" style="margin-top:12px;">Купить корм за LDC</div>
+        <select id="pet-food-type" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin:6px 0;">
+          <option value="cat_food">🐱 Кошачий корм — 250 LDC</option>
+          <option value="dog_food">🐶 Собачий корм — 250 LDC</option>
+          <option value="rabbit_food">🐰 Корм для кроликов — 250 LDC</option>
+          <option value="bird_food">🦜 Корм для птиц — 250 LDC</option>
+          <option value="fish_food">🐟 Корм для рыб — 250 LDC</option>
+          <option value="reptile_food">🦎 Корм для рептилий — 250 LDC</option>
+          <option value="small_pet_food">🐹 Корм для мелких питомцев — 250 LDC</option>
+          <option value="universal_pet_food">🧺 Универсальный корм — 500 LDC</option>
+        </select>
+        <div style="display:flex;gap:8px;">
+          <input type="number" id="pet-food-quantity" min="1" max="100" step="1" value="1" aria-label="Количество корма" style="flex:1;min-width:0;">
+          <button class="btn btn-small" onclick="buyPetFood()">Купить</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1710,6 +1725,22 @@
       const res = await apiPost("/api/inventory/use-pet-food", { pet_id: petId });
       toast(res.message, false);
       loaded.pets = false; loadPets();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function buyPetFood() {
+    const item_key = document.getElementById("pet-food-type").value;
+    const quantity = Number(document.getElementById("pet-food-quantity").value || 1);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) {
+      toast("Количество должно быть от 1 до 100.", true);
+      return;
+    }
+    try {
+      const res = await apiPost("/api/inventory/buy-pet-food", { item_key, quantity });
+      toast(res.message, false);
+      await loadInventory();
+      loaded.profile = false;
+      loadProfile();
     } catch (e) { toast(e.message, true); }
   }
 
