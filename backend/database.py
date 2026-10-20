@@ -1,6 +1,7 @@
 import db_compat as sqlite3
 import logging
 import random
+import re
 from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
 
@@ -4913,19 +4914,20 @@ def delete_user_full(user_id: int) -> bool:
 
 
 def _safe_cleanup_query(cur, query: str, params=(), fetch: bool = False, context: str = ""):
-    """Run a cleanup query in its own savepoint so one optional table cannot cancel all cleanup."""
-    cur.execute("SAVEPOINT ld_user_cleanup")
+    """Skip absent optional tables before issuing SQL; db_compat rolls back on SQL errors."""
+    table_match = re.search(r"\b(?:DELETE\s+FROM|FROM)\s+([a-zA-Z_][a-zA-Z0-9_]*)", query, re.I)
+    if table_match:
+        table = table_match.group(1).lower()
+        cur.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ? LIMIT 1",
+            (table,),
+        )
+        if not cur.fetchone():
+            return None
     try:
         cur.execute(query, params)
-        rows = cur.fetchall() if fetch else None
-        cur.execute("RELEASE SAVEPOINT ld_user_cleanup")
-        return rows
+        return cur.fetchall() if fetch else None
     except Exception:
-        try:
-            cur.execute("ROLLBACK TO SAVEPOINT ld_user_cleanup")
-            cur.execute("RELEASE SAVEPOINT ld_user_cleanup")
-        except Exception:
-            logger.exception("Не удалось откатить cleanup savepoint context=%s", context)
         logger.exception("Не удалось очистить пользовательские данные context=%s", context)
         return None
 
