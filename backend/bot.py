@@ -8,7 +8,6 @@ import db_compat as sqlite3
 import random
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from collections import defaultdict
 from tictactoe import router as ttt_router
 from minesweeper import router as ms_router
 from friends import router as friends_router
@@ -74,7 +73,6 @@ bot = Bot(token=config.BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-user_messages = defaultdict(list)
 # Активные сундуки: {message_id: {"chat_id": ..., "claimed": bool}}
 active_chests = {}
 
