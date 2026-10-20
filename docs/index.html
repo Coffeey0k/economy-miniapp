@@ -1285,12 +1285,21 @@
 
       <div class="card">
         <h2>🖱️ Кликер</h2>
-        <p class="label">Жми по кнопке — получай LCC. Без ограничений!</p>
+        <p class="label">Кликай и трать энергию. Она восстанавливается автоматически: 1 единица в минуту.</p>
+        <div class="label" style="margin:8px 0;">⚡ Энергия: <b id="rcc-energy">100 / 100</b> <span id="rcc-energy-recovery"></span></div>
         <div id="rcc-click-area" onclick="rccClick()" style="cursor:pointer;user-select:none;text-align:center;padding:30px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:20px;margin:12px 0;transition:transform 0.1s;">
           <div style="font-size:60px;line-height:1;">💎</div>
-          <div style="font-size:20px;font-weight:700;color:#fff;margin-top:8px;">+0.00001 LCC</div>
+          <div id="rcc-click-reward" style="font-size:20px;font-weight:700;color:#fff;margin-top:8px;">+0.00001 LCC</div>
         </div>
         <div class="label" style="text-align:center;">Тапни по монете</div>
+      </div>
+      <div class="card">
+        <h2>⚙️ Улучшения LCC</h2>
+        <p class="label">Улучшения оплачиваются основной валютой LDC.</p>
+        <div class="item-row"><span>🖱️ Сила клика · ур. <b id="rcc-click-level">0</b>/10</span><button class="btn btn-small" id="rcc-upgrade-click" onclick="buyRccUpgrade('click')">Купить</button></div>
+        <div class="item-row"><span>⏱️ Время раунда · ур. <b id="rcc-timer-level">0</b>/5</span><button class="btn btn-small" id="rcc-upgrade-timer" onclick="buyRccUpgrade('timer')">Купить</button></div>
+        <div class="item-row"><span>❄️ Заморозка · ур. <b id="rcc-freeze-level">0</b>/5</span><button class="btn btn-small" id="rcc-upgrade-freeze" onclick="buyRccUpgrade('freeze')">Купить</button></div>
+        <div class="item-row"><span>🪙 Награды · ур. <b id="rcc-reward-level">0</b>/5</span><button class="btn btn-small" id="rcc-upgrade-reward" onclick="buyRccUpgrade('reward')">Купить</button></div>
       </div>
 
       <div class="card">
@@ -3084,6 +3093,23 @@
     document.getElementById("rcc-total-clicks").textContent = rccData.total_clicks;
     document.getElementById("rcc-rate").textContent = rccData.exchange_rate;
     document.getElementById("rcc-pc-balance").textContent = rccData.pc_balance.toLocaleString();
+    const energy = document.getElementById("rcc-energy");
+    if (energy) energy.textContent = `${rccData.energy} / ${rccData.energy_max}`;
+    const recovery = document.getElementById("rcc-energy-recovery");
+    if (recovery) recovery.textContent = rccData.energy < rccData.energy_max ? `· +1 через ${rccData.energy_recovery_in} сек.` : "· полностью восстановлена";
+    const clickReward = document.getElementById("rcc-click-reward");
+    if (clickReward) clickReward.textContent = `+${Number(rccData.click_amount).toFixed(5)} LCC`;
+    const levels = { click: rccData.click_level, timer: rccData.timer_level, freeze: rccData.freeze_level, reward: rccData.reward_level };
+    for (const key of Object.keys(levels)) {
+      const levelEl = document.getElementById(`rcc-${key}-level`);
+      const button = document.getElementById(`rcc-upgrade-${key}`);
+      const cost = rccData.upgrade_costs ? rccData.upgrade_costs[key] : null;
+      if (levelEl) levelEl.textContent = levels[key];
+      if (button) {
+        button.disabled = cost == null;
+        button.textContent = cost == null ? "Макс. уровень" : `Улучшить · ${Number(cost).toLocaleString()} LDC`;
+      }
+    }
 
     const status = document.getElementById("rcc-game-status");
     const btn = document.getElementById("rcc-game-btn");
@@ -3098,7 +3124,21 @@
     }
   }
 
+  async function buyRccUpgrade(upgrade) {
+    try {
+      const res = await apiPost("/api/rcc/upgrade", { upgrade });
+      toast(res.message, false);
+      await loadRcc();
+      loaded.profile = false;
+      loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
   async function rccClick() {
+    if (!rccData || rccData.energy <= 0) {
+      toast("Энергия закончилась — дождись восстановления.", true);
+      return;
+    }
     const area = document.getElementById("rcc-click-area");
     area.style.transform = "scale(0.95)";
     setTimeout(() => area.style.transform = "scale(1)", 100);
@@ -3108,18 +3148,27 @@
 
     // Мгновенно обновляем локально
     if (rccData) {
-      rccData.balance += 0.00001;
+      rccData.balance += rccData.click_amount;
       rccData.total_clicks += 1;
+      rccData.energy = Math.max(0, rccData.energy - 1);
       document.getElementById("rcc-balance").textContent = rccData.balance.toFixed(8);
       document.getElementById("rcc-total-clicks").textContent = rccData.total_clicks;
+      renderRcc();
     }
 
-    // Отправляем на сервер
+    // The server calculates the reward and consumes energy.
     try {
-      const res = await apiPost("/api/rcc/click", { amount: 0.00001 });
-      if (rccData) rccData.balance = res.balance;
-      document.getElementById("rcc-balance").textContent = res.balance.toFixed(8);
-    } catch (e) {}
+      const res = await apiPost("/api/rcc/click", {});
+      if (rccData) {
+        rccData.balance = res.balance;
+        rccData.energy = res.energy;
+        rccData.energy_recovery_in = res.energy_recovery_in;
+      }
+      await loadRcc();
+    } catch (e) {
+      toast(e.message, true);
+      await loadRcc();
+    }
   }
 
   async function rccExchange() {
@@ -3151,7 +3200,7 @@
       active: true,
       frozen: false,
       score: 0,
-      timeLeft: 25,
+      timeLeft: Number(rccData.game_duration || 25),
       spawned: [],
       intervalSpawn: null,
       intervalTimer: null,
@@ -3159,7 +3208,7 @@
 
     document.getElementById("rcc-game-canvas-card").style.display = "block";
     document.getElementById("rcc-game-btn").style.display = "none";
-    document.getElementById("rcc-game-timer").textContent = "25";
+    document.getElementById("rcc-game-timer").textContent = String(rccGame.timeLeft);
     document.getElementById("rcc-game-score").textContent = "0.00000";
 
     const canvas = document.getElementById("rcc-game-canvas");
@@ -3241,7 +3290,7 @@
 
     if (type === "coin") {
       // Размер 30-55, награда 0.00035-0.00080 LCC
-      const reward = 0.00035 + ((size - 30) / 25) * 0.00045;
+      const reward = (0.00035 + ((size - 30) / 25) * 0.00045) * Number(rccData.reward_multiplier || 1);
       rccGame.score += reward;
       playSound("click");
       haptic("light");
@@ -3251,7 +3300,7 @@
       playSound("error");
       haptic("warning");
       showFloatingText(el, "❄️ Заморозка!", "#00ccff");
-      const freezeTime = 5 + Math.floor(Math.random() * 3); // 5-7 сек
+      const freezeTime = 5 + Math.floor(Math.random() * 3) + Number(rccData.freeze_bonus || 0); // 5-7 сек plus freeze upgrades
       setTimeout(() => { rccGame.frozen = false; }, freezeTime * 1000);
     } else if (type === "bomb") {
       rccGame.score = Math.max(0, rccGame.score - 0.0005);
