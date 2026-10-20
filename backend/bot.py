@@ -45,6 +45,21 @@ from games import play_slot, play_dice, play_coin, play_dart, play_number
 from admin import router as admin_router
 
 
+RULES_TEXT = (
+    "📜 Правила Lavender Dream\n\n"
+    "1. Используй бота и Mini App только по назначению и соблюдай правила Telegram.\n"
+    "2. Запрещены дюпы, эксплуатация багов, подмена запросов, накрутка наград и обход лимитов. "
+    "Если нашёл баг — сообщи через «Обратную связь», не используй его для выгоды.\n"
+    "3. Запрещены спам, угрозы, оскорбления и попытки мешать работе бота.\n"
+    "4. Переводы ограничены пятью успешными переводами в сутки (UTC).\n"
+    "5. Не пытайся обходить ограничения игр, ставок, покупок и аккаунтов. Подозрительные действия могут проверяться по техническим журналам.\n"
+    "6. За нарушения администрация может отменить неправомерные операции, ограничить доступ или заблокировать аккаунт.\n"
+    "7. LDC и LCC — внутриигровые валюты Lavender Dream; они не являются реальными деньгами и не гарантируют денежную стоимость.\n\n"
+    "Продолжая пользоваться ботом, ты соглашаешься соблюдать эти правила. "
+    "Вопросы и жалобы отправляй через /feedback."
+)
+
+
 def format_time(seconds: int) -> str:
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
@@ -75,6 +90,9 @@ class TransferStates(StatesGroup):
     waiting_recipient = State()
     waiting_amount = State()
     waiting_confirm = State()
+
+class FeedbackStates(StatesGroup):
+    waiting_message = State()
 
 
 class GameStates(StatesGroup):
@@ -282,6 +300,62 @@ async def cmd_start(message: Message):
         parse_mode="Markdown"
     )
     message_owners[sent.message_id] = user_id
+
+
+@dp.message(Command("rules"))
+async def rules_command(message: Message):
+    await message.answer(RULES_TEXT, reply_markup=back_to_main_menu())
+
+
+@dp.callback_query(F.data == "show_rules")
+async def rules_callback(callback: CallbackQuery):
+    await callback.message.answer(RULES_TEXT, reply_markup=back_to_main_menu())
+    await callback.answer()
+
+
+@dp.message(Command("feedback"))
+async def feedback_command(message: Message, state: FSMContext):
+    if message.chat.type != "private":
+        await message.answer("✉️ Для обратной связи напиши мне в личные сообщения и используй /feedback.")
+        return
+    await state.set_state(FeedbackStates.waiting_message)
+    await message.answer("✉️ Напиши одним сообщением, что хочешь передать владельцу бота. Можно приложить фото или файл. Для отмены отправь /cancel.")
+
+
+@dp.callback_query(F.data == "feedback_start")
+async def feedback_start_callback(callback: CallbackQuery, state: FSMContext):
+    if not callback.message or callback.message.chat.type != "private":
+        await callback.answer("Открой бота в личных сообщениях, чтобы отправить обращение.", show_alert=True)
+        return
+    await state.set_state(FeedbackStates.waiting_message)
+    await callback.message.answer("✉️ Напиши одним сообщением, что хочешь передать владельцу бота. Можно приложить фото или файл. Для отмены отправь /cancel.")
+    await callback.answer()
+
+
+@dp.message(FeedbackStates.waiting_message)
+async def feedback_receive(message: Message, state: FSMContext):
+    if message.text and message.text.strip().lower() in {"/cancel", "отмена"}:
+        await state.clear()
+        await message.answer("Обращение отменено.", reply_markup=main_menu(message.from_user.id))
+        return
+    user = message.from_user
+    username = f"@{user.username}" if user.username else "(без username)"
+    header = (
+        "✉️ Новое обращение Lavender Dream\n"
+        f"От: {user.full_name} {username}\n"
+        f"User ID: {user.id}\n"
+        f"Chat ID: {message.chat.id}"
+    )
+    try:
+        await bot.send_message(config.OWNER_ID, header)
+        await bot.copy_message(config.OWNER_ID, message.chat.id, message.message_id)
+        db.log_action(user.id, "feedback", f"Обращение отправлено владельцу; username={username}", amount=0)
+        await message.answer("✅ Сообщение отправлено владельцу Lavender Dream. Спасибо!", reply_markup=main_menu(user.id))
+    except Exception:
+        logger.exception("Не удалось доставить обратную связь user_id=%s", user.id)
+        await message.answer("❌ Не получилось доставить сообщение. Попробуй позже или отправь /feedback ещё раз.")
+    finally:
+        await state.clear()
 
 
 @dp.callback_query(F.data.startswith("tutorial_next_"))
@@ -2069,17 +2143,25 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
     rname = data["recipient_name"]
     amount = data["amount"]
     sid = callback.from_user.id
-    if not db.transfer_coins(sid, rid, amount):
-        await callback.message.edit_text(
-            "❌ Перевод не выполнен: проверь баланс и попробуй ещё раз.",
-            reply_markup=back_to_main_menu(),
-        )
+    ok, reason, count = db.transfer_coins_limited(sid, rid, amount, daily_limit=5)
+    if not ok:
+        if reason == "limit":
+            db.log_action(sid, "security", f"Попытка перевода сверх суточного лимита; target_id={rid}; amount={amount}; count={count}")
+            error_text = "🚫 Лимит исчерпан: максимум 5 успешных переводов в сутки (UTC)."
+        elif reason == "balance":
+            error_text = "❌ Недостаточно монет."
+        elif reason == "recipient":
+            error_text = "❌ Получатель не найден."
+        else:
+            db.log_action(sid, "security", f"Перевод отклонён; reason={reason}; target_id={rid}; amount={amount}")
+            error_text = "❌ Перевод не выполнен: проверь данные и попробуй ещё раз."
+        await callback.message.edit_text(error_text, reply_markup=back_to_main_menu())
         await state.clear()
         await callback.answer()
         return
-    db.log_action(sid, "transfer", f"Перевод @{rname}", amount=amount, target_user_id=rid)
+    db.log_action(sid, "transfer", f"Перевод @{rname}; переводов сегодня {count}/5 UTC", amount=amount, target_user_id=rid)
     await callback.message.edit_text(
-        f"✅ Переведено {amount} 🪙 @{rname}\nБаланс: {db.get_balance(sid)} 🪙",
+        f"✅ Переведено {amount} 🪙 @{rname}\nПереводов сегодня: {count}/5 (UTC)\nБаланс: {db.get_balance(sid)} 🪙",
         reply_markup=back_to_main_menu()
     )
     try:
