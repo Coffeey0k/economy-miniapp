@@ -550,11 +550,18 @@ def buy_catalog_item(payload: dict = Body(...)):
 
     price = item["price"]
 
-    # The weekly wheel-ticket pack must use the same server-side purchase guard
-    # as the Telegram bot. The generic catalog path below has no weekly limit.
+    # Keep the Mini App on the exact same atomic purchase path as Telegram.
+    # Close this read connection before opening the transaction used by the helper.
     if item_type == "wheel_tickets_weekly":
         conn.close()
-        ok, result_text = bot_db.buy_weekly_wheel_tickets(user_id)
+        try:
+            ok, result_text = bot_db.buy_weekly_wheel_tickets(user_id)
+        except Exception as exc:
+            logger.exception("Weekly wheel-ticket purchase failed (Mini App), user_id=%s", user_id)
+            raise HTTPException(
+                status_code=500,
+                detail="Не удалось оформить покупку билетов. Попробуй ещё раз позже.",
+            ) from exc
         if not ok:
             raise HTTPException(status_code=400, detail=result_text)
         try:
