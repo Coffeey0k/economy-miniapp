@@ -2810,69 +2810,81 @@ def set_hints_enabled(user_id: int, enabled: bool):
     conn.close()
 
 def buy_weekly_wheel_tickets(user_id: int) -> tuple:
-    """Buy 10 wheel tickets at the current catalog price, once every seven days."""
+    """Buy 10 wheel tickets once per seven days, atomically on PostgreSQL/SQLite."""
     quantity = 10
     now = datetime.now()
     conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT price FROM catalog_items WHERE item_type = ?", ("wheel_tickets_weekly",))
-    price_row = cur.fetchone()
-    price = int(price_row[0]) if price_row else 25000
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS wheel_ticket_weekly_purchases (
-            user_id BIGINT PRIMARY KEY,
-            purchased_at TIMESTAMP NOT NULL
-        )
-    """)
-    # PostgreSQL (used on Render via db_compat) does not support SQLite's
-    # BEGIN IMMEDIATE. Create a sentinel row, then lock this user's row so
-    # simultaneous bot/Mini App purchases are serialized correctly.
-    expired_placeholder = (now - timedelta(days=8)).isoformat()
-    cur.execute(
-        "INSERT INTO wheel_ticket_weekly_purchases (user_id, purchased_at) VALUES (?, ?) "
-        "ON CONFLICT(user_id) DO NOTHING",
-        (user_id, expired_placeholder),
-    )
-    cur.execute(
-        "SELECT purchased_at FROM wheel_ticket_weekly_purchases WHERE user_id = ? FOR UPDATE",
-        (user_id,),
-    )
-    previous = cur.fetchone()
-    if previous and previous[0]:
-        try:
-            purchased_at = previous[0] if isinstance(previous[0], datetime) else datetime.fromisoformat(str(previous[0]))
-            # Normalize legacy timezone-aware timestamps before subtraction.
-            if purchased_at.tzinfo is not None:
-                purchased_at = purchased_at.astimezone().replace(tzinfo=None)
-            remaining = int(7 * 86400 - (now - purchased_at).total_seconds())
-        except (TypeError, ValueError):
-            remaining = 0
-        if remaining > 0:
-            days, rem = divmod(remaining, 86400)
-            hours = rem // 3600
-            conn.close()
-            return False, f"Повторная покупка доступна через {days} дн. {hours} ч."
-    cur.execute(
-        "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
-        (price, user_id, price),
-    )
-    if cur.rowcount != 1:
-        conn.close()
-        return False, f"Нужно {price:,} LDC для покупки 10 билетов."
-    cur.execute(
-        "INSERT INTO wheel_tickets (user_id, tickets) VALUES (?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET tickets = tickets + excluded.tickets",
-        (user_id, quantity),
-    )
-    cur.execute(
-        "INSERT INTO wheel_ticket_weekly_purchases (user_id, purchased_at) VALUES (?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET purchased_at = excluded.purchased_at",
-        (user_id, now.isoformat()),
-    )
-    conn.commit()
-    conn.close()
-    return True, f"Куплено 10 билетов колеса за {price:,} LDC. Повторная покупка — через 7 дней."
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT price FROM catalog_items WHERE item_type = ?", ("wheel_tickets_weekly",))
+        price_row = cur.fetchone()
+        price = int(price_row[0]) if price_row else 25000
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS wheel_ticket_weekly_purchases (
+                user_id BIGINT PRIMARY KEY,
+                purchased_at TIMESTAMP NOT NULL
+            )
+        """)
+
+        # Insert a placeholder if this is the user's first attempt, then lock
+        # the row. Unlike BEGIN IMMEDIATE, SELECT ... FOR UPDATE works on the
+        # PostgreSQL database used by Render and serializes bot/web purchases.
+        expired_placeholder = (now - timedelta(days=8)).isoformat()
+        cur.execute(
+            "INSERT INTO wheel_ticket_weekly_purchases (user_id, purchased_at) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO NOTHING",
+            (user_id, expired_placeholder),
+        )
+        cur.execute(
+            "SELECT purchased_at FROM wheel_ticket_weekly_purchases WHERE user_id = ? FOR UPDATE",
+            (user_id,),
+        )
+        previous = cur.fetchone()
+        if previous and previous[0]:
+            try:
+                raw_timestamp = previous[0]
+                purchased_at = (
+                    raw_timestamp if isinstance(raw_timestamp, datetime)
+                    else datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
+                )
+                if purchased_at.tzinfo is not None:
+                    purchased_at = purchased_at.astimezone().replace(tzinfo=None)
+                remaining = int(7 * 86400 - (now - purchased_at).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                # A corrupt legacy timestamp must not permanently block a user.
+                remaining = 0
+            if remaining > 0:
+                days, rem = divmod(remaining, 86400)
+                hours = rem // 3600
+                conn.rollback()
+                return False, f"Повторная покупка доступна через {days} дн. {hours} ч."
+
+        cur.execute(
+            "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+            (price, user_id, price),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            return False, f"Нужно {price:,} LDC для покупки 10 билетов."
+
+        cur.execute(
+            "INSERT INTO wheel_tickets (user_id, tickets) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET tickets = wheel_tickets.tickets + EXCLUDED.tickets",
+            (user_id, quantity),
+        )
+        cur.execute(
+            "UPDATE wheel_ticket_weekly_purchases SET purchased_at = ? WHERE user_id = ?",
+            (now.isoformat(), user_id),
+        )
+        conn.commit()
+        return True, f"Куплено 10 билетов колеса за {price:,} LDC. Повторная покупка — через 7 дней."
+    except Exception:
+        conn.rollback()
+        logger.exception("Failed to buy weekly wheel tickets for user_id=%s", user_id)
+        raise
+    finally:
+        conn.close()
 
 def get_wheel_tickets(user_id: int) -> int:
     conn = sqlite3.connect(DB_NAME)
