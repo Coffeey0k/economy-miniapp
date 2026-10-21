@@ -550,6 +550,26 @@ def buy_catalog_item(payload: dict = Body(...)):
 
     price = item["price"]
 
+    # The weekly wheel-ticket pack must use the same server-side purchase guard
+    # as the Telegram bot. The generic catalog path below has no weekly limit.
+    if item_type == "wheel_tickets_weekly":
+        conn.close()
+        ok, result_text = bot_db.buy_weekly_wheel_tickets(user_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail=result_text)
+        try:
+            bot_db.log_action(
+                user_id, "purchase", "Куплено: wheel_tickets_weekly", amount=-int(price)
+            )
+        except Exception:
+            logger.exception("Не удалось записать лог покупки билетов колеса")
+        return {
+            "ok": True,
+            "message": result_text,
+            "tickets": bot_db.get_wheel_tickets(user_id),
+            "balance": bot_db.get_balance(user_id),
+        }
+
     # These items require owner approval. Do not charge or insert a completed
     # purchase here: database.add_purchase() performs the charge on approval.
     if item_type in CONFIRMATION_REQUIRED:
