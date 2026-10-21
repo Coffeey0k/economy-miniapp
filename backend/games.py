@@ -7,16 +7,29 @@ def _win_message(label: str, amount: int) -> str:
 
 
 def play_slot(bet: int) -> Tuple[int, str]:
-    """Слот: возвращает чистое изменение баланса, а не валовую выплату."""
+    """Casino slots; returns the net balance change (same rules as Mini App)."""
     symbols = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
     result = [random.choice(symbols) for _ in range(3)]
     line = f"🎰 {result[0]} {result[1]} {result[2]}"
+
     if result[0] == result[1] == result[2]:
-        net = bet * (9 if result[0] == "7️⃣" else 4 if result[0] == "💎" else 2)
-        return net, _win_message(line + ("\n💎 ДЖЕКПОТ!" if result[0] == "7️⃣" else "\nТройное совпадение!"), net)
+        payout = bet * 2
+        net = payout - bet
+        return net, (
+            f"{line}\n🎉 Три одинаковых символа!\n"
+            f"Выплата: {payout:,} LDC\nЧистая прибыль: {net:,} LDC"
+        )
+
     if result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
-        return bet, _win_message(line + "\nДва символа совпали!", bet)
-    return -bet, f"{line}\n❌ Проигрыш: {bet:,} 🪙"
+        payout = bet // 2
+        net = payout - bet
+        return net, (
+            f"{line}\n🟡 Два символа совпали.\n"
+            f"Возврат 50% ставки: {payout:,} LDC\n"
+            f"Потеряно: {bet - payout:,} LDC"
+        )
+
+    return -bet, f"{line}\n❌ Три разных символа — проигрыш {bet:,} LDC."
 
 
 def play_dice(bet: int, guess: int) -> Tuple[int, str]:
