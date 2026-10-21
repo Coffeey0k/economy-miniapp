@@ -2815,6 +2815,9 @@ def buy_weekly_wheel_tickets(user_id: int) -> tuple:
     now = datetime.now()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+    # Serialize concurrent purchases so two simultaneous requests cannot both
+    # pass the weekly check before either one records the purchase.
+    cur.execute("BEGIN IMMEDIATE")
     cur.execute("SELECT price FROM catalog_items WHERE item_type = ?", ("wheel_tickets_weekly",))
     price_row = cur.fetchone()
     price = int(price_row[0]) if price_row else 25000
@@ -2829,6 +2832,9 @@ def buy_weekly_wheel_tickets(user_id: int) -> tuple:
     if previous and previous[0]:
         try:
             purchased_at = previous[0] if isinstance(previous[0], datetime) else datetime.fromisoformat(str(previous[0]))
+            # Normalize legacy timezone-aware timestamps before subtraction.
+            if purchased_at.tzinfo is not None:
+                purchased_at = purchased_at.astimezone().replace(tzinfo=None)
             remaining = int(7 * 86400 - (now - purchased_at).total_seconds())
         except (TypeError, ValueError):
             remaining = 0
