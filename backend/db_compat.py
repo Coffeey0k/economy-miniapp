@@ -436,6 +436,18 @@ def init_db():
         )
     """)
     
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS web_rules_read (
+            user_id BIGINT PRIMARY KEY,
+            read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    # Older deployments may have created this table with INTEGER, which
+    # cannot store all Telegram user IDs. Widen the existing column safely.
+    cur.execute(
+        "ALTER TABLE web_rules_read ALTER COLUMN user_id TYPE BIGINT"
+    )
+
     conn.commit()
     conn.close()
 
