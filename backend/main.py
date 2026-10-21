@@ -1521,7 +1521,7 @@ def get_rules_read_status(init_data: str = Query(..., alias="initData")):
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS web_rules_read (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -1539,7 +1539,7 @@ def mark_rules_read(payload: dict = Body(...)):
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS web_rules_read (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
