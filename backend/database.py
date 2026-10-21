@@ -2815,9 +2815,6 @@ def buy_weekly_wheel_tickets(user_id: int) -> tuple:
     now = datetime.now()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    # Serialize concurrent purchases so two simultaneous requests cannot both
-    # pass the weekly check before either one records the purchase.
-    cur.execute("BEGIN IMMEDIATE")
     cur.execute("SELECT price FROM catalog_items WHERE item_type = ?", ("wheel_tickets_weekly",))
     price_row = cur.fetchone()
     price = int(price_row[0]) if price_row else 25000
@@ -2827,7 +2824,19 @@ def buy_weekly_wheel_tickets(user_id: int) -> tuple:
             purchased_at TIMESTAMP NOT NULL
         )
     """)
-    cur.execute("SELECT purchased_at FROM wheel_ticket_weekly_purchases WHERE user_id = ?", (user_id,))
+    # PostgreSQL (used on Render via db_compat) does not support SQLite's
+    # BEGIN IMMEDIATE. Create a sentinel row, then lock this user's row so
+    # simultaneous bot/Mini App purchases are serialized correctly.
+    expired_placeholder = (now - timedelta(days=8)).isoformat()
+    cur.execute(
+        "INSERT INTO wheel_ticket_weekly_purchases (user_id, purchased_at) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO NOTHING",
+        (user_id, expired_placeholder),
+    )
+    cur.execute(
+        "SELECT purchased_at FROM wheel_ticket_weekly_purchases WHERE user_id = ? FOR UPDATE",
+        (user_id,),
+    )
     previous = cur.fetchone()
     if previous and previous[0]:
         try:
