@@ -2845,7 +2845,10 @@ async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
 async def world_event_claim_callback(callback: CallbackQuery):
     try:
         result = world_events.claim_event(callback.from_user.id)
-        world_events.record_season_activity(callback.from_user.id, "event", 1)
+        try:
+            world_events.record_season_activity(callback.from_user.id, "event", 1)
+        except Exception:
+            logger.exception("Награда события выдана, но сезонный прогресс не обновлён")
         await callback.answer("Награда получена!", show_alert=True)
         if callback.message:
             await callback.message.answer(
