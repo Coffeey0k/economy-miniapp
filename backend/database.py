@@ -2489,6 +2489,11 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
 
 # === ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ===
 
+def daily_task_date() -> str:
+    """Logical daily-task date; rolls over at 05:00 Moscow time (02:00 UTC)."""
+    return (datetime.now() - timedelta(hours=2)).date().isoformat()
+
+
 DAILY_TASKS = {
     "activist": {"name": "💬 Активист", "target": 30, "reward": 100, "type": "messages", "desc": "Отправь 30 сообщений в чат"},
     "resident": {"name": "🌴 Житель Lavender Dream", "target": 50, "reward": 150, "type": "messages", "desc": "Отправь 50 сообщений в чат"},
@@ -2523,7 +2528,7 @@ DAILY_TASKS = {
 
 def get_user_tasks(user_id: int, date: str = None) -> List[dict]:
     if date is None:
-        date = datetime.now().date().isoformat()
+        date = daily_task_date()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
@@ -2540,7 +2545,7 @@ def get_user_tasks(user_id: int, date: str = None) -> List[dict]:
 
 
 def assign_daily_tasks(user_id: int):
-    date = datetime.now().date().isoformat()
+    date = daily_task_date()
     existing = get_user_tasks(user_id, date)
     if existing:
         return
@@ -2571,7 +2576,7 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
     """
     if amount <= 0:
         return None
-    date = datetime.now().date().isoformat()
+    date = daily_task_date()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
@@ -2624,7 +2629,7 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
     return {"task_type": task_type, "names": completed_names,
             "reward": completed_reward, "completed_count": len(completed)}
 def get_tasks_by_type(user_id: int, task_type: str) -> List[dict]:
-    date = datetime.now().date().isoformat()
+    date = daily_task_date()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
@@ -2644,7 +2649,7 @@ def reset_daily_tasks():
     yesterday = (datetime.now().date() - timedelta(days=1)).isoformat()
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("DELETE FROM daily_tasks WHERE assigned_date != ?", (datetime.now().date().isoformat(),))
+    cur.execute("DELETE FROM daily_tasks WHERE assigned_date != ?", (daily_task_date(),))
     conn.commit()
     conn.close()
     # Назначаем всем пользователям новые
