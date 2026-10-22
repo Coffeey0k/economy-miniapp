@@ -2123,6 +2123,8 @@
     finally { arcadeBusy = false; }
   }
 
+  function arcadeFlip(index) { arcadeAction("flip", index); }
+
   async function arcadeAction(action, index) {
     if (!arcadeSession || arcadeBusy) return;
     arcadeBusy = true;
@@ -2173,7 +2175,7 @@
         const label = value === null ? "❔" : ARCADE_ICONS[value];
         const disabled = value !== null || finished ? " disabled" : "";
         return "<button class='btn' style='min-height:54px;font-size:22px;padding:4px;' " + disabled +
-          " onclick='arcadeAction(\'flip\'," + i + ")'>" + label + "</button>";
+          " onclick='arcadeFlip(" + i + ")'>" + label + "</button>";
       }).join("");
       body = "<p>🧠 Найдено пар: <b>" + matched + "/6</b> · Ходы: <b>" + s.moves + "</b></p>" +
         "<div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;max-width:360px;margin:10px auto;'>" + cards + "</div>";
