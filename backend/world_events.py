@@ -802,6 +802,10 @@ def start_pet_expedition(user_id, pet_id, destination):
     conn = _db()
     cur = conn.cursor()
     try:
+        # Serialize starts per user so simultaneous requests cannot launch two expeditions.
+        cur.execute("SELECT user_id FROM users WHERE user_id = ? FOR UPDATE", (user_id,))
+        if not cur.fetchone():
+            raise ValueError("Профиль игрока не найден")
         cur.execute("SELECT id, pet_name FROM pets WHERE id = ? AND user_id = ? AND is_active = TRUE FOR UPDATE",
                     (pet_id, user_id))
         pet = cur.fetchone()
