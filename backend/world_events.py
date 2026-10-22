@@ -866,3 +866,110 @@ def claim_pet_expedition(user_id, expedition_id):
     record_season_activity(user_id, "pet", 1)
     return {"ok": True, "reward_ldc": int(row["reward_ldc"]), "reward_item": item_name,
             "outcome": row["outcome"]}
+
+
+SYSTEM_ITEM_NAMES = {
+    "wood": "🪵 Дерево", "stone": "🪨 Камень", "ore": "⛓️ Руда",
+    "fiber": "🧵 Волокно", "crops": "🌾 Урожай", "fish": "🐟 Рыба",
+    "seeds": "🌱 Семена", "tools": "🔧 Инструменты", "gears": "⚙️ Механизмы",
+    "maps": "🗺️ Карты", "trade_goods": "📦 Торговые товары", "meals": "🍲 Еда",
+    "decor": "🖼️ Декор", "photos": "📸 Фотографии", "pet_treats": "🦴 Лакомства",
+    "circuits": "🔌 Платы", "crystal": "💎 Кристаллы", "artifacts": "🏺 Артефакты",
+}
+SYSTEM_MARKET_PRICES = {
+    "wood": 40, "stone": 35, "ore": 80, "fiber": 30, "crops": 25, "fish": 60,
+    "seeds": 30, "tools": 250, "gears": 200, "maps": 300, "trade_goods": 120,
+    "meals": 150, "decor": 100, "photos": 75, "pet_treats": 100,
+    "circuits": 220, "crystal": 500, "artifacts": 750,
+}
+SYSTEM_MARKET_OFFERS = {
+    "seed_bundle": {"name": "🌱 Набор семян", "price": 500, "items": {"seeds": 5}},
+    "meal_bundle": {"name": "🍲 Провизия", "price": 1200, "items": {"meals": 3}},
+    "map_bundle": {"name": "🗺️ Набор карт", "price": 2000, "items": {"maps": 2}},
+    "pet_treat_bundle": {"name": "🦴 Лакомства питомцам", "price": 800, "items": {"pet_treats": 3}},
+    "crystal_bundle": {"name": "💎 Кристалл экспедиции", "price": 5000, "items": {"crystal": 1}},
+}
+
+
+def get_system_market(user_id):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT item_key, quantity FROM inventory_items WHERE user_id = ? AND quantity > 0",
+                (user_id,))
+    quantities = {row["item_key"]: int(row["quantity"]) for row in cur.fetchall()}
+    conn.close()
+    inventory = [
+        {"key": key, "name": name, "quantity": quantities.get(key, 0),
+         "sell_price": SYSTEM_MARKET_PRICES[key]}
+        for key, name in SYSTEM_ITEM_NAMES.items() if quantities.get(key, 0) > 0
+    ]
+    offers = [{"key": key, "name": value["name"], "price": value["price"],
+               "items": [{"name": SYSTEM_ITEM_NAMES.get(item, item), "quantity": amount}
+                         for item, amount in value["items"].items()]}
+              for key, value in SYSTEM_MARKET_OFFERS.items()]
+    return {"inventory": inventory, "offers": offers}
+
+
+def buy_system_market_offer(user_id, offer_key):
+    offer = SYSTEM_MARKET_OFFERS.get(str(offer_key or ""))
+    if not offer:
+        raise ValueError("Предложение не найдено")
+    conn = _db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT balance FROM users WHERE user_id = ? FOR UPDATE", (user_id,))
+        user = cur.fetchone()
+        if not user:
+            raise ValueError("Профиль игрока не найден")
+        price = int(offer["price"])
+        if int(user["balance"] or 0) < price:
+            raise ValueError(f"Недостаточно LDC. Нужно {price:,}")
+        cur.execute("UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+                    (price, user_id, price))
+        if cur.rowcount != 1:
+            raise ValueError("Баланс изменился. Попробуй ещё раз")
+        for item_key, quantity in offer["items"].items():
+            cur.execute("""INSERT INTO inventory_items (user_id, item_key, quantity)
+                VALUES (?, ?, ?) ON CONFLICT(user_id, item_key) DO UPDATE SET
+                quantity = inventory_items.quantity + excluded.quantity""",
+                (user_id, item_key, int(quantity)))
+        conn.commit()
+        return {"ok": True, "offer": offer["name"], "price": price}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def sell_system_market_item(user_id, item_key, amount=1):
+    item_key = str(item_key or "")
+    if item_key not in SYSTEM_MARKET_PRICES:
+        raise ValueError("Этот предмет нельзя продать системе")
+    try:
+        amount = int(amount)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Некорректное количество") from exc
+    if amount < 1 or amount > 100:
+        raise ValueError("За одну операцию можно продать от 1 до 100 предметов")
+    price = SYSTEM_MARKET_PRICES[item_key] * amount
+    conn = _db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""UPDATE inventory_items SET quantity = quantity - ?
+            WHERE user_id = ? AND item_key = ? AND quantity >= ?""",
+            (amount, user_id, item_key, amount))
+        if cur.rowcount != 1:
+            raise ValueError("Недостаточно предметов для продажи")
+        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (price, user_id))
+        if cur.rowcount != 1:
+            raise ValueError("Профиль игрока не найден")
+        cur.execute("DELETE FROM inventory_items WHERE user_id = ? AND item_key = ? AND quantity <= 0",
+                    (user_id, item_key))
+        conn.commit()
+        return {"ok": True, "item": SYSTEM_ITEM_NAMES[item_key], "amount": amount, "reward_ldc": price}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
