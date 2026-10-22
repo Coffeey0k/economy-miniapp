@@ -231,7 +231,10 @@ async def audit_rejected_api_requests(request: Request, call_next):
             activity = ("visit", 1)
         elif path == "/api/island/profession-action":
             activity = ("craft", 1)
-        elif path in {"/api/island/expeditions/start", "/api/island/expeditions/claim"}:
+        elif path in {
+            "/api/island/expeditions/start", "/api/island/expeditions/claim",
+            "/api/pets/toggle", "/api/pets/expeditions/start", "/api/pets/expeditions/claim",
+        }:
             activity = ("pet", 1)
         if activity:
             try:
@@ -3688,6 +3691,10 @@ def buy_cosmetics(payload: dict = Body(...)):
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
+    try:
+        world_events.record_season_activity(user_id, "collect", 1)
+    except Exception:
+        logger.exception("Не удалось обновить прогресс коллекции после покупки косметики")
     return {"ok": True, "message": f"Куплено за {price:,} 🪙", "balance": balance}
 
 
@@ -4161,6 +4168,10 @@ def buy_island_decoration(payload: dict = Body(...)):
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
+    try:
+        world_events.record_season_activity(user_id, "collect", 1)
+    except Exception:
+        logger.exception("Не удалось обновить прогресс коллекции после покупки декора")
     return {"ok": True, "message": f"Добавлено украшение: {config['emoji']} {config['name']}", "decoration_id": decoration_id, "balance": balance}
 
 
@@ -5420,6 +5431,11 @@ def open_gift(payload: dict = Body(...)):
         raise HTTPException(status_code=409, detail="Подарок уже открыт")
     conn.commit()
     conn.close()
+    if gift_type in {"pet", "cosmetic"}:
+        try:
+            world_events.record_season_activity(user_id, "collect", 1)
+        except Exception:
+            logger.exception("Не удалось обновить прогресс коллекции после открытия подарка")
 
     return {"ok": True, "message": f"Открыто: {result_text}", "gift_type": gift_type}
 
