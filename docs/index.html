@@ -1057,6 +1057,17 @@
       <div id="battleship-area" style="display:none;margin-top:12px;"></div>
       <div id="ttt-area" style="display:none;margin-top:12px;"></div>
     </div>
+    <div class="card">
+      <h2>🌟 Новые мини-игры</h2>
+      <p class="label">Играй без ставок: награды начисляются сервером за завершённую игру.</p>
+      <div class="tiles">
+        <button class="tile" onclick="startArcade('fishing')"><span class="ic">🎣</span>Рыбалка</button>
+        <button class="tile" onclick="startArcade('dungeon')"><span class="ic">⚔️</span>Подземелье</button>
+        <button class="tile" onclick="startArcade('racing')"><span class="ic">🏎️</span>Гонки</button>
+        <button class="tile" onclick="startArcade('memory')"><span class="ic">🧠</span>Мемори</button>
+      </div>
+      <div id="arcade-area" style="margin-top:12px;"></div>
+    </div>
   </div>
 
   <!-- КОСМЕТИКА -->
@@ -1384,7 +1395,12 @@
       if (moreBtn) moreBtn.classList.add("active");
     }
 
-    if (!loaded[name]) { loadTab(name); loaded[name] = true; }
+    // Refresh these server-backed tabs on revisit; a transient failure must not
+    // leave the section permanently stale because its first load was cached.
+    if (!loaded[name] || ["island", "rcc", "gifts", "work", "games"].includes(name)) {
+      loadTab(name);
+      loaded[name] = true;
+    }
     // После смены раздела показываем его заголовок, а не сохранённую позицию прокрутки.
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -2087,6 +2103,87 @@
     `;
   }
   function loadGames() { renderGameUI(); }
+
+  const ARCADE_ICONS = ["🌸", "🌙", "💎", "🦋", "⭐", "🍀"];
+  let arcadeSession = null;
+  let arcadeState = null;
+  let arcadeType = null;
+  let arcadeBusy = false;
+
+  async function startArcade(game) {
+    if (arcadeBusy) return;
+    arcadeBusy = true;
+    try {
+      const res = await apiPost("/api/arcade/start", {game: game});
+      arcadeSession = res.session_id;
+      arcadeState = res.state;
+      arcadeType = game;
+      renderArcade();
+    } catch (e) { toast(e.message, true); }
+    finally { arcadeBusy = false; }
+  }
+
+  async function arcadeAction(action, index) {
+    if (!arcadeSession || arcadeBusy) return;
+    arcadeBusy = true;
+    try {
+      const payload = {session_id: arcadeSession, action: action};
+      if (index !== undefined) payload.index = index;
+      const res = await apiPost("/api/arcade/action", payload);
+      arcadeState = res.state;
+      renderArcade(res.message, res.finished, res.reward);
+      if (res.finished) {
+        arcadeSession = null;
+        loaded.profile = false;
+        loadProfile();
+      }
+    } catch (e) { toast(e.message, true); }
+    finally { arcadeBusy = false; }
+  }
+
+  function renderArcade(message, finished, reward) {
+    const el = document.getElementById("arcade-area");
+    if (!el || !arcadeState || !arcadeType) return;
+    const s = arcadeState;
+    message = message || "";
+    finished = Boolean(finished);
+    reward = Number(reward || 0);
+    let body = "";
+    if (arcadeType === "fishing") {
+      const catches = (s.catches || []).map(function(f) {
+        return escapeHtml(f.name) + " (+" + Number(f.value) + " LDC)";
+      }).join(" · ");
+      body = "<p>🎣 Осталось забросов: <b>" + s.casts_left + "</b></p>" +
+        "<div class='label'>Улов: " + (catches || "Пока пусто") + "</div>" +
+        (!finished && s.casts_left > 0 ? "<button class='btn' onclick=\"arcadeAction('cast')\">Закинуть удочку</button>" : "");
+    } else if (arcadeType === "dungeon") {
+      body = "<p>❤️ Здоровье: <b>" + s.hp + "/3</b> · Комната: <b>" + s.room + "/6</b> · Добыча: <b>" +
+        Number(s.loot).toLocaleString() + " LDC</b></p>" +
+        (!finished ? "<button class='btn' onclick=\"arcadeAction('explore')\">Исследовать комнату</button> " +
+        "<button class='btn' onclick=\"arcadeAction('extract')\">Забрать добычу и выйти</button>" : "");
+    } else if (arcadeType === "racing") {
+      body = "<p>🏁 Раунд: <b>" + s.round + "/5</b> · Успешные манёвры: <b>" + s.distance +
+        "</b> · Столкновения: <b>" + s.crashes + "</b></p>" +
+        (!finished ? "<div class='tiles'><button class='tile' onclick=\"arcadeAction('left')\">⬅️ Левая</button>" +
+        "<button class='tile' onclick=\"arcadeAction('center')\">⬆️ Центр</button>" +
+        "<button class='tile' onclick=\"arcadeAction('right')\">➡️ Правая</button></div>" : "");
+    } else if (arcadeType === "memory") {
+      const matched = (s.matched || []).length / 2;
+      const cards = (s.cards || []).map(function(value, i) {
+        const label = value === null ? "❔" : ARCADE_ICONS[value];
+        const disabled = value !== null || finished ? " disabled" : "";
+        return "<button class='btn' style='min-height:54px;font-size:22px;padding:4px;' " + disabled +
+          " onclick='arcadeAction(\'flip\'," + i + ")'>" + label + "</button>";
+      }).join("");
+      body = "<p>🧠 Найдено пар: <b>" + matched + "/6</b> · Ходы: <b>" + s.moves + "</b></p>" +
+        "<div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;max-width:360px;margin:10px auto;'>" + cards + "</div>";
+    }
+    const titles = {fishing:"🎣 Рыбалка", dungeon:"⚔️ Подземелье", racing:"🏎️ Мини-гонки", memory:"🧠 Мемори"};
+    el.innerHTML = "<div class='card'><h3>" + titles[arcadeType] + "</h3>" + body +
+      (message ? "<p class='label' style='white-space:pre-line;margin-top:10px;'>" + escapeHtml(message) + "</p>" : "") +
+      (finished ? "<p><b>🏆 Игра завершена · +" + reward.toLocaleString() + " LDC</b></p>" +
+      "<button class='btn' onclick=\"startArcade('" + arcadeType + "')\">Играть ещё раз</button>" : "") + "</div>";
+  }
   async function playGame(bet) {
     if (bet === undefined || bet === null) {
       const betEl = document.getElementById("game-custom-bet");
@@ -3436,7 +3533,7 @@
       ${state.has_house ? '<img class="island-sprite island-house" src="images/house.png" alt="Дом">' : ''}
       ${state.has_pier ? '<img class="island-sprite island-pier" src="images/pier.png" alt="Причал">' : ''}
       ${state.has_ship ? '<img class="island-sprite island-ship" src="images/ship.png" alt="Корабль">' : ''}
-      ${markers.filter(m => buildings[m[0]]).map(m => `<span class="island-building-marker" style="left:${m[2]};top:${m[3]}" title="${catalog[m[0]].name}">${m[1]}</span>`).join('')}
+      ${markers.filter(m => buildings[m[0]]).map(m => `<span class="island-building-marker" style="left:${m[2]};top:${m[3]}" title="${(catalog[m[0]] || {}).name || m[0]}">${m[1]}</span>`).join('')}
       ${(islandData.decorations || []).map(d => `<span class="island-decoration-sprite" data-x="${d.x}" data-y="${d.y}" style="left:${d.x}%;top:${d.y}%" title="${d.name}" onpointerdown="startIslandDecorationDrag(event,${d.id})">${d.emoji}</span>`).join('')}
     </div>
     <div class="island-status-row">
