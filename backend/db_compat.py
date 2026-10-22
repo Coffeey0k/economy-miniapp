@@ -422,7 +422,7 @@ def init_db():
         "web_trades", "pet_trades",
         "music_personal", "music_shared", "music_slots",
     ):
-        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table}")
+        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table} CASCADE")
 
     conn.commit()
     conn.close()
