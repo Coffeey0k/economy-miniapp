@@ -1070,6 +1070,94 @@
     </div>
   </div>
 
+  <!-- ОСТРОВ -->
+  <div class="tab" id="tab-island">
+    <div id="island-msg"></div>
+    <div class="card" id="island-empty">
+      <h2>🏝️ Твой остров</h2>
+      <p class="label">Купи собственный остров, строй здания, добывай ресурсы и отправляйся в экспедиции.</p>
+      <button class="btn" onclick="buyIslandItem('island')">Купить остров за 50 000 LDC</button>
+    </div>
+    <div id="island-content" style="display:none;">
+      <div class="card"><h2>🏝️ Твой остров</h2><div id="island-visual"></div></div>
+      <div class="card"><div id="island-buildings"></div></div>
+    </div>
+    <div class="card">
+      <h3>👀 Посетить остров игрока</h3>
+      <div style="display:flex;gap:8px;">
+        <input id="island-visit-username" placeholder="username игрока" style="flex:1;min-width:0;">
+        <button class="btn" onclick="visitIsland()">Посетить</button>
+      </div>
+      <div id="island-visit-result" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <!-- LCC -->
+  <div class="tab" id="tab-rcc">
+    <div id="rcc-msg"></div>
+    <div class="card">
+      <h2>💎 Lavender Crypto Coin (LCC)</h2>
+      <div class="tabs-sub">
+        <button class="rcc-tab active" onclick="rccShowTab('main', event)">💎 Монета</button>
+        <button class="rcc-tab" onclick="rccShowTab('game', event)">🎮 Мини-игра</button>
+      </div>
+      <div id="rcc-main-block">
+        <div class="stat-row"><span>Баланс LCC</span><b id="rcc-balance">0.00000000</b></div>
+        <div class="stat-row"><span>Всего кликов</span><b id="rcc-total-clicks">0</b></div>
+        <div class="stat-row"><span>Курс обмена</span><b id="rcc-rate">—</b></div>
+        <div class="stat-row"><span>Энергия</span><b id="rcc-energy">0 / 0</b></div>
+        <p class="label" id="rcc-energy-recovery"></p>
+        <button class="btn" id="rcc-click-area" onclick="rccClick()" style="width:100%;min-height:100px;font-size:28px;">💎 Добыть LCC <span id="rcc-click-reward">+0 LCC</span></button>
+        <div class="island-building-grid" style="margin-top:12px;">
+          <div class="island-building-card"><b>⚡ Сила клика</b><div>Уровень <span id="rcc-click-level">0</span></div><button class="btn btn-small" id="rcc-upgrade-click" onclick="buyRccUpgrade('click')">Улучшить</button></div>
+          <div class="island-building-card"><b>⏱️ Восстановление</b><div>Уровень <span id="rcc-timer-level">0</span></div><button class="btn btn-small" id="rcc-upgrade-timer" onclick="buyRccUpgrade('timer')">Улучшить</button></div>
+          <div class="island-building-card"><b>❄️ Заморозка</b><div>Уровень <span id="rcc-freeze-level">0</span></div><button class="btn btn-small" id="rcc-upgrade-freeze" onclick="buyRccUpgrade('freeze')">Улучшить</button></div>
+          <div class="island-building-card"><b>🎁 Бонус награды</b><div>Уровень <span id="rcc-reward-level">0</span></div><button class="btn btn-small" id="rcc-upgrade-reward" onclick="buyRccUpgrade('reward')">Улучшить</button></div>
+        </div>
+        <h3>🔄 Обмен LCC на LDC</h3>
+        <p class="label">Твой баланс LDC: <b id="rcc-pc-balance">0</b></p>
+        <input type="number" id="rcc-exchange-amount" min="0.00000001" step="0.00000001" placeholder="Количество LCC" style="width:100%;margin:8px 0;">
+        <button class="btn" onclick="rccExchange()">Обменять</button>
+      </div>
+      <div id="rcc-game-block" style="display:none;">
+        <p class="label" id="rcc-game-status">Загрузка…</p>
+        <button class="btn" id="rcc-game-btn" onclick="rccStartGame()">Начать мини-игру</button>
+        <div id="rcc-game-canvas-card" style="display:none;margin-top:12px;">
+          <p class="label">Время: <span id="rcc-game-timer">25</span> сек. · Счёт: <span id="rcc-game-score">0</span></p>
+          <div id="rcc-game-canvas" style="position:relative;min-height:260px;overflow:hidden;border-radius:12px;background:linear-gradient(160deg,#102b49,#154e64);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ПОДАРКИ -->
+  <div class="tab" id="tab-gifts">
+    <div id="gifts-msg"></div>
+    <div class="card">
+      <h2>🎁 Подарки</h2>
+      <div class="tabs-sub">
+        <button class="gifts-tab active" onclick="giftsShowTab('incoming', event)">📥 Входящие</button>
+        <button class="gifts-tab" onclick="giftsShowTab('send', event)">🎀 Отправить</button>
+        <button class="gifts-tab" onclick="giftsShowTab('outgoing', event)">📤 Отправленные</button>
+      </div>
+      <div id="gifts-incoming-block"><div id="gifts-incoming-list"></div></div>
+      <div id="gifts-send-block" style="display:none;">
+        <label class="label" for="gift-username">Username получателя</label>
+        <input id="gift-username" placeholder="username без @" style="width:100%;margin:8px 0;">
+        <label class="label" for="gift-type">Тип подарка</label>
+        <select id="gift-type" onchange="renderGiftFields()" style="width:100%;margin:8px 0;">
+          <option value="money">💰 LDC</option>
+          <option value="rcc">💎 LCC</option>
+          <option value="pet">🐾 Питомец</option>
+          <option value="cosmetic">🎨 Косметика</option>
+        </select>
+        <div id="gift-fields"></div>
+        <button class="btn" onclick="sendGift()">Отправить подарок</button>
+      </div>
+      <div id="gifts-outgoing-block" style="display:none;"><div id="gifts-outgoing-list"></div></div>
+    </div>
+  </div>
+
   <!-- КОСМЕТИКА -->
   <div class="tab" id="tab-cosmetics">
     <div id="cosmetics-msg"></div>
