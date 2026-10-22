@@ -173,7 +173,7 @@ DAILY_TASK_DESCS = {
     "photographer": "Отправь фото в чат",
     "night_owl": "Напиши сообщение после 20:00",
     "early_bird": "Напиши сообщение до 09:00",
-    "storyteller": "Отправь 20 сообщений длиной от 50 символов",
+    "storyteller": "Отправь 10 сообщений длиной от 50 символов",
     "helper": "Ответь на 10 сообщений других участников",
     "social_butterfly": "Напиши в чат в течение 3 разных часов",
     "emoji_master": "Отправь 15 сообщений с эмодзи",
@@ -231,7 +231,10 @@ async def audit_rejected_api_requests(request: Request, call_next):
             activity = ("visit", 1)
         elif path == "/api/island/profession-action":
             activity = ("craft", 1)
-        elif path in {"/api/island/expeditions/start", "/api/island/expeditions/claim"}:
+        elif path in {
+            "/api/island/expeditions/start", "/api/island/expeditions/claim",
+            "/api/pets/toggle", "/api/pets/expeditions/start", "/api/pets/expeditions/claim",
+        }:
             activity = ("pet", 1)
         if activity:
             try:
@@ -930,7 +933,7 @@ def get_tasks(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
     # Ensure Mini App users receive today's tasks even if they haven't sent a bot message.
     bot_db.assign_daily_tasks(user_id)
-    today = datetime.now().date().isoformat()
+    today = bot_db.daily_task_date()
     conn = db()
     cur = conn.cursor()
     cur.execute("""
@@ -1186,6 +1189,249 @@ def transfer_coins(payload: dict = Body(...)):
     return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}. Переводов сегодня: {count}/5."}
 
 
+def _record_web_game_start(user_id: int):
+    """Keep daily tasks, achievements and seasonal game tasks in sync for web games."""
+    try:
+        bot_db.update_task_progress(user_id, "games", 1)
+    except Exception:
+        logger.exception("Не удалось обновить ежедневное игровое задание user_id=%s", user_id)
+    try:
+        world_events.record_season_activity(user_id, "game", 1)
+    except Exception:
+        logger.exception("Не удалось обновить сезонное игровое задание user_id=%s", user_id)
+
+
+# ========== API: НОВЫЕ МИНИ-ИГРЫ ==========
+
+ARCADE_GAMES = {"fishing", "dungeon", "racing", "memory"}
+
+
+def _ensure_arcade_table(cur):
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS arcade_sessions (
+            id TEXT PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            game_type TEXT NOT NULL,
+            state TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            reward BIGINT NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
+
+def _arcade_public_state(game_type, state):
+    public_state = dict(state)
+    if game_type == "memory":
+        visible = set(state.get("matched", [])) | set(state.get("opened", []))
+        public_state["cards"] = [
+            value if index in visible else None
+            for index, value in enumerate(state.get("cards", []))
+        ]
+    return public_state
+
+
+def _new_arcade_state(game_type):
+    if game_type == "fishing":
+        return {"casts_left": 5, "catches": [], "pending_reward": 0}
+    if game_type == "dungeon":
+        return {"hp": 3, "room": 0, "loot": 0}
+    if game_type == "racing":
+        return {"round": 0, "distance": 0, "crashes": 0, "lane": 1}
+    cards = list(range(6)) * 2
+    random.shuffle(cards)
+    return {"cards": cards, "matched": [], "opened": [], "moves": 0, "pending_hide": False}
+
+
+@app.post("/api/arcade/start")
+def arcade_start(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    game_type = str(payload.get("game") or "")
+    if game_type not in ARCADE_GAMES:
+        raise HTTPException(status_code=400, detail="Неизвестная мини-игра")
+    now = datetime.now().isoformat()
+    session_id = hashlib.sha256(f"{user_id}:{now}:{random.random()}".encode()).hexdigest()[:32]
+    state = _new_arcade_state(game_type)
+    conn = db()
+    cur = conn.cursor()
+    _ensure_arcade_table(cur)
+    cur.execute(
+        "INSERT INTO arcade_sessions (id, user_id, game_type, state, status, reward, created_at, updated_at) VALUES (%s, %s, %s, %s, 'active', 0, %s, %s)",
+        (session_id, user_id, game_type, json.dumps(state, ensure_ascii=False), now, now),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "session_id": session_id, "game": game_type,
+            "state": _arcade_public_state(game_type, state)}
+
+
+@app.post("/api/arcade/action")
+def arcade_action(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    session_id = str(payload.get("session_id") or "")
+    action = str(payload.get("action") or "")
+    conn = db()
+    cur = conn.cursor()
+    _ensure_arcade_table(cur)
+    cur.execute("SELECT user_id, game_type, state, status FROM arcade_sessions WHERE id = %s FOR UPDATE", (session_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Игровая сессия не найдена")
+    if int(row["user_id"]) != user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Эта игра принадлежит другому игроку")
+    if row["status"] != "active":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Эта игра уже завершена")
+    game_type = row["game_type"]
+    state = json.loads(row["state"])
+    message = ""
+    finished = False
+    reward = 0
+
+    if game_type == "fishing":
+        if action != "cast":
+            conn.close()
+            raise HTTPException(status_code=400, detail="Неизвестное действие рыбалки")
+        fish = random.choices(
+            [{"name": "Карась", "value": 20}, {"name": "Окунь", "value": 40},
+             {"name": "Форель", "value": 75}, {"name": "Золотая рыба", "value": 200},
+             {"name": "Сапог", "value": 0}],
+            weights=[35, 28, 20, 3, 14], k=1
+        )[0]
+        state["catches"].append(fish)
+        state["casts_left"] -= 1
+        state["pending_reward"] += fish["value"]
+        message = f"🎣 {fish['name']}" + (f" · +{fish['value']} LDC" if fish["value"] else " · улов бесполезен")
+        finished = state["casts_left"] <= 0
+        if finished:
+            reward = int(state["pending_reward"])
+            message += f"\nРыбалка завершена: {reward} LDC за {len(state['catches'])} попыток."
+
+    elif game_type == "dungeon":
+        if action not in {"explore", "extract"}:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Неизвестное действие подземелья")
+        if action == "extract":
+            finished = True
+            reward = int(state["loot"])
+            message = f"Ты покинул подземелье с добычей: {reward} LDC."
+        else:
+            event = random.choices(["loot", "monster", "empty", "heal"], weights=[42, 30, 20, 8], k=1)[0]
+            state["room"] += 1
+            if event == "loot":
+                amount = random.randint(40, 120) + state["room"] * 10
+                state["loot"] += amount
+                message = f"🧰 В комнате найден сундук: +{amount} к добыче."
+            elif event == "monster":
+                state["hp"] -= 1
+                message = "👾 Монстр атаковал! −1 ❤️"
+            elif event == "heal":
+                state["hp"] = min(3, state["hp"] + 1)
+                message = "💚 Найдено лечебное зелье."
+            else:
+                message = "🕯️ Комната пуста. Путь продолжается."
+            finished = state["hp"] <= 0 or state["room"] >= 6
+            if finished:
+                reward = int(state["loot"])
+                message += f"\nПоход завершён. Добыча: {reward} LDC."
+
+    elif game_type == "racing":
+        if action not in {"left", "center", "right"}:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Выбери полосу движения")
+        obstacle_lane = random.choice(["left", "center", "right"])
+        state["round"] += 1
+        state["lane"] = action
+        if action == obstacle_lane:
+            state["crashes"] += 1
+            message = "💥 Столкновение! Машина теряет скорость."
+        else:
+            state["distance"] += 1
+            message = "🏎️ Чистый манёвр! Ты продвигаешься вперёд."
+        finished = state["round"] >= 5
+        if finished:
+            reward = max(0, state["distance"] * 100 - state["crashes"] * 25)
+            message += f"\nФиниш! Дистанция: {state['distance']}/5 · награда {reward} LDC."
+
+    else:  # memory
+        if action != "flip":
+            conn.close()
+            raise HTTPException(status_code=400, detail="Неизвестное действие мемори")
+        try:
+            index = int(payload.get("index"))
+        except (TypeError, ValueError):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Выбери карточку")
+        if not 0 <= index < len(state["cards"]):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Карточка вне поля")
+        if index in state["matched"]:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Эта пара уже найдена")
+        if state["pending_hide"]:
+            state["opened"] = []
+            state["pending_hide"] = False
+        if index in state["opened"]:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Карточка уже открыта")
+        state["opened"].append(index)
+        if len(state["opened"]) == 2:
+            state["moves"] += 1
+            first, second = state["opened"]
+            if state["cards"][first] == state["cards"][second]:
+                state["matched"].extend([first, second])
+                state["opened"] = []
+                message = "✨ Пара найдена!"
+            else:
+                state["pending_hide"] = True
+                message = "Запомни эти карточки — они скроются при следующем ходе."
+        else:
+            message = "Карточка открыта."
+        finished = len(state["matched"]) == len(state["cards"])
+        if finished:
+            reward = max(100, 600 - max(0, state["moves"] - 6) * 20)
+            message = f"🧠 Все пары найдены за {state['moves']} ходов! Награда: {reward} LDC."
+
+    now = datetime.now().isoformat()
+    if finished:
+        # Claim the active session before crediting the reward; concurrent/replayed
+        # requests cannot settle the same game twice.
+        cur.execute(
+            "UPDATE arcade_sessions SET state = %s, status = 'finished', reward = %s, updated_at = %s WHERE id = %s AND status = 'active'",
+            (json.dumps(state, ensure_ascii=False), reward, now, session_id),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            raise HTTPException(status_code=409, detail="Игра уже была завершена")
+        if reward > 0:
+            change_balance(cur, user_id, reward)
+    else:
+        cur.execute(
+            "UPDATE arcade_sessions SET state = %s, updated_at = %s WHERE id = %s AND status = 'active'",
+            (json.dumps(state, ensure_ascii=False), now, session_id),
+        )
+    conn.commit()
+    balance = require_balance(cur, user_id)
+    conn.close()
+    # Run cross-module trackers only after the arcade transaction is closed.
+    # They open their own connections to the same database.
+    if finished:
+        try:
+            bot_db.update_task_progress(user_id, "games", 1)
+        except Exception:
+            logger.exception("Не удалось обновить ежедневное задание для Mini App")
+        try:
+            world_events.record_season_activity(user_id, "game", 1)
+        except Exception:
+            logger.exception("Не удалось обновить сезонный прогресс мини-игры")
+    return {"ok": True, "game": game_type, "state": _arcade_public_state(game_type, state),
+            "message": message, "finished": finished, "reward": reward, "balance": balance}
+
+
 # ========== API: ИГРЫ ==========
 
 SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
@@ -1306,6 +1552,14 @@ def play_game(payload: dict = Body(...)):
     conn.commit()
     conn.close()
     try:
+        bot_db.update_task_progress(user_id, "games", 1)
+    except Exception:
+        logger.exception("Не удалось обновить ежедневное игровое задание для Mini App")
+    try:
+        world_events.record_season_activity(user_id, "game", 1)
+    except Exception:
+        logger.exception("Не удалось обновить сезонный прогресс игры Mini App")
+    try:
         bot_db.log_action(
             user_id, "game",
             f"Игра Mini App: {game}; ставка={bet}; выигрыш={win}; результат={text}",
@@ -1404,6 +1658,7 @@ def ttt_start(payload: dict = Body(...)):
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
+    _record_web_game_start(user_id)
     return {
         "game_id": game_id, "board": "_________", "status": "active",
         "winner": None, "bet": bet, "balance": balance, "payout": 0,
@@ -1818,6 +2073,7 @@ def ms_start_api(payload: dict = Body(...)):
     game_id = cur.lastrowid
     conn.commit()
     conn.close()
+    _record_web_game_start(user_id)
 
     return {
         "game_id": game_id,
@@ -2520,6 +2776,7 @@ def bs_start(payload: dict = Body(...)):
         bot_db.log_action(user_id, "game", f"Морской бой: старт game_id={game_id}; ставка={bet}; player_defenses={player_defenses.count('D')}", amount=0)
     except Exception:
         logger.exception("Не удалось записать старт морского боя user_id=%s game_id=%s", user_id, game_id)
+    _record_web_game_start(user_id)
 
     return {
         "game_id": game_id,
@@ -3434,6 +3691,10 @@ def buy_cosmetics(payload: dict = Body(...)):
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
+    try:
+        world_events.record_season_activity(user_id, "collect", 1)
+    except Exception:
+        logger.exception("Не удалось обновить прогресс коллекции после покупки косметики")
     return {"ok": True, "message": f"Куплено за {price:,} 🪙", "balance": balance}
 
 
@@ -3907,6 +4168,10 @@ def buy_island_decoration(payload: dict = Body(...)):
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
+    try:
+        world_events.record_season_activity(user_id, "collect", 1)
+    except Exception:
+        logger.exception("Не удалось обновить прогресс коллекции после покупки декора")
     return {"ok": True, "message": f"Добавлено украшение: {config['emoji']} {config['name']}", "decoration_id": decoration_id, "balance": balance}
 
 
@@ -4423,6 +4688,7 @@ def rcc_game_start(payload: dict = Body(default={})):
     cur.execute("UPDATE rcc_balance SET last_game = %s WHERE user_id = %s", (now.isoformat(), user_id))
     conn.commit()
     conn.close()
+    _record_web_game_start(user_id)
     return {
         "ok": True, "started_at": now.isoformat(),
         "duration_seconds": progress["game_duration"],
@@ -5092,13 +5358,16 @@ def send_gift(payload: dict = Body(...)):
 @app.post("/api/gifts/open")
 def open_gift(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    gift_id = int(payload.get("gift_id"))
+    try:
+        gift_id = int(payload.get("gift_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный подарок")
 
     conn = db()
     cur = conn.cursor()
     cur.execute("""
         SELECT from_user, to_user, gift_type, gift_data, is_opened, expires_at
-        FROM gifts WHERE id = %s
+        FROM gifts WHERE id = %s FOR UPDATE
     """, (gift_id,))
     row = cur.fetchone()
 
@@ -5116,7 +5385,14 @@ def open_gift(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Подарок сгорел")
 
     gift_type = row["gift_type"]
-    gift_data = json.loads(row["gift_data"])
+    if gift_type not in {"money", "rcc", "pet", "cosmetic"}:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Неизвестный тип подарка")
+    try:
+        gift_data = json.loads(row["gift_data"])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        conn.close()
+        raise HTTPException(status_code=500, detail="Данные подарка повреждены; обратись к администрации")
 
     # Выдаём награду
     result_text = ""
@@ -5130,7 +5406,7 @@ def open_gift(payload: dict = Body(...)):
         amount = gift_data["amount"]
         cur.execute("INSERT INTO rcc_balance (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
         cur.execute("UPDATE rcc_balance SET balance = balance + %s WHERE user_id = %s", (amount, user_id))
-        result_text = f"+{amount:.2f} RCC"
+        result_text = f"+{amount:.2f} LCC"
 
     elif gift_type == "pet":
         cur.execute("""
@@ -5149,9 +5425,18 @@ def open_gift(payload: dict = Body(...)):
         """, (user_id, item_type, item_key))
         result_text = f"Косметика: {item_type} — {item_key}"
 
-    cur.execute("UPDATE gifts SET is_opened = 1 WHERE id = %s", (gift_id,))
+    cur.execute("UPDATE gifts SET is_opened = 1 WHERE id = %s AND is_opened = 0", (gift_id,))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=409, detail="Подарок уже открыт")
     conn.commit()
     conn.close()
+    if gift_type in {"pet", "cosmetic"}:
+        try:
+            world_events.record_season_activity(user_id, "collect", 1)
+        except Exception:
+            logger.exception("Не удалось обновить прогресс коллекции после открытия подарка")
 
     return {"ok": True, "message": f"Открыто: {result_text}", "gift_type": gift_type}
 
