@@ -2391,6 +2391,19 @@ DAILY_TASKS = {
     "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых сообщения"},
     "link_sharer": {"name": "🔗 Делится полезным", "target": 3, "reward": 100, "type": "links", "desc": "Отправь 3 сообщения со ссылками"},
     "weekend_vibes": {"name": "🎉 Выходной вайб", "target": 25, "reward": 150, "type": "weekend_messages", "desc": "Напиши 25 сообщений в выходной"},
+    "conversation_king": {"name": "🗣️ Душа чата", "target": 100, "reward": 250, "type": "messages", "desc": "Отправь 100 сообщений в чат"},
+    "reply_master": {"name": "💌 Мастер ответов", "target": 15, "reward": 220, "type": "replies", "desc": "Ответь на 15 сообщений участников"},
+    "photo_album": {"name": "📸 Фотоальбом", "target": 3, "reward": 120, "type": "photo", "desc": "Отправь 3 фотографии в чат"},
+    "night_shift": {"name": "🌃 Ночная смена", "target": 5, "reward": 300, "type": "night_message", "desc": "Напиши 5 сообщений после 20:00"},
+    "sunrise": {"name": "🌄 Встречая рассвет", "target": 3, "reward": 250, "type": "morning_message", "desc": "Напиши 3 сообщения до 09:00"},
+    "long_story": {"name": "📚 Большой рассказ", "target": 15, "reward": 200, "type": "long_messages", "desc": "Отправь 15 длинных сообщений"},
+    "emoji_festival": {"name": "🎊 Фестиваль эмодзи", "target": 25, "reward": 180, "type": "emoji_messages", "desc": "Отправь 25 сообщений с эмодзи"},
+    "question_master": {"name": "🧠 Почемучка", "target": 20, "reward": 180, "type": "question_messages", "desc": "Отправь 20 сообщений с вопросом"},
+    "gamer_marathon": {"name": "🎮 Игровой марафон", "target": 10, "reward": 300, "type": "games", "desc": "Сыграй 10 игр"},
+    "voice_lover": {"name": "🎙️ Голосовой марафон", "target": 5, "reward": 150, "type": "audio", "desc": "Отправь 5 голосовых сообщений"},
+    "link_guide": {"name": "🧭 Навигатор", "target": 5, "reward": 150, "type": "links", "desc": "Отправь 5 сообщений со ссылками"},
+    "weekend_grinder": {"name": "🔥 Выходной марафон", "target": 40, "reward": 250, "type": "weekend_messages", "desc": "Отправь 40 сообщений в выходной"},
+    "social_hours_pro": {"name": "🦋 Всегда на связи", "target": 5, "reward": 250, "type": "active_hours", "desc": "Будь активен в чате в течение 5 разных часов"},
 }
 
 
@@ -2469,7 +2482,7 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
             completed.append(task_id)
             completed_reward += int(reward or task_info.get("reward", 0) or 0)
             completed_names.append(task_info.get("name", task_key))
-            if task_key in {"game_player", "storyteller", "weekend_vibes"}:
+            if task_key in {"game_player", "storyteller", "weekend_vibes", "gamer_marathon"}:
                 ticket_rewards += 1
     conn.commit()
     conn.close()
