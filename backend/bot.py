@@ -1425,6 +1425,7 @@ async def collection_word_trigger(message: Message):
             lines.extend(f"• {item['item_name']}" for item in items[:10])
         titles = data.get("titles", [])
         builder = InlineKeyboardBuilder()
+        title_buttons = 0
         if titles:
             lines.extend(["", "Титулы:"])
             for title in titles[:8]:
@@ -1434,7 +1435,8 @@ async def collection_word_trigger(message: Message):
                         text=f"Выбрать: {title['title_name'][:24]}",
                         callback_data=f"title_equip_{title['title_key']}",
                     ))
-        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if builder.buttons else None)
+                    title_buttons += 1
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if title_buttons else None)
     except Exception:
         logger.exception("Не удалось открыть коллекцию")
         await message.answer("Не удалось загрузить коллекцию. Попробуй позже.")
