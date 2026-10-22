@@ -2633,10 +2633,11 @@
         const isCurrent = current.frame === key;
         const isOwned = owned.frame.includes(key);
         const badge = isCurrent ? " ✅" : (isOwned ? " 🔓" : "");
-        const priceText = isOwned ? "Применить" : `${info.price.toLocaleString()} 🪙`;
+        const seasonOnly = info.rarity === "season" && !isOwned;
+        const priceText = isOwned ? "Применить" : seasonOnly ? "Награда сезона" : `${info.price.toLocaleString()} 🪙`;
         html += `<div class="item-row">
           <span>${info.display.replace('{name}', '@you')}${badge}</span>
-          <button class="btn btn-small" onclick="buyCos('frame','${key}')">${priceText}</button>
+          <button class="btn btn-small" ${seasonOnly ? "disabled" : ""} onclick="buyCos('frame','${key}')">${priceText}</button>
         </div>`;
       }
       el.innerHTML = html;
