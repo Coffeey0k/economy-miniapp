@@ -460,6 +460,58 @@ def init_db():
             PRIMARY KEY (season_id, user_id, task_key)
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_level_rewards (
+            season_id BIGINT NOT NULL,
+            level INTEGER NOT NULL,
+            reward_type TEXT NOT NULL,
+            reward_key TEXT NOT NULL DEFAULT '',
+            amount BIGINT NOT NULL DEFAULT 0,
+            description TEXT NOT NULL,
+            PRIMARY KEY (season_id, level)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_level_claims (
+            season_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            level INTEGER NOT NULL,
+            claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (season_id, user_id, level)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS achievement_progress (
+            user_id BIGINT NOT NULL,
+            achievement_key TEXT NOT NULL,
+            progress INTEGER NOT NULL DEFAULT 0,
+            completed_at TIMESTAMP,
+            claimed_at TIMESTAMP,
+            PRIMARY KEY (user_id, achievement_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_titles (
+            user_id BIGINT NOT NULL,
+            title_key TEXT NOT NULL,
+            title_name TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'achievement',
+            acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN NOT NULL DEFAULT FALSE,
+            PRIMARY KEY (user_id, title_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_collection_items (
+            user_id BIGINT NOT NULL,
+            item_key TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'season',
+            acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, item_key)
+        )
+    """)
 
     # Инициализация проклятого яйца
     cur.execute("SELECT COUNT(*) FROM cursed_egg")
