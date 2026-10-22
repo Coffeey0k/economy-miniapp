@@ -1400,6 +1400,10 @@
       const data = await apiGet("/api/world-events/current");
       if (!data.active || !data.event) { card.style.display = "none"; return; }
       const e = data.event;
+      if (window._lastWorldEventId && Number(window._lastWorldEventId) !== Number(e.id)) {
+        toast("🌍 Началось глобальное событие: " + (e.title || "Событие"));
+      }
+      window._lastWorldEventId = Number(e.id);
       card.style.display = "block";
       document.getElementById("world-event-title").textContent = e.title || "🌍 Глобальное событие";
       document.getElementById("world-event-description").textContent = e.description || "";
@@ -1416,6 +1420,10 @@
       card.style.display = "none";
       console.warn("World event status unavailable", e);
     }
+  }
+  if (!window._worldEventPollingStarted) {
+    window._worldEventPollingStarted = true;
+    setInterval(() => { loadWorldEvent(); }, 30000);
   }
   async function claimWorldEvent() {
     try {
