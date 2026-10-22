@@ -626,8 +626,17 @@ def get_collection(user_id):
         elif isinstance(pet, (tuple, list)):
             pets.append({"name": str(pet[1] if len(pet) > 1 else "Питомец"),
                          "rarity": str(pet[3] if len(pet) > 3 else "обычный")})
-    return {"items": items, "titles": titles, "pets": pets,
-            "summary": {"items": len(items), "titles": len(titles), "pets": len(pets)}}
+    owned_names = {p["name"] for p in pets}
+    bestiary_by_name = {}
+    for egg in getattr(bot_db, "PET_EGGS", {}).values():
+        for pet in egg.get("pets", []):
+            name, rarity = str(pet[0]), str(pet[1])
+            bestiary_by_name[name] = {"name": name, "rarity": rarity, "discovered": name in owned_names}
+    bestiary = sorted(bestiary_by_name.values(), key=lambda p: (not p["discovered"], p["rarity"], p["name"]))
+    return {"items": items, "titles": titles, "pets": pets, "bestiary": bestiary,
+            "summary": {"items": len(items), "titles": len(titles), "pets": len(pets),
+                        "species_discovered": sum(1 for p in bestiary if p["discovered"]),
+                        "species_total": len(bestiary)}}
 
 
 def claim_season_level(user_id, level):
@@ -663,6 +672,10 @@ def claim_season_level(user_id, level):
                 (user_id, title_key, description.replace("Титул ", "").strip("«»")))
         else:
             item_key = f"{season['season_key']}_{reward_key}"
+            if reward_type == "cosmetic":
+                cur.execute("""INSERT INTO user_cosmetics_owned (user_id, item_type, item_key)
+                    VALUES (?, 'frame', ?) ON CONFLICT(user_id, item_type, item_key) DO NOTHING""",
+                    (user_id, reward_key))
             cur.execute("""INSERT INTO user_collection_items (user_id, item_key, item_type, item_name, source)
                 VALUES (?, ?, ?, ?, 'season') ON CONFLICT(user_id, item_key) DO NOTHING""",
                 (user_id, item_key, reward_type, description))
