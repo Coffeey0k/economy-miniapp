@@ -151,6 +151,19 @@ DAILY_TASK_NAMES = {
     "voice_star": "🎙️ Голос чата",
     "link_sharer": "🔗 Делится полезным",
     "weekend_vibes": "🎉 Выходной вайб",
+    "conversation_king": "🗣️ Душа чата",
+    "reply_master": "💌 Мастер ответов",
+    "photo_album": "📸 Фотоальбом",
+    "night_shift": "🌃 Ночная смена",
+    "sunrise": "🌄 Встречая рассвет",
+    "long_story": "📚 Большой рассказ",
+    "emoji_festival": "🎊 Фестиваль эмодзи",
+    "question_master": "🧠 Почемучка",
+    "gamer_marathon": "🎮 Игровой марафон",
+    "voice_lover": "🎙️ Голосовой марафон",
+    "link_guide": "🧭 Навигатор",
+    "weekend_grinder": "🔥 Выходной марафон",
+    "social_hours_pro": "🦋 Всегда на связи",
 }
 
 DAILY_TASK_DESCS = {
@@ -169,6 +182,19 @@ DAILY_TASK_DESCS = {
     "voice_star": "Отправь 3 голосовых сообщения",
     "link_sharer": "Отправь 3 сообщения со ссылками",
     "weekend_vibes": "Напиши 25 сообщений в выходной день",
+    "conversation_king": "Отправь 100 сообщений в чат",
+    "reply_master": "Ответь на 15 сообщений участников",
+    "photo_album": "Отправь 3 фотографии в чат",
+    "night_shift": "Напиши 5 сообщений после 20:00",
+    "sunrise": "Напиши 3 сообщения до 09:00",
+    "long_story": "Отправь 15 длинных сообщений",
+    "emoji_festival": "Отправь 25 сообщений с эмодзи",
+    "question_master": "Отправь 20 сообщений с вопросом",
+    "gamer_marathon": "Сыграй 10 игр",
+    "voice_lover": "Отправь 5 голосовых сообщений",
+    "link_guide": "Отправь 5 сообщений со ссылками",
+    "weekend_grinder": "Отправь 40 сообщений в выходной",
+    "social_hours_pro": "Будь активен в чате в течение 5 разных часов",
 }
 
 app = FastAPI()
