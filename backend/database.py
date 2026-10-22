@@ -2414,8 +2414,9 @@ PROFESSIONS = {
     "ruler": {"name": "👑 Правитель Lavender Dream", "salary": 10000, "cooldown_hours": 12, "admin_only": True},
 }
 
-HIRE_COST = 1000
-FIRE_EXTRA_COST = 1000
+# Трудоустройство и смена профессии бесплатны.
+HIRE_COST = 0
+FIRE_EXTRA_COST = 0
 
 
 def get_profession(user_id: int) -> Optional[dict]:
@@ -2444,14 +2445,6 @@ def hire_profession(user_id: int, profession: str) -> Tuple[bool, str]:
     if profession not in PROFESSIONS:
         return False, "Неизвестная профессия"
     current = get_profession(user_id)
-    cost = HIRE_COST
-    if current and current["profession"]:
-        cost += FIRE_EXTRA_COST * (current["total_changes"] + 1)
-    if get_balance(user_id) < cost:
-        return False, f"Недостаточно монет. Нужно: {cost} 🪙"
-    if not update_balance(user_id, -cost):
-        return False, "Ошибка списания"
-
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
 
