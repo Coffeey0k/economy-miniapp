@@ -667,6 +667,10 @@ async def _process_game(callback: CallbackQuery, user_id: int, net_change: int, 
     try:
         db.assign_daily_tasks(user_id)
         db.update_task_progress(user_id, "games", 1)
+        try:
+            world_events.record_season_activity(user_id, "game", 1)
+        except Exception:
+            logger.exception("Не удалось обновить сезонный прогресс игры")
     except Exception:
         logger.exception("Не удалось обновить задание за сыгранную игру")
     await callback.message.edit_text(
@@ -1687,6 +1691,10 @@ async def game_word_trigger(message: Message):
     try:
         db.assign_daily_tasks(user_id)
         db.update_task_progress(user_id, "games", 1)
+        try:
+            world_events.record_season_activity(user_id, "game", 1)
+        except Exception:
+            logger.exception("Не удалось обновить сезонный прогресс игры")
         db.log_action(user_id, "game", f"Игра {game_type}; ставка={bet}; изменение баланса={net_change}", amount=net_change)
     except Exception:
         logger.exception("Не удалось обновить статистику или задание игры")
