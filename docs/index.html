@@ -909,6 +909,7 @@
       <p class="label" id="world-event-description"></p>
       <div class="stat-row"><span>Осталось</span><span id="world-event-timer">—</span></div>
       <div class="stat-row"><span>Награда</span><span id="world-event-reward">—</span></div>
+      <div class="stat-row"><span>Прогресс</span><span id="world-event-progress">—</span></div>
       <button class="btn" id="world-event-claim" onclick="claimWorldEvent()">🎁 Забрать награду</button>
       <p class="label" id="world-event-message"></p>
     </div>
@@ -1154,6 +1155,7 @@
         <h4>📅 Запланировать событие (время UTC)</h4>
         <input id="admin-event-scheduled-at" type="datetime-local" style="width:100%;margin:6px 0;">
         <button class="btn btn-small" onclick="adminScheduleWorldEvent()">Запланировать</button>
+        <div id="admin-event-schedules"></div>
         <p class="label" id="admin-event-result"></p>
       </div>
       <div id="admin-result"></div>
@@ -1402,8 +1404,11 @@
       document.getElementById("world-event-timer").textContent = formatEventRemaining(e.remaining_seconds);
       document.getElementById("world-event-reward").textContent = `${Number(e.reward_ldc || 0).toLocaleString()} LDC + ${Number(e.reward_xp || 0)} XP`;
       const btn = document.getElementById("world-event-claim");
-      btn.disabled = !!data.claimed;
-      btn.textContent = data.claimed ? "✅ Награда получена" : "🎁 Забрать награду";
+      const progress = document.getElementById("world-event-progress");
+      const globalProgress = e.event_type === "community_goal" ? ` · общее ${Number(e.progress || 0)}/${Number(e.goal || 1)}` : "";
+      if (progress) progress.textContent = `Твой вклад: ${Number(data.user_progress || 0)}/${Number(data.user_goal || 1)}${globalProgress}`;
+      btn.disabled = !!data.claimed || !data.can_claim;
+      btn.textContent = data.claimed ? "✅ Награда получена" : data.can_claim ? "🎁 Забрать награду" : "Выполни действия события";
       window._worldEventRemaining = Number(e.remaining_seconds || 0);
     } catch (e) {
       card.style.display = "none";
@@ -1516,6 +1521,11 @@
       document.getElementById("admin-event-random").checked = !!(data.settings && data.settings.random_enabled);
       if (data.settings && data.settings.default_duration_minutes)
         document.getElementById("admin-event-duration").value = data.settings.default_duration_minutes;
+      const schedules = document.getElementById("admin-event-schedules");
+      if (schedules) schedules.innerHTML = (data.schedules || []).filter(s => s.status === "pending").map(s =>
+        `<div class="stat-row"><span>${escapeHtml(s.title || s.event_type)}<br><span class="label">${escapeHtml(String(s.scheduled_at))} UTC</span></span>
+        <button class="btn btn-small" onclick="adminCancelWorldEventSchedule(${Number(s.id)})">Отменить</button></div>`
+      ).join("") || '<p class="label">Нет запланированных событий.</p>';
     } catch (_) { /* hidden for non-admins */ }
   }
   async function adminStartWorldEvent() {
@@ -1545,6 +1555,13 @@
         default_duration_minutes: Number(document.getElementById("admin-event-duration").value || 60)
       });
       document.getElementById("admin-event-result").textContent = "Настройки сохранены.";
+      await loadAdminWorldEvents();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+  async function adminCancelWorldEventSchedule(scheduleId) {
+    try {
+      await apiPost("/api/admin/world-events/schedule/cancel", {schedule_id: scheduleId});
+      document.getElementById("admin-event-result").textContent = "Запланированное событие отменено.";
       await loadAdminWorldEvents();
     } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
   }
