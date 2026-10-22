@@ -27,6 +27,30 @@ DEFAULT_TASKS = [
     ("craft_2", "Мастерская", "Создай 2 предмета.", "craft", 2, 200, 400),
 ]
 
+ACHIEVEMENTS = [
+    {"key":"first_game","title":"Первый запуск","description":"Сыграй в первую мини-игру.","activity":"game","target":1,"reward_ldc":100,"title_key":"newcomer","title_name":"Новичок"},
+    {"key":"gamer_25","title":"Игрок Lavender Dream","description":"Сыграй 25 мини-игр.","activity":"game","target":25,"reward_ldc":500,"title_key":"dream_gamer","title_name":"Игрок мечты"},
+    {"key":"worker_10","title":"Трудяга","description":"Выполни 10 рабочих смен.","activity":"work","target":10,"reward_ldc":500,"title_key":"hard_worker","title_name":"Трудяга"},
+    {"key":"pet_friend","title":"Друг питомцев","description":"Выполни 10 действий по уходу или экспедициям.","activity":"pet","target":10,"reward_ldc":300,"title_key":"pet_friend","title_name":"Друг питомцев"},
+    {"key":"daily_10","title":"Постоянство","description":"Заверши 10 ежедневных заданий.","activity":"daily_task","target":10,"reward_ldc":500,"title_key":"steady_player","title_name":"Постоянный игрок"},
+    {"key":"event_3","title":"Охотник за событиями","description":"Участвуй в 3 глобальных событиях.","activity":"event","target":3,"reward_ldc":400,"title_key":"event_hunter","title_name":"Охотник за событиями"},
+    {"key":"collector_5","title":"Коллекционер","description":"Получи 5 предметов коллекции или косметики.","activity":"collect","target":5,"reward_ldc":400,"title_key":"collector","title_name":"Коллекционер"},
+    {"key":"explorer_5","title":"Исследователь","description":"Посети 5 островов или поместий.","activity":"visit","target":5,"reward_ldc":300,"title_key":"explorer","title_name":"Исследователь"},
+    {"key":"craft_5","title":"Мастерская","description":"Выполни 5 островных производственных действий.","activity":"craft","target":5,"reward_ldc":350,"title_key":"craft_master","title_name":"Мастер"},
+]
+LEVEL_REWARDS = [
+    (1,"ldc","",500,"500 LDC"),
+    (2,"collection","lavender_shard",1,"Осколок лаванды"),
+    (3,"title","season_scout",0,"Титул «Исследователь сезона»"),
+    (5,"cosmetic","season_lavender_frame",1,"Сезонная рамка «Лаванда»"),
+    (7,"ldc","",1000,"1 000 LDC"),
+    (10,"collection","first_bloom",1,"Цветок первого сезона"),
+    (15,"title","lavender_guardian",0,"Титул «Хранитель лаванды»"),
+    (20,"ldc","",2500,"2 500 LDC"),
+    (25,"cosmetic","seasonal_glow",1,"Эффект «Лавандовое сияние»"),
+    (30,"collection","lavender_crown",1,"Корона сезона"),
+]
+
 def _db():
     return sqlite3.connect(os.environ.get("DB_PATH", bot_db.DB_NAME))
 
@@ -314,6 +338,11 @@ def ensure_current_season():
                 (season_id, task_key, title, description, task_type, target, reward_xp, reward_ldc)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(season_id, task_key) DO NOTHING""",
                 (season["id"],) + task)
+    for level, reward_type, reward_key, amount, description in LEVEL_REWARDS:
+        cur.execute("""INSERT INTO season_level_rewards
+            (season_id, level, reward_type, reward_key, amount, description)
+            VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(season_id, level) DO NOTHING""",
+            (season["id"], level, reward_type, reward_key, amount, description))
     conn.commit()
     result = dict(season) if season else None
     conn.close()
@@ -329,7 +358,7 @@ def add_season_xp(user_id, amount):
         VALUES (?, ?, ?, 0, '[]') ON CONFLICT(season_id, user_id) DO UPDATE SET
         xp = season_progress.xp + excluded.xp, updated_at = CURRENT_TIMESTAMP""",
         (season["id"], user_id, int(amount)))
-    cur.execute("UPDATE season_progress SET level = xp / 1000 WHERE season_id = ? AND user_id = ?",
+    cur.execute("UPDATE season_progress SET level = xp / 500 WHERE season_id = ? AND user_id = ?",
                 (season["id"], user_id))
     conn.commit()
     conn.close()
@@ -356,6 +385,7 @@ def record_season_activity(user_id, task_type, amount=1):
              season["id"], user_id, task["task_key"]))
     conn.commit()
     conn.close()
+    record_achievement_progress(user_id, task_type, max(1, int(amount)))
     # Every successful activity also contributes to a live global community goal.
     contribute_to_event(user_id, min(10, max(1, int(amount))))
 
@@ -376,11 +406,17 @@ def get_season_status(user_id):
         JOIN users u ON u.user_id = p.user_id WHERE p.season_id = ?
         ORDER BY p.xp DESC, p.updated_at ASC LIMIT 20""", (season["id"],))
     leaderboard = [dict(row) for row in cur.fetchall()]
+    cur.execute("""SELECT r.level, r.reward_type, r.reward_key, r.amount, r.description,
+        CASE WHEN c.level IS NULL THEN FALSE ELSE TRUE END AS claimed
+        FROM season_level_rewards r LEFT JOIN season_level_claims c
+        ON c.season_id = r.season_id AND c.user_id = ? AND c.level = r.level
+        WHERE r.season_id = ? ORDER BY r.level""", (user_id, season["id"]))
+    level_rewards = [dict(row) for row in cur.fetchall()]
     conn.close()
     p = dict(progress) if progress else {"xp": 0, "level": 0}
     p["level"] = int(p.get("level") or 0)
     p["xp"] = int(p.get("xp") or 0)
-    return {"season": season, "progress": p, "tasks": tasks, "leaderboard": leaderboard}
+    return {"season": season, "progress": p, "tasks": tasks, "leaderboard": leaderboard, "level_rewards": level_rewards}
 
 def claim_season_task(user_id, task_key):
     season = ensure_current_season()
@@ -409,7 +445,7 @@ def claim_season_task(user_id, task_key):
             VALUES (?, ?, ?, 0, '[]') ON CONFLICT(season_id, user_id) DO UPDATE SET
             xp = season_progress.xp + excluded.xp, updated_at = CURRENT_TIMESTAMP""",
             (season["id"], user_id, int(row["reward_xp"])))
-        cur.execute("UPDATE season_progress SET level = xp / 1000 WHERE season_id = ? AND user_id = ?",
+        cur.execute("UPDATE season_progress SET level = xp / 500 WHERE season_id = ? AND user_id = ?",
                     (season["id"], user_id))
         conn.commit()
         return {"ok": True, "reward_ldc": int(row["reward_ldc"]), "reward_xp": int(row["reward_xp"])}
