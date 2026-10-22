@@ -5361,6 +5361,32 @@ def collection_current(init_data: str = Query(..., alias="initData")):
     return world_events.get_collection(user_id)
 
 
+@app.get("/api/pets/expeditions/current")
+def pet_expeditions_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.list_pet_expeditions(user_id)
+
+
+@app.post("/api/pets/expeditions/start")
+def pet_expedition_start(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        return world_events.start_pet_expedition(
+            user_id, payload.get("pet_id"), payload.get("destination")
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/pets/expeditions/claim")
+def pet_expedition_claim(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        return world_events.claim_pet_expedition(user_id, payload.get("expedition_id"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 # ========== API: ТЕХ.АДМИН ==========
 
 def _require_tech_admin(user_id: int):
