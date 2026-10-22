@@ -222,7 +222,7 @@ async def audit_rejected_api_requests(request: Request, call_next):
         # Returning a response instead of re-raising keeps the response inside
         # the outer CORS middleware, so browsers receive the actual 500 status.
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
-    if response.status_code < 400 and request.method.upper() == "POST":
+    if response.status_code < 400 and request.method.upper() in {"POST", "GET"}:
         path = request.url.path
         activity = None
         if path == "/api/professions/work":
