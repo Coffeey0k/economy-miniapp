@@ -227,14 +227,6 @@ async def audit_rejected_api_requests(request: Request, call_next):
         activity = None
         if path == "/api/professions/work":
             activity = ("work", 1)
-        elif path.startswith("/api/games/") or path.startswith("/api/minesweeper/") or path.startswith("/api/tictactoe/"):
-            activity = ("game", 1)
-        elif path.startswith("/api/pets/"):
-            activity = ("pet", 1)
-        elif path in {"/api/tasks/claim", "/api/tasks/complete"}:
-            activity = ("daily_task", 1)
-        elif path.startswith("/api/cosmetics/"):
-            activity = ("collect", 1)
         elif path.startswith("/api/island/visit"):
             activity = ("visit", 1)
         if activity:
@@ -246,7 +238,6 @@ async def audit_rejected_api_requests(request: Request, call_next):
                     uid = get_telegram_user_id(body.get("initData", "")) if isinstance(body, dict) else None
                 if uid:
                     world_events.record_season_activity(uid, activity[0], activity[1])
-                    world_events.contribute_to_event(uid, activity[1])
             except Exception:
                 logger.exception("Не удалось обновить сезонный прогресс для %s", path)
     if response.status_code >= 400:
