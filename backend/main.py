@@ -5195,7 +5195,10 @@ def world_event_claim(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     try:
         result = world_events.claim_event(user_id)
-        world_events.record_season_activity(user_id, "event", 1)
+        try:
+            world_events.record_season_activity(user_id, "event", 1)
+        except Exception:
+            logger.exception("Награда события выдана, но прогресс события/сезона не обновлён user_id=%s", user_id)
         return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
