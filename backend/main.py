@@ -4688,6 +4688,7 @@ def rcc_game_start(payload: dict = Body(default={})):
     cur.execute("UPDATE rcc_balance SET last_game = %s WHERE user_id = %s", (now.isoformat(), user_id))
     conn.commit()
     conn.close()
+    _record_web_game_start(user_id)
     return {
         "ok": True, "started_at": now.isoformat(),
         "duration_seconds": progress["game_duration"],
