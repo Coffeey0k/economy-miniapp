@@ -4135,7 +4135,8 @@ def track_message_tasks(user_id: int, is_reply: bool = False,
     if is_photo:
         track("photographer")
     if is_audio:
-        if is_night:
+        track("audio")
+    if is_night:
         track("night_owl")
 
     return completed
