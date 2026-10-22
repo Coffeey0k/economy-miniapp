@@ -2232,7 +2232,7 @@ def use_pet_food(user_id: int, pet_id: int) -> tuple:
         conn.close()
         return False, "Корм уже использован."
     cur.execute("INSERT INTO pet_care (pet_id) VALUES (?) ON CONFLICT(pet_id) DO NOTHING", (pet_id,))
-    cur.execute("UPDATE pet_care SET energy = MIN(100, energy + 35), health = MIN(100, health + 5), experience = experience + 5, last_care = ? WHERE pet_id = ?", (datetime.now().isoformat(), pet_id))
+    cur.execute("UPDATE pet_care SET energy = LEAST(100, energy + 35), health = LEAST(100, health + 5), experience = experience + 5, last_care = ? WHERE pet_id = ?", (datetime.now().isoformat(), pet_id))
     conn.commit()
     conn.close()
     return True, f"Питомец накормлен подходящим кормом (+35 энергии): {food_key}."
