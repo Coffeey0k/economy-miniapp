@@ -750,7 +750,7 @@ def buy_pet_food_endpoint(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Недостаточно LDC")
     cur.execute(
         "INSERT INTO inventory_items (user_id, item_key, quantity) VALUES (?, ?, ?) "
-        "ON CONFLICT(user_id, item_key) DO UPDATE SET quantity = quantity + excluded.quantity",
+        "ON CONFLICT(user_id, item_key) DO UPDATE SET quantity = inventory_items.quantity + EXCLUDED.quantity",
         (user_id, item_key, quantity),
     )
     conn.commit()
