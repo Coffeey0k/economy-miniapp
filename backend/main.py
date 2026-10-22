@@ -5285,6 +5285,51 @@ def admin_world_event_schedule(payload: dict = Body(...)):
     return {"ok": True, "schedule_id": schedule_id}
 
 
+@app.post("/api/seasons/claim-level")
+def season_claim_level(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        return world_events.claim_season_level(user_id, int(payload.get("level")))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/achievements/current")
+def achievements_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.get_achievements(user_id)
+
+
+@app.post("/api/achievements/claim")
+def achievement_claim(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    key = str(payload.get("achievement_key") or "").strip()
+    if not key or len(key) > 80:
+        raise HTTPException(status_code=400, detail="Некорректное достижение")
+    try:
+        return world_events.claim_achievement(user_id, key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/achievements/title")
+def achievement_set_title(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    title_key = str(payload.get("title_key") or "").strip()
+    if not title_key or len(title_key) > 100:
+        raise HTTPException(status_code=400, detail="Некорректный титул")
+    try:
+        return world_events.set_active_title(user_id, title_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/current")
+def collection_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.get_collection(user_id)
+
+
 # ========== API: ТЕХ.АДМИН ==========
 
 def _require_tech_admin(user_id: int):
