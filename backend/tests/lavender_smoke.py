@@ -11,11 +11,36 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import database
+import db_compat
 import world_events
 
 
 def main():
+    # Simulate legacy INTEGER columns from an older production schema.
+    conn = db_compat.connect(database.DB_NAME)
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE web_rules_read (user_id INTEGER PRIMARY KEY, read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    cur.execute("""CREATE TABLE professions (
+        user_id INTEGER PRIMARY KEY, profession TEXT, level INTEGER DEFAULT 1,
+        last_work TIMESTAMP, days_worked INTEGER DEFAULT 0, last_work_day TEXT,
+        total_changes INTEGER DEFAULT 0)""")
+    cur.execute("""CREATE TABLE profession_progress (
+        user_id INTEGER, profession TEXT, level INTEGER DEFAULT 1,
+        days_worked INTEGER DEFAULT 0, last_work TIMESTAMP,
+        PRIMARY KEY (user_id, profession))""")
+    conn.commit()
+    conn.close()
+
+    db_compat.init_db()
     database.init_db()
+    conn = db_compat.connect(database.DB_NAME)
+    cur = conn.cursor()
+    for table in ("web_rules_read", "professions", "profession_progress"):
+        cur.execute("""SELECT data_type FROM information_schema.columns
+            WHERE table_name = ? AND column_name = 'user_id'""", (table,))
+        row = cur.fetchone()
+        assert row and row["data_type"] == "bigint", f"{table}.user_id was not migrated to BIGINT"
+    conn.close()
     conn = database.sqlite3.connect(database.DB_NAME)
     cur = conn.cursor()
     user_id = 9_000_000_001  # Exercise BIGINT Telegram IDs.
