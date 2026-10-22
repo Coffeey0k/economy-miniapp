@@ -12,7 +12,6 @@ from tictactoe import router as ttt_router
 from minesweeper import router as ms_router
 from friends import router as friends_router
 from cosmetics import router as cos_router
-from clans import router as clans_router
 from tech_admin import router as tech_admin_router
 
 from aiogram import Bot, Dispatcher, F
@@ -82,7 +81,6 @@ dp.include_router(ttt_router)
 dp.include_router(ms_router)
 dp.include_router(friends_router)
 dp.include_router(cos_router)
-dp.include_router(clans_router)
 dp.include_router(tech_admin_router)
 
 class TransferStates(StatesGroup):
@@ -109,10 +107,6 @@ class PromoStates(StatesGroup):
 
 
 class GiftPetStates(StatesGroup):
-    waiting_recipient = State()
-
-
-class PetTradeStates(StatesGroup):
     waiting_recipient = State()
 
 
@@ -1103,103 +1097,6 @@ async def pet_sell_handler(callback: CallbackQuery):
     await callback.answer("Продано!")
 
 
-@dp.callback_query(F.data.startswith("pet_trade_"))
-async def pet_trade_disabled_callback(callback: CallbackQuery):
-    """Disable pet trades safely while retaining old trade records."""
-    await callback.answer("🔁 Обмены временно отключены. Данные и история сохранены.", show_alert=True)
-
-
-@dp.callback_query(F.data.startswith("pet_trade_start_"))
-async def pet_trade_start(callback: CallbackQuery, state: FSMContext):
-    try:
-        pet_id = int(callback.data.rsplit("_", 1)[1])
-    except ValueError:
-        await callback.answer("Некорректный питомец.", show_alert=True)
-        return
-    pet = db.get_pet_by_id(pet_id, callback.from_user.id)
-    if not pet:
-        await callback.answer("Этот питомец тебе не принадлежит.", show_alert=True)
-        return
-    await state.update_data(pet_id=pet_id)
-    await state.set_state(PetTradeStates.waiting_recipient)
-    await callback.message.answer("🔁 Напиши username игрока, с которым хочешь обменяться питомцами (без @).", reply_markup=cancel_button())
-    await callback.answer()
-
-
-@dp.message(PetTradeStates.waiting_recipient)
-async def pet_trade_disabled_message(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("🔁 Обмены временно отключены. Данные и история сохранены.")
-
-
-@dp.message(PetTradeStates.waiting_recipient)
-async def pet_trade_send(message: Message, state: FSMContext):
-    target_name = message.text.strip().lstrip("@")
-    conn = sqlite3.connect(db.DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id, username FROM users WHERE LOWER(REPLACE(TRIM(username), '@', '')) = LOWER(?) LIMIT 1", (target_name,))
-    target = cur.fetchone()
-    conn.close()
-    if not target:
-        await message.answer("❌ Игрок не найден. Проверь username.")
-        return
-    target_id, target_username = int(target[0]), target[1]
-    pet_id = (await state.get_data()).get("pet_id")
-    ok, result = db.create_pet_trade(message.from_user.id, target_id, pet_id)
-    if not ok:
-        await message.answer(f"❌ {result}")
-        await state.clear()
-        return
-    trade_id = result["trade_id"]
-    target_pet = db.get_pet_by_id(result["to_pet"], target_id)
-    own_pet = db.get_pet_by_id(pet_id, message.from_user.id)
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Принять обмен", callback_data=f"pet_trade_accept_{trade_id}"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"pet_trade_decline_{trade_id}"),
-    )
-    await message.answer(
-        f"🔁 Обмен питомцами: @{target_username or target_id}\n"
-        f"Предложение от @{message.from_user.username or message.from_user.id}\n"
-        f"Отдаёт: {own_pet['name'] if own_pet else 'питомец'}\n"
-        f"Получает: {target_pet['name'] if target_pet else 'твой питомец'}\n"
-        f"При принятии оба питомца перейдут новым владельцам неактивными.",
-        reply_markup=builder.as_markup(),
-    )
-    await message.answer("📨 Предложение опубликовано. Игрок должен принять его кнопкой в этом чате.")
-    await state.clear()
-
-
-@dp.callback_query(F.data.startswith("pet_trade_accept_"))
-async def pet_trade_accept_handler(callback: CallbackQuery):
-    try:
-        trade_id = int(callback.data.rsplit("_", 1)[1])
-    except ValueError:
-        await callback.answer("Некорректный обмен.", show_alert=True)
-        return
-    ok, message_text = db.resolve_pet_trade(trade_id, callback.from_user.id, True)
-    if not ok:
-        await callback.answer(message_text, show_alert=True)
-        return
-    await callback.message.edit_text(f"✅ {message_text}")
-    await callback.answer("Обмен завершён!")
-
-
-@dp.callback_query(F.data.startswith("pet_trade_decline_"))
-async def pet_trade_decline_handler(callback: CallbackQuery):
-    try:
-        trade_id = int(callback.data.rsplit("_", 1)[1])
-    except ValueError:
-        await callback.answer("Некорректный обмен.", show_alert=True)
-        return
-    ok, message_text = db.resolve_pet_trade(trade_id, callback.from_user.id, False)
-    if not ok:
-        await callback.answer(message_text, show_alert=True)
-        return
-    await callback.message.edit_text(f"❌ {message_text}")
-    await callback.answer()
-
-
 @dp.callback_query(F.data.startswith("pet_gift_"))
 async def pet_gift_start(callback: CallbackQuery, state: FSMContext):
     pet_id = int(callback.data.split("_")[2])
@@ -1344,14 +1241,6 @@ async def balance_top_word_trigger(message: Message):
         medal = medals[i - 1] if i <= 3 else f"{i}."
         text += f"{medal} {db.get_display_name(uid)} — {balance:,} 🪙\n"
     await message.answer(text)
-
-
-@dp.message(F.text.lower().strip().in_({"трейд", "трейды", "обмен предметами"}))
-async def web_trade_word_trigger(message: Message):
-    await message.answer(
-        "🔁 Трейды временно отключены. История и данные обменов сохранены; "
-        "сейчас проверяются зависимости перед окончательным удалением."
-    )
 
 
 @dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "курс"))
@@ -1572,7 +1461,7 @@ async def work_now(callback: CallbackQuery):
         await callback.answer(msg, show_alert=True)
         return
 
-    # Логируем фактически начисленную сумму, включая бонусы друзей/клана.
+    # Логируем фактически начисленную сумму, включая бонусы друзей.
     try:
         earned = db.get_balance(user_id) - balance_before
         db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
