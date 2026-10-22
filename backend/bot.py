@@ -1808,7 +1808,7 @@ async def fire_profession(callback: CallbackQuery):
     conn.close()
     await callback.answer("✅ Вы уволены", show_alert=True)
     await callback.message.edit_text(
-        "Вы уволились. Следующее трудоустройство будет дороже на 1000 🪙.",
+        "Вы уволились. Можешь устроиться на любую доступную профессию бесплатно.",
         reply_markup=professions_menu()
     )
 
