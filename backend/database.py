@@ -2584,7 +2584,11 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
     completed_names = []
     ticket_rewards = 0
     for task_id, task_key, progress, target, reward, is_done in rows:
-        task_info = DAILY_TASKS.get(task_key, {})
+        task_info = DAILY_TASKS.get(task_key)
+        if not task_info:
+            logger.warning("Пропущено неизвестное ежедневное задание task_key=%s user_id=%s", task_key, user_id)
+            continue
+        # Match both the public event category and the legacy task identifier.
         if task_info.get("type") != task_type and task_key != task_type:
             continue
         if is_done:
