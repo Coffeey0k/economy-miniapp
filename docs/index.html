@@ -1203,8 +1203,24 @@
       <div class="stat-row"><span>Сезонный опыт</span><span id="season-xp">0 XP</span></div>
       <div class="stat-row"><span>До конца</span><span id="season-time-left">—</span></div>
       <div id="season-tasks"></div>
+      <h3>🎁 Награды уровней</h3>
+      <div id="season-level-rewards"></div>
       <h3>🏆 Топ сезона</h3>
       <div id="season-leaderboard"></div>
+    </div>
+    <div class="card" id="achievements-card">
+      <h2>🏆 Достижения и титулы</h2>
+      <div id="achievements-list"><p class="label">Загрузка достижений…</p></div>
+      <h3>🏷️ Мои титулы</h3>
+      <div id="achievement-titles"></div>
+    </div>
+    <div class="card" id="collection-card">
+      <h2>📚 Коллекция и бестиарий</h2>
+      <div id="collection-summary"></div>
+      <h3>🐾 Питомцы</h3>
+      <div id="collection-pets"></div>
+      <h3>🎒 Коллекционные предметы</h3>
+      <div id="collection-items"></div>
     </div>
     <div class="card">
       <h2>📂 Дополнительно</h2>
@@ -1356,7 +1372,7 @@
     if (name === "pets") loadPets();
     if (name === "work") loadWork();
     if (name === "wheel") loadWheel();
-    if (name === "more") { loadMore(); loadSeason(); }
+    if (name === "more") { loadMore(); loadSeason(); loadAchievements(); loadCollection(); }
     if (name === "games") loadGames();
     if (name === "cosmetics") loadCosmetics();
     if (name === "settings") loadSettings();
@@ -1413,6 +1429,12 @@
       const ends = s.ends_at ? new Date(s.ends_at).getTime() : 0;
       document.getElementById("season-time-left").textContent = ends > Date.now()
         ? formatEventRemaining(Math.floor((ends - Date.now()) / 1000)) : "Завершён";
+      const rewardsEl = document.getElementById("season-level-rewards");
+      if (rewardsEl) rewardsEl.innerHTML = (data.level_rewards || []).map(r => {
+        const unlocked = Number(p.level || 0) >= Number(r.level || 0);
+        return `<div class="item-row"><span><b>Уровень ${Number(r.level)}</b><br><span class="label">${escapeHtml(r.description)}</span></span>
+          <button class="btn btn-small" ${!unlocked || r.claimed ? "disabled" : ""} onclick="claimSeasonLevel(${Number(r.level)})">${r.claimed ? "Получено" : unlocked ? "Забрать" : "Закрыто"}</button></div>`;
+      }).join("") || '<p class="label">Награды сезона скоро появятся.</p>';
       tasksEl.innerHTML = (data.tasks || []).map(t => `
         <div class="item-row">
           <span>${escapeHtml(t.title)}<br><span class="label">${escapeHtml(t.description)} · ${Number(t.progress || 0)}/${Number(t.target || 0)}</span></span>
@@ -1423,6 +1445,13 @@
       ).join("") || '<p class="label">Рейтинг пока пуст.</p>';
     } catch (e) { tasksEl.innerHTML = '<p class="label">Не удалось загрузить сезон.</p>'; }
   }
+  async function claimSeasonLevel(level) {
+    try {
+      const result = await apiPost("/api/seasons/claim-level", {level});
+      showMsg("season-level-rewards", `Получена награда: ${escapeHtml(result.reward || ((result.amount || 0) + " LDC"))}`, true);
+      await loadSeason(); await loadCollection(); await loadAchievements();
+    } catch (e) { showMsg("season-level-rewards", e.message, false); }
+  }
   async function claimSeasonTask(taskKey) {
     try {
       const result = await apiPost("/api/seasons/claim-task", {task_key: taskKey});
@@ -1430,6 +1459,53 @@
       await loadSeason();
     } catch (e) { showMsg("season-tasks", e.message, false); }
   }
+  async function loadAchievements() {
+    const el = document.getElementById("achievements-list");
+    if (!el) return;
+    try {
+      const data = await apiGet("/api/achievements/current");
+      el.innerHTML = (data.achievements || []).map(a => `
+        <div class="item-row">
+          <span><b>${escapeHtml(a.title)}</b><br><span class="label">${escapeHtml(a.description)} · ${Number(a.progress || 0)}/${Number(a.target || 0)}</span></span>
+          <button class="btn btn-small" ${!a.completed || a.claimed ? "disabled" : ""} onclick="claimAchievement('${a.key}')">${a.claimed ? "Получено" : a.completed ? "+" + Number(a.reward_ldc || 0).toLocaleString() + " LDC" : "В процессе"}</button>
+        </div>`).join("") || '<p class="label">Достижений пока нет.</p>';
+      document.getElementById("achievement-titles").innerHTML = (data.titles || []).map(t => `
+        <div class="stat-row"><span>${t.is_active ? "⭐ " : ""}${escapeHtml(t.title_name)}</span>
+        ${t.is_active ? '<span class="label">Активен</span>' : `<button class="btn btn-small" onclick="equipTitle('${t.title_key}')">Выбрать</button>`}</div>`).join("") || '<p class="label">Титулы открываются за достижения и сезоны.</p>';
+    } catch (e) { el.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+  async function claimAchievement(key) {
+    try {
+      const result = await apiPost("/api/achievements/claim", {achievement_key: key});
+      toast(`Награда достижения: +${Number(result.reward_ldc || 0).toLocaleString()} LDC`);
+      await loadAchievements(); await loadCollection(); await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function equipTitle(key) {
+    try {
+      const result = await apiPost("/api/achievements/title", {title_key: key});
+      toast("Активный титул: " + result.title_name);
+      await loadAchievements(); await loadCollection();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function loadCollection() {
+    const summary = document.getElementById("collection-summary");
+    if (!summary) return;
+    try {
+      const data = await apiGet("/api/collection/current");
+      const s = data.summary || {};
+      summary.innerHTML = `<div class="stat-row"><span>Питомцы</span><b>${Number(s.pets || 0)}</b></div>
+        <div class="stat-row"><span>Предметы</span><b>${Number(s.items || 0)}</b></div>
+        <div class="stat-row"><span>Титулы</span><b>${Number(s.titles || 0)}</b></div>`;
+      document.getElementById("collection-pets").innerHTML = (data.pets || []).map(p =>
+        `<div class="stat-row"><span>${escapeHtml(p.name)}</span><span class="label">${escapeHtml(p.rarity)}</span></div>`
+      ).join("") || '<p class="label">Питомцы пока не собраны.</p>';
+      document.getElementById("collection-items").innerHTML = (data.items || []).map(i =>
+        `<div class="stat-row"><span>${escapeHtml(i.item_name)}</span><span class="label">${escapeHtml(i.item_type)}</span></div>`
+      ).join("") || '<p class="label">Сезонные предметы появятся в коллекции после получения наград.</p>';
+    } catch (e) { summary.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+
   async function loadAdminWorldEvents() {
     try {
       const data = await apiGet("/api/admin/world-events");
