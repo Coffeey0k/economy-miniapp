@@ -21,11 +21,11 @@ EVENT_TYPES = {
 }
 EVENT_ACTIVITY_RULES = {
     "treasure_hunt": {"game", "visit", "collect"},
-    "luck_hour": {"game", "work", "pet", "craft", "collect", "visit", "daily_task"},
+    "luck_hour": {"game", "work", "pet", "craft", "collect", "visit", "daily_task", "market"},
     "lavender_bloom": {"collect", "pet", "craft"},
-    "traveling_merchant": {"collect", "visit"},
+    "traveling_merchant": {"collect", "visit", "market"},
     "rift": {"game", "craft"},
-    "community_goal": {"game", "work", "pet", "craft", "collect", "visit", "daily_task"},
+    "community_goal": {"game", "work", "pet", "craft", "collect", "visit", "daily_task", "market"},
     "daily_mystery": {"daily_task", "visit"},
     "magical_storm": {"game", "work"},
 }
@@ -960,7 +960,7 @@ def buy_system_market_offer(user_id, offer_key):
                 (user_id, item_key, int(quantity)))
         conn.commit()
         try:
-            record_season_activity(user_id, "collect", 1)
+            record_season_activity(user_id, "market", 1)
         except Exception:
             pass
         return {"ok": True, "offer": offer["name"], "price": price, "discount_percent": discount}
