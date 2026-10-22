@@ -2556,6 +2556,11 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
         change_wheel_tickets(user_id, ticket_rewards)
     if completed:
         _record_season_activity(user_id, "daily_task", len(completed))
+        try:
+            from world_events import add_season_xp
+            add_season_xp(user_id, 50 * len(completed))
+        except Exception:
+            logger.exception("Не удалось начислить сезонный опыт за ежедневные задания")
     if not completed:
         return None
     return {"task_type": task_type, "names": completed_names,
