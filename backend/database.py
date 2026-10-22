@@ -2106,6 +2106,24 @@ def set_pet_active(pet_id: int, user_id: int, active: bool) -> bool:
     return True
 
 
+def transfer_pet(pet_id: int, from_user: int, to_user: int) -> bool:
+    """Transfer a pet as a gift, but never while it is away on an expedition."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""SELECT 1 FROM pet_expeditions
+        WHERE pet_id = ? AND user_id = ? AND status = 'active' LIMIT 1""",
+        (pet_id, from_user))
+    if cur.fetchone():
+        conn.close()
+        return False
+    cur.execute("UPDATE pets SET user_id = ?, is_active = 0 WHERE id = ? AND user_id = ?",
+                (to_user, pet_id, from_user))
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+
 def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
     """Return pet stats after applying time-based needs decay."""
     conn = sqlite3.connect(DB_NAME)
