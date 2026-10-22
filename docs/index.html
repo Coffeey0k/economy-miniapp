@@ -1499,7 +1499,7 @@
       const data = await apiGet("/api/system-market/current");
       offersEl.innerHTML = (data.offers || []).map(o =>
         `<div class="item-row"><span><b>${escapeHtml(o.name)}</b><br><span class="label">${(o.items || []).map(i => escapeHtml(i.name) + " ×" + Number(i.quantity)).join(", ")}</span></span>
-        <button class="btn btn-small" onclick="buySystemMarketOffer('${o.key}')">${Number(o.price).toLocaleString()} LDC</button></div>`
+        <button class="btn btn-small" onclick="buySystemMarketOffer('${o.key}')">${Number(o.price).toLocaleString()} LDC${o.discount_percent ? " (−" + Number(o.discount_percent) + "%)" : ""}</button></div>`
       ).join("") || '<p class="label">Предложений нет.</p>';
       document.getElementById("system-market-inventory").innerHTML = (data.inventory || []).map(i =>
         `<div class="item-row"><span>${escapeHtml(i.name)} ×${Number(i.quantity)}<br><span class="label">Цена: ${Number(i.sell_price).toLocaleString()} LDC за штуку</span></span>
