@@ -403,7 +403,7 @@ def init_db():
         )
     """)
 
-        cur.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS web_rules_read (
             user_id BIGINT PRIMARY KEY,
             read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
