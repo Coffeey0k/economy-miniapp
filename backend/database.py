@@ -1800,7 +1800,8 @@ def get_today_new_members(exclude_user_id: int = None) -> List[tuple]:
 def clear_old_new_members(days: int = 7):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("DELETE FROM new_members WHERE joined_at < datetime('now', ?)", (f"-{days} days",))
+    cutoff = (datetime.now() - timedelta(days=max(0, int(days)))).isoformat(sep=" ")
+    cur.execute("DELETE FROM new_members WHERE joined_at < ?", (cutoff,))
     conn.commit()
     conn.close()
 
@@ -2410,9 +2411,13 @@ def hire_profession(user_id: int, profession: str) -> Tuple[bool, str]:
     # Если уходим с профессии — сохраняем её прогресс
     if current and current["profession"]:
         cur.execute("""
-            INSERT OR REPLACE INTO profession_progress
+            INSERT INTO profession_progress
             (user_id, profession, level, days_worked, last_work)
             VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, profession) DO UPDATE SET
+                level = EXCLUDED.level,
+                days_worked = EXCLUDED.days_worked,
+                last_work = EXCLUDED.last_work
         """, (user_id, current["profession"], current["level"],
               current["days_worked"], current["last_work"]))
 
