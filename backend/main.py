@@ -5326,13 +5326,16 @@ def send_gift(payload: dict = Body(...)):
 @app.post("/api/gifts/open")
 def open_gift(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    gift_id = int(payload.get("gift_id"))
+    try:
+        gift_id = int(payload.get("gift_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный подарок")
 
     conn = db()
     cur = conn.cursor()
     cur.execute("""
         SELECT from_user, to_user, gift_type, gift_data, is_opened, expires_at
-        FROM gifts WHERE id = %s
+        FROM gifts WHERE id = %s FOR UPDATE
     """, (gift_id,))
     row = cur.fetchone()
 
@@ -5350,7 +5353,14 @@ def open_gift(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Подарок сгорел")
 
     gift_type = row["gift_type"]
-    gift_data = json.loads(row["gift_data"])
+    if gift_type not in {"money", "rcc", "pet", "cosmetic"}:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Неизвестный тип подарка")
+    try:
+        gift_data = json.loads(row["gift_data"])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        conn.close()
+        raise HTTPException(status_code=500, detail="Данные подарка повреждены; обратись к администрации")
 
     # Выдаём награду
     result_text = ""
@@ -5383,7 +5393,11 @@ def open_gift(payload: dict = Body(...)):
         """, (user_id, item_type, item_key))
         result_text = f"Косметика: {item_type} — {item_key}"
 
-    cur.execute("UPDATE gifts SET is_opened = 1 WHERE id = %s", (gift_id,))
+    cur.execute("UPDATE gifts SET is_opened = 1 WHERE id = %s AND is_opened = 0", (gift_id,))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=409, detail="Подарок уже открыт")
     conn.commit()
     conn.close()
 
