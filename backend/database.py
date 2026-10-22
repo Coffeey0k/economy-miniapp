@@ -407,6 +407,15 @@ def init_db():
         )
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_event_participants (
+            event_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            contribution INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (event_id, user_id)
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS world_event_schedules (
             id SERIAL PRIMARY KEY,
             event_type TEXT NOT NULL,
