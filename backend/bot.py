@@ -1208,6 +1208,86 @@ async def transfer_word_trigger(message: Message, state: FSMContext):
     await state.set_state(TransferStates.waiting_recipient)
 
 
+@dp.message(Command("market"))
+@dp.message(F.text.lower().strip().in_({"рынок ресурсов", "системный магазин", "магазин ресурсов"}))
+async def system_market_word_trigger(message: Message):
+    try:
+        data = world_events.get_system_market(message.from_user.id)
+        lines = ["🏪 Системный магазин Lavender Dream", "", "🛒 Припасы NPC:"]
+        builder = InlineKeyboardBuilder()
+        for offer in data.get("offers", []):
+            contents = ", ".join(f"{item['name']} ×{item['quantity']}" for item in offer["items"])
+            lines.append(f"• {offer['name']} — {int(offer['price']):,} LDC ({contents})")
+            builder.row(InlineKeyboardButton(
+                text=f"Купить: {offer['name'][:24]} · {int(offer['price']):,} LDC",
+                callback_data=f"market_buy_{offer['key']}",
+            ))
+        lines.extend(["", "📦 Твои ресурсы для продажи:"])
+        inventory = data.get("inventory", [])
+        for item in inventory:
+            lines.append(f"• {item['name']} ×{item['quantity']} — {int(item['sell_price']):,} LDC/шт.")
+            builder.row(InlineKeyboardButton(
+                text=f"Продать 1: {item['name'][:24]}",
+                callback_data=f"market_sell_{item['key']}",
+            ))
+            if int(item["quantity"]) >= 5:
+                builder.row(InlineKeyboardButton(
+                    text=f"Продать 5: {item['name'][:24]}",
+                    callback_data=f"market_sell5_{item['key']}",
+                ))
+        if not inventory:
+            lines.append("Пока нет ресурсов для продажи.")
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if data.get("offers") or inventory else None)
+    except Exception:
+        logger.exception("Не удалось открыть системный магазин")
+        await message.answer("Не удалось загрузить системный магазин. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("market_buy_"))
+async def system_market_buy_callback(callback: CallbackQuery):
+    offer_key = callback.data[len("market_buy_"):]
+    try:
+        result = world_events.buy_system_market_offer(callback.from_user.id, offer_key)
+        await callback.answer("Покупка успешна!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"🏪 Куплено: {result['offer']}. Списано {int(result['price']):,} LDC.")
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось купить предложение системного магазина")
+        await callback.answer("Не удалось совершить покупку. Попробуй позже.", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("market_sell5_"))
+async def system_market_sell5_callback(callback: CallbackQuery):
+    item_key = callback.data[len("market_sell5_"):]
+    try:
+        result = world_events.sell_system_market_item(callback.from_user.id, item_key, 5)
+        await callback.answer(f"+{int(result['reward_ldc']):,} LDC", show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"📦 Продано {result['amount']} × {result['item']}. Получено {int(result['reward_ldc']):,} LDC.")
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось продать ресурсы системному магазину")
+        await callback.answer("Не удалось продать предметы. Попробуй позже.", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("market_sell_"))
+async def system_market_sell_callback(callback: CallbackQuery):
+    item_key = callback.data[len("market_sell_"):]
+    try:
+        result = world_events.sell_system_market_item(callback.from_user.id, item_key, 1)
+        await callback.answer(f"+{int(result['reward_ldc']):,} LDC", show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"📦 Продано: {result['item']}. Получено {int(result['reward_ldc']):,} LDC.")
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось продать ресурс системному магазину")
+        await callback.answer("Не удалось продать предмет. Попробуй позже.", show_alert=True)
+
+
 @dp.message(Command("expeditions"))
 @dp.message(F.text.lower().strip().in_({"экспедиции питомцев", "экспедиция питомца", "экспедиции"}))
 async def pet_expeditions_word_trigger(message: Message):
