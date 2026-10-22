@@ -1208,6 +1208,60 @@ async def transfer_word_trigger(message: Message, state: FSMContext):
     await state.set_state(TransferStates.waiting_recipient)
 
 
+@dp.message(Command("season"))
+@dp.message(F.text.lower().strip().in_({"сезон", "сезоны"}))
+async def season_word_trigger(message: Message):
+    try:
+        status = world_events.get_season_status(message.from_user.id)
+        season = status.get("season") or {}
+        progress = status.get("progress") or {}
+        ends = season.get("ends_at")
+        if isinstance(ends, str):
+            ends = datetime.fromisoformat(ends.replace("Z", "+00:00")).replace(tzinfo=None)
+        remaining = max(0, int((ends - datetime.utcnow()).total_seconds())) if ends else 0
+        lines = [
+            f"🌸 {season.get('title', 'Сезон Lavender Dream')}",
+            f"⏳ До конца: {remaining // 86400} дн. {(remaining % 86400) // 3600} ч.",
+            f"🏅 Уровень: {int(progress.get('level') or 0)}",
+            f"✨ Опыт: {int(progress.get('xp') or 0):,} XP",
+            "",
+            "📋 Сезонные задания:",
+        ]
+        builder = InlineKeyboardBuilder()
+        for task in status.get("tasks", []):
+            mark = "✅" if task.get("claimed") else "🎁" if task.get("completed") else "▫️"
+            lines.append(
+                f"{mark} {task['title']} — {int(task.get('progress') or 0)}/{int(task.get('target') or 0)}"
+            )
+            if task.get("completed") and not task.get("claimed") and len(builder.buttons) < 5:
+                builder.row(InlineKeyboardButton(
+                    text=f"🎁 {task['title'][:28]}",
+                    callback_data=f"season_claim_{task['task_key']}",
+                ))
+        lines.extend(["", "Награды за задания дают сезонный опыт и LDC."])
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if builder.buttons else None)
+    except Exception:
+        logger.exception("Не удалось открыть сезон")
+        await message.answer("Не удалось загрузить сезон. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("season_claim_"))
+async def season_claim_callback(callback: CallbackQuery):
+    task_key = callback.data[len("season_claim_"):]
+    try:
+        result = world_events.claim_season_task(callback.from_user.id, task_key)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"🌸 Сезонная награда: +{int(result['reward_ldc']):,} LDC и +{int(result['reward_xp'])} XP."
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось получить сезонную награду")
+        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
+
+
 @dp.message(F.text.lower().strip().in_({"задания", "задание"}))
 async def tasks_word_trigger(message: Message):
     db.assign_daily_tasks(message.from_user.id)
