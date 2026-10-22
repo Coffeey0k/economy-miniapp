@@ -771,7 +771,31 @@ def init_db():
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
+    # One-time feature removal: the old player-to-player trade, clan and music
+    # systems have no remaining runtime dependencies. Drop their data/tables.
+    for obsolete_table in (
+        "clan_requests", "clan_members", "clans",
+        "web_trades", "pet_trades",
+        "music_personal", "music_shared", "music_slots",
+    ):
+        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table}")
+
+    # Old music-specific daily tasks are no longer valid.
+    cur.execute("DELETE FROM daily_tasks WHERE task_type = 'musician'")
+
+    # Existing musician jobs are migrated to the equivalent artist job so no
+    # player loses their profession or salary progression.
+    cur.execute("UPDATE professions SET profession = 'artist' WHERE profession = 'musician'")
+    cur.execute("""INSERT INTO profession_progress (user_id, profession, level, days_worked, last_work)
+        SELECT user_id, 'artist', level, days_worked, last_work
+        FROM profession_progress WHERE profession = 'musician'
+        ON CONFLICT(user_id, profession) DO UPDATE SET
+            level = GREATEST(profession_progress.level, excluded.level),
+            days_worked = GREATEST(profession_progress.days_worked, excluded.days_worked),
+            last_work = COALESCE(excluded.last_work, profession_progress.last_work)""")
+    cur.execute("DELETE FROM profession_progress WHERE profession = 'musician'")
+
     conn.commit()
     conn.close()
 
@@ -2220,7 +2244,6 @@ def deactivate_cursed_egg():
 
 PROFESSIONS = {
     "artist": {"name": "🎨 Художник", "salary": 500, "cooldown_hours": 2, "admin_only": False},
-    "musician": {"name": "🎸 Музыкант", "salary": 500, "cooldown_hours": 2, "admin_only": False},
     "photographer": {"name": "📸 Фотограф", "salary": 1000, "cooldown_hours": 3, "admin_only": False},
     "gardener": {"name": "🌿 Садовник", "salary": 1000, "cooldown_hours": 3, "admin_only": False},
     "cook": {"name": "🍳 Повар", "salary": 1000, "cooldown_hours": 3, "admin_only": False},
@@ -2318,8 +2341,7 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
             return False, f"Отдых ещё не закончен. Осталось: {remaining // 3600} ч {(remaining % 3600) // 60} мин"
     base_salary = get_profession_salary(prof["profession"], prof["level"])
     friend_bonus = friend_income_bonus(user_id)
-    clan_bonus = clan_income_bonus(user_id)
-    total_bonus = friend_bonus + clan_bonus
+    total_bonus = friend_bonus
     salary = base_salary + (base_salary * total_bonus // 100)
     update_balance(user_id, salary)
     reduction = consume_user_boost(user_id, "work")
@@ -2346,7 +2368,6 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     conn.close()
     bonus_parts = []
     if friend_bonus > 0: bonus_parts.append(f"+{friend_bonus}% друзья")
-    if clan_bonus > 0: bonus_parts.append(f"+{clan_bonus}% клан")
     bonus_text = f" ({', '.join(bonus_parts)})" if bonus_parts else ""
     boost_text = f" Буст сократил следующий отдых на {reduction}%." if reduction else ""
     return True, f"Вы заработали {salary} 🪙{bonus_text}! (уровень {new_level}, дней: {new_days}/7){boost_text}"
@@ -2359,7 +2380,6 @@ DAILY_TASKS = {
     "resident": {"name": "🌴 Житель Lavender Dream", "target": 50, "reward": 150, "type": "messages", "desc": "Отправь 50 сообщений в чат"},
     "friendly": {"name": "🤍 Дружелюбный", "target": 5, "reward": 200, "type": "replies", "desc": "Ответь на 5 разных сообщений"},
     "photographer": {"name": "📸 Фотограф", "target": 1, "reward": 50, "type": "photo", "desc": "Отправь фото в чат"},
-    "musician": {"name": "🎵 Музыкант", "target": 1, "reward": 50, "type": "audio", "desc": "Отправь музыку или голосовое в чат"},
     "night_owl": {"name": "🌙 Ночной житель", "target": 1, "reward": 250, "type": "night_message", "desc": "Напиши сообщение после 20:00"},
     "early_bird": {"name": "🌅 Ранняя пташка", "target": 1, "reward": 150, "type": "morning_message", "desc": "Напиши сообщение до 09:00"},
     "storyteller": {"name": "📖 Рассказчик", "target": 10, "reward": 120, "type": "long_messages", "desc": "Отправь 10 сообщений длиной от 50 символов"},
@@ -2368,7 +2388,7 @@ DAILY_TASKS = {
     "game_player": {"name": "🎮 Игрок", "target": 3, "reward": 200, "type": "games", "desc": "Сыграй 3 игры"},
     "helper": {"name": "🤝 Помощник", "target": 10, "reward": 150, "type": "replies", "desc": "Ответь на 10 сообщений других участников"},
     "social_butterfly": {"name": "🦋 Душа компании", "target": 3, "reward": 150, "type": "active_hours", "desc": "Напиши в чате в течение 3 разных часов"},
-    "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых или музыкальных сообщений"},
+    "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых сообщения"},
     "link_sharer": {"name": "🔗 Делится полезным", "target": 3, "reward": 100, "type": "links", "desc": "Отправь 3 сообщения со ссылками"},
     "weekend_vibes": {"name": "🎉 Выходной вайб", "target": 25, "reward": 150, "type": "weekend_messages", "desc": "Напиши 25 сообщений в выходной"},
 }
@@ -4028,8 +4048,7 @@ def track_message_tasks(user_id: int, is_reply: bool = False,
     if is_photo:
         track("photographer")
     if is_audio:
-        track("musician")
-    if is_night:
+        if is_night:
         track("night_owl")
 
     return completed
@@ -4370,9 +4389,6 @@ LOG_TYPES = {
     "wheel":         "🎡 Колесо",
     "egg":           "🥚 Яйцо",
     "promo":         "🎟️ Промокод",
-    "clan_create":   "🏛️ Создание клана",
-    "clan_deposit":  "💰 Взнос в казну",
-    "clan_wipe":     "💥 Роспуск клана",
     "island_buy":    "🏝️ Покупка острова",
     "island_income": "💰 Доход острова",
     "admin_give":    "➕ Выдача монет",
