@@ -16,6 +16,16 @@ EVENT_TYPES = {
     "daily_mystery": ("🔮 Тайна дня", "Разгадай загадку и выполни особое поручение."),
     "magical_storm": ("⚡ Магическая буря", "Выполняй особые поручения, пока событие активно."),
 }
+EVENT_ACTIVITY_RULES = {
+    "treasure_hunt": {"game", "visit", "collect"},
+    "luck_hour": {"game", "work", "pet", "craft", "collect", "visit", "daily_task"},
+    "lavender_bloom": {"collect", "pet", "craft"},
+    "traveling_merchant": {"collect", "visit"},
+    "rift": {"game", "craft"},
+    "community_goal": {"game", "work", "pet", "craft", "collect", "visit", "daily_task"},
+    "daily_mystery": {"daily_task", "visit"},
+    "magical_storm": {"game", "work"},
+}
 DEFAULT_TASKS = [
     ("work_3", "Рабочая неделя", "Выполни 3 рабочих смены в течение сезона.", "work", 3, 150, 300),
     ("games_10", "Любитель игр", "Сыграй 10 раз в мини-игры.", "game", 10, 200, 400),
@@ -146,7 +156,9 @@ def start_event(event_type, duration_minutes=60, reward_ldc=500, reward_xp=100,
         default_title, default_description = EVENT_TYPES[event_type]
         end_at = now + timedelta(minutes=duration)
         event_key = f"{event_type}_{int(now.timestamp())}"
-        goal = 20 if event_type == "community_goal" else 1
+        goal = {"community_goal": 20, "treasure_hunt": 3, "luck_hour": 1,
+                "lavender_bloom": 3, "traveling_merchant": 1, "rift": 3,
+                "daily_mystery": 1, "magical_storm": 3}.get(event_type, 1)
         cur.execute("""INSERT INTO world_events
             (event_key, title, description, event_type, status, source, starts_at, ends_at,
              reward_ldc, reward_xp, goal, progress, created_by)
@@ -265,17 +277,20 @@ def claim_event(user_id):
     event = get_current_event()
     if not event:
         raise ValueError("Сейчас нет активного события")
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT contribution FROM world_event_participants WHERE event_id = ? AND user_id = ?",
+                (event["id"], user_id))
+    participant = cur.fetchone()
+    conn.close()
+    personal_progress = int(participant["contribution"] or 0) if participant else 0
     if event["event_type"] == "community_goal":
         if int(event.get("progress") or 0) < int(event.get("goal") or 1):
             raise ValueError("Общая цель события ещё не достигнута")
-        conn = _db()
-        cur = conn.cursor()
-        cur.execute("SELECT contribution FROM world_event_participants WHERE event_id = ? AND user_id = ?",
-                    (event["id"], user_id))
-        participant = cur.fetchone()
-        conn.close()
-        if not participant or int(participant["contribution"] or 0) < 1:
+        if personal_progress < 1:
             raise ValueError("Сначала внеси вклад в общее событие")
+    elif personal_progress < int(event.get("goal") or 1):
+        raise ValueError("Сначала выполни действия события: прогресс ещё не достигнут")
     conn = _db()
     cur = conn.cursor()
     try:
@@ -296,19 +311,32 @@ def claim_event(user_id):
     add_season_xp(user_id, int(event["reward_xp"]))
     return {"ok": True, "reward_ldc": int(event["reward_ldc"]), "reward_xp": int(event["reward_xp"])}
 
-def contribute_to_event(user_id, amount=1):
+def contribute_to_event(user_id, amount=1, activity_type=None):
     event = get_current_event()
-    if not event or event["event_type"] != "community_goal":
+    if not event:
         return None
+    allowed = EVENT_ACTIVITY_RULES.get(event["event_type"], set())
+    if activity_type not in allowed:
+        return None
+    contribution = max(1, min(10, int(amount)))
     conn = _db()
     cur = conn.cursor()
-    contribution = max(1, min(10, int(amount)))
-    cur.execute("UPDATE world_events SET progress = LEAST(goal, progress + ?) WHERE id = ? AND status = 'active'",
-                (contribution, event["id"]))
+    if event["event_type"] == "community_goal":
+        cur.execute("UPDATE world_events SET progress = LEAST(goal, progress + ?) WHERE id = ? AND status = 'active'",
+                    (contribution, event["id"]))
+    else:
+        # Per-player progress is tracked separately; the event remains global but
+        # each player must complete its own objective before claiming the reward.
+        cur.execute("UPDATE world_events SET progress = progress + ? WHERE id = ? AND status = 'active'",
+                    (contribution, event["id"]))
     cur.execute("""INSERT INTO world_event_participants (event_id, user_id, contribution)
         VALUES (?, ?, ?) ON CONFLICT(event_id, user_id) DO UPDATE SET
-        contribution = world_event_participants.contribution + excluded.contribution,
-        updated_at = CURRENT_TIMESTAMP""", (event["id"], user_id, contribution))
+        contribution = CASE WHEN world_event_participants.contribution >= ?
+            THEN world_event_participants.contribution
+            ELSE MIN(?, world_event_participants.contribution + excluded.contribution) END,
+        updated_at = CURRENT_TIMESTAMP""",
+        (event["id"], user_id, contribution, int(event.get("goal") or 1),
+         int(event.get("goal") or 1)))
     conn.commit()
     conn.close()
     return True
@@ -391,7 +419,10 @@ def record_season_activity(user_id, task_type, amount=1):
     if task_type != "event":
         add_season_xp(user_id, safe_amount * 5)
     # Every successful activity also contributes to a live global community goal.
-    contribute_to_event(user_id, min(10, safe_amount))
+    active_event = get_current_event()
+    if active_event and active_event.get("event_type") == "luck_hour" and task_type in EVENT_ACTIVITY_RULES["luck_hour"]:
+        add_season_xp(user_id, 25 * safe_amount)
+    contribute_to_event(user_id, min(10, safe_amount), task_type)
 
 def get_season_status(user_id):
     season = ensure_current_season()
