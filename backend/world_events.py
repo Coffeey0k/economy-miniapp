@@ -2,9 +2,12 @@
 import json
 import os
 import random
+import logging
 from datetime import datetime, timedelta
 import db_compat as sqlite3
 import database as bot_db
+
+logger = logging.getLogger(__name__)
 
 EVENT_TYPES = {
     "treasure_hunt": ("💎 Охота за сокровищами", "Сыграй в мини-игры, посещай остров и собирай находки — 3 действия приведут к кладу."),
@@ -320,7 +323,10 @@ def claim_event(user_id):
         raise
     finally:
         conn.close()
-    add_season_xp(user_id, int(event["reward_xp"]))
+    try:
+        add_season_xp(user_id, int(event["reward_xp"]))
+    except Exception:
+        logger.exception("Награда события выдана, но сезонный опыт не начислен user_id=%s", user_id)
     return {"ok": True, "reward_ldc": int(event["reward_ldc"]), "reward_xp": int(event["reward_xp"])}
 
 def contribute_to_event(user_id, amount=1, activity_type=None):
@@ -447,15 +453,24 @@ def record_season_activity(user_id, task_type, amount=1):
     conn.commit()
     conn.close()
     safe_amount = min(100, max(1, int(amount)))
-    record_achievement_progress(user_id, task_type, safe_amount)
+    try:
+        record_achievement_progress(user_id, task_type, safe_amount)
+    except Exception:
+        logger.exception("Не удалось обновить достижения user_id=%s activity=%s", user_id, task_type)
     # Small XP awards make normal play useful for the 30-day season track.
-    if task_type != "event":
-        add_season_xp(user_id, safe_amount * 5)
+    try:
+        if task_type != "event":
+            add_season_xp(user_id, safe_amount * 5)
+        active_event = get_current_event()
+        if active_event and active_event.get("event_type") == "luck_hour" and task_type in EVENT_ACTIVITY_RULES["luck_hour"]:
+            add_season_xp(user_id, 25 * safe_amount)
+    except Exception:
+        logger.exception("Не удалось начислить сезонный опыт user_id=%s", user_id)
     # Every successful activity also contributes to a live global community goal.
-    active_event = get_current_event()
-    if active_event and active_event.get("event_type") == "luck_hour" and task_type in EVENT_ACTIVITY_RULES["luck_hour"]:
-        add_season_xp(user_id, 25 * safe_amount)
-    contribute_to_event(user_id, min(10, safe_amount), task_type)
+    try:
+        contribute_to_event(user_id, min(10, safe_amount), task_type)
+    except Exception:
+        logger.exception("Не удалось обновить прогресс события user_id=%s", user_id)
 
 def get_season_status(user_id):
     season = ensure_current_season()
@@ -862,8 +877,11 @@ def claim_pet_expedition(user_id, expedition_id):
         raise
     finally:
         conn.close()
-    add_season_xp(user_id, 100)
-    record_season_activity(user_id, "pet", 1)
+    try:
+        add_season_xp(user_id, 100)
+        record_season_activity(user_id, "pet", 1)
+    except Exception:
+        logger.exception("Экспедиция выдана, но сезонный прогресс не обновлён user_id=%s", user_id)
     return {"ok": True, "reward_ldc": int(row["reward_ldc"]), "reward_item": item_name,
             "outcome": row["outcome"]}
 
