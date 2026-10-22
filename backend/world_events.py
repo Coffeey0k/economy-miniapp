@@ -257,6 +257,17 @@ def get_due_schedule():
     conn.close()
     return row
 
+def cancel_schedule(schedule_id):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("UPDATE world_event_schedules SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+                (int(schedule_id),))
+    changed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
 def list_schedules(limit=20):
     conn = _db()
     cur = conn.cursor()
