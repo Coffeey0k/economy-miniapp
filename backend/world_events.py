@@ -7,14 +7,14 @@ import db_compat as sqlite3
 import database as bot_db
 
 EVENT_TYPES = {
-    "treasure_hunt": ("💎 Охота за сокровищами", "Выполни условия события и забери награду."),
-    "luck_hour": ("🍀 Час удачи", "Временное событие с дополнительными поручениями и сезонным опытом."),
-    "lavender_bloom": ("💜 Цветение лаванды", "Собирай сезонные достижения и получай награды."),
-    "traveling_merchant": ("🛒 Странствующий торговец", "Временная возможность получить особые предметы и награды."),
-    "rift": ("🌀 Разлом измерений", "Пройди испытание события и забери награду."),
-    "community_goal": ("🌍 Общее достижение", "Участвуй в общем событии Lavender Dream."),
-    "daily_mystery": ("🔮 Тайна дня", "Разгадай загадку и выполни особое поручение."),
-    "magical_storm": ("⚡ Магическая буря", "Выполняй особые поручения, пока событие активно."),
+    "treasure_hunt": ("💎 Охота за сокровищами", "Сыграй в мини-игры, посещай остров и собирай находки — 3 действия приведут к кладу."),
+    "luck_hour": ("🍀 Час удачи", "Выполняй игровые действия: каждое даёт дополнительный сезонный опыт, а за одно действие можно получить награду события."),
+    "lavender_bloom": ("💜 Цветение лаванды", "Ухаживай за питомцами, собирай косметику или создавай предметы — выполни 3 подходящих действия."),
+    "traveling_merchant": ("🛒 Странствующий торговец", "Пока торговец в мире, покупки припасов в системном магазине дешевле на 15%. Посети остров или сделай покупку, чтобы получить награду."),
+    "rift": ("🌀 Разлом измерений", "Сыграй в 3 мини-игры или выполни производственные действия, чтобы стабилизировать разлом."),
+    "community_goal": ("🌍 Общее достижение", "Внеси вклад игровыми действиями в общую цель всего мира. Когда сообщество наберёт 20 действий, участники смогут забрать награду."),
+    "daily_mystery": ("🔮 Тайна дня", "Заверши ежедневное задание или посети остров, чтобы раскрыть тайну."),
+    "magical_storm": ("⚡ Магическая буря", "Сыграй в мини-игры или выполни рабочие смены — нужно 3 действия, чтобы пережить бурю."),
 }
 EVENT_ACTIVITY_RULES = {
     "treasure_hunt": {"game", "visit", "collect"},
@@ -914,6 +914,9 @@ def buy_system_market_offer(user_id, offer_key):
     offer = SYSTEM_MARKET_OFFERS.get(str(offer_key or ""))
     if not offer:
         raise ValueError("Предложение не найдено")
+    active_event = get_current_event()
+    discount = 15 if active_event and active_event.get("event_type") == "traveling_merchant" else 0
+    price = int(offer["price"] * (100 - discount) / 100)
     conn = _db()
     cur = conn.cursor()
     try:
@@ -921,7 +924,6 @@ def buy_system_market_offer(user_id, offer_key):
         user = cur.fetchone()
         if not user:
             raise ValueError("Профиль игрока не найден")
-        price = int(offer["price"])
         if int(user["balance"] or 0) < price:
             raise ValueError(f"Недостаточно LDC. Нужно {price:,}")
         cur.execute("UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
@@ -934,7 +936,8 @@ def buy_system_market_offer(user_id, offer_key):
                 quantity = inventory_items.quantity + excluded.quantity""",
                 (user_id, item_key, int(quantity)))
         conn.commit()
-        return {"ok": True, "offer": offer["name"], "price": price}
+        record_season_activity(user_id, "collect", 1)
+        return {"ok": True, "offer": offer["name"], "price": price, "discount_percent": discount}
     except Exception:
         conn.rollback()
         raise
