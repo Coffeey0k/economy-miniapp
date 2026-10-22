@@ -1406,14 +1406,6 @@ def arcade_action(payload: dict = Body(...)):
             raise HTTPException(status_code=409, detail="Игра уже была завершена")
         if reward > 0:
             change_balance(cur, user_id, reward)
-        try:
-            bot_db.update_task_progress(user_id, "games", 1)
-        except Exception:
-            logger.exception("Не удалось обновить ежедневное задание для Mini App")
-        try:
-            world_events.record_season_activity(user_id, "game", 1)
-        except Exception:
-            logger.exception("Не удалось обновить сезонный прогресс мини-игры")
     else:
         cur.execute(
             "UPDATE arcade_sessions SET state = %s, updated_at = %s WHERE id = %s AND status = 'active'",
@@ -1422,6 +1414,17 @@ def arcade_action(payload: dict = Body(...)):
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
+    # Run cross-module trackers only after the arcade transaction is closed.
+    # They open their own connections to the same database.
+    if finished:
+        try:
+            bot_db.update_task_progress(user_id, "games", 1)
+        except Exception:
+            logger.exception("Не удалось обновить ежедневное задание для Mini App")
+        try:
+            world_events.record_season_activity(user_id, "game", 1)
+        except Exception:
+            logger.exception("Не удалось обновить сезонный прогресс мини-игры")
     return {"ok": True, "game": game_type, "state": _arcade_public_state(game_type, state),
             "message": message, "finished": finished, "reward": reward, "balance": balance}
 
