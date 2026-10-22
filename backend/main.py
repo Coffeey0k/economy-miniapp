@@ -1186,6 +1186,18 @@ def transfer_coins(payload: dict = Body(...)):
     return {"ok": True, "message": f"Переведено {amount} 🪙 пользователю @{target_username}. Переводов сегодня: {count}/5."}
 
 
+def _record_web_game_start(user_id: int):
+    """Keep daily tasks, achievements and seasonal game tasks in sync for web games."""
+    try:
+        bot_db.update_task_progress(user_id, "games", 1)
+    except Exception:
+        logger.exception("Не удалось обновить ежедневное игровое задание user_id=%s", user_id)
+    try:
+        world_events.record_season_activity(user_id, "game", 1)
+    except Exception:
+        logger.exception("Не удалось обновить сезонное игровое задание user_id=%s", user_id)
+
+
 # ========== API: НОВЫЕ МИНИ-ИГРЫ ==========
 
 ARCADE_GAMES = {"fishing", "dungeon", "racing", "memory"}
@@ -1638,6 +1650,7 @@ def ttt_start(payload: dict = Body(...)):
     conn.commit()
     balance = require_balance(cur, user_id)
     conn.close()
+    _record_web_game_start(user_id)
     return {
         "game_id": game_id, "board": "_________", "status": "active",
         "winner": None, "bet": bet, "balance": balance, "payout": 0,
@@ -2052,6 +2065,7 @@ def ms_start_api(payload: dict = Body(...)):
     game_id = cur.lastrowid
     conn.commit()
     conn.close()
+    _record_web_game_start(user_id)
 
     return {
         "game_id": game_id,
@@ -2754,6 +2768,7 @@ def bs_start(payload: dict = Body(...)):
         bot_db.log_action(user_id, "game", f"Морской бой: старт game_id={game_id}; ставка={bet}; player_defenses={player_defenses.count('D')}", amount=0)
     except Exception:
         logger.exception("Не удалось записать старт морского боя user_id=%s game_id=%s", user_id, game_id)
+    _record_web_game_start(user_id)
 
     return {
         "game_id": game_id,
