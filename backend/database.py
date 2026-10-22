@@ -840,7 +840,7 @@ def init_db():
         "web_trades", "pet_trades",
         "music_personal", "music_shared", "music_slots",
     ):
-        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table}")
+        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table} CASCADE")
 
     # Remove legacy music-only inventory and daily-task records.
     cur.execute("DELETE FROM daily_tasks WHERE task_type = 'musician'")
