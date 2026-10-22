@@ -361,6 +361,114 @@ def init_db():
         )
     """)
 
+    # === ГЛОБАЛЬНЫЕ СОБЫТИЯ И СЕЗОНЫ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_event_settings (
+            id INTEGER PRIMARY KEY,
+            active_event_id BIGINT,
+            random_enabled BOOLEAN DEFAULT TRUE,
+            min_gap_minutes INTEGER DEFAULT 60,
+            default_duration_minutes INTEGER DEFAULT 60,
+            next_allowed_at TIMESTAMP,
+            next_random_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        INSERT INTO world_event_settings (id, random_enabled, min_gap_minutes, default_duration_minutes)
+        VALUES (1, TRUE, 60, 60) ON CONFLICT(id) DO NOTHING
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_events (
+            id SERIAL PRIMARY KEY,
+            event_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            source TEXT NOT NULL DEFAULT 'random',
+            starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ends_at TIMESTAMP NOT NULL,
+            reward_ldc BIGINT NOT NULL DEFAULT 0,
+            reward_xp INTEGER NOT NULL DEFAULT 0,
+            goal INTEGER NOT NULL DEFAULT 1,
+            progress INTEGER NOT NULL DEFAULT 0,
+            created_by BIGINT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ended_at TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_event_claims (
+            event_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (event_id, user_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_event_schedules (
+            id SERIAL PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            scheduled_at TIMESTAMP NOT NULL,
+            duration_minutes INTEGER NOT NULL DEFAULT 60,
+            reward_ldc BIGINT NOT NULL DEFAULT 500,
+            reward_xp INTEGER NOT NULL DEFAULT 100,
+            title TEXT,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_by BIGINT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS seasons (
+            id SERIAL PRIMARY KEY,
+            season_key TEXT UNIQUE NOT NULL,
+            title TEXT NOT NULL,
+            starts_at TIMESTAMP NOT NULL,
+            ends_at TIMESTAMP NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_progress (
+            season_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            xp BIGINT NOT NULL DEFAULT 0,
+            level INTEGER NOT NULL DEFAULT 0,
+            claimed_levels TEXT NOT NULL DEFAULT '[]',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (season_id, user_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_tasks (
+            season_id BIGINT NOT NULL,
+            task_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            task_type TEXT NOT NULL,
+            target INTEGER NOT NULL,
+            reward_xp INTEGER NOT NULL DEFAULT 0,
+            reward_ldc BIGINT NOT NULL DEFAULT 0,
+            PRIMARY KEY (season_id, task_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_task_progress (
+            season_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            task_key TEXT NOT NULL,
+            progress INTEGER NOT NULL DEFAULT 0,
+            completed BOOLEAN NOT NULL DEFAULT FALSE,
+            claimed BOOLEAN NOT NULL DEFAULT FALSE,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (season_id, user_id, task_key)
+        )
+    """)
+
     # Инициализация проклятого яйца
     cur.execute("SELECT COUNT(*) FROM cursed_egg")
     if cur.fetchone()[0] == 0:
