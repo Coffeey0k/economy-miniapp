@@ -4,6 +4,7 @@ import random
 import re
 from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 DB_NAME = "paradise.db"
 
@@ -2491,7 +2492,7 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
 
 def daily_task_date() -> str:
     """Logical daily-task date; rolls over at 05:00 Moscow time (02:00 UTC)."""
-    return (datetime.now() - timedelta(hours=2)).date().isoformat()
+    return (datetime.now(ZoneInfo("Europe/Moscow")) - timedelta(hours=5)).date().isoformat()
 
 
 DAILY_TASKS = {
