@@ -2204,7 +2204,7 @@ def add_inventory_item(user_id: int, item_key: str, quantity: int = 1) -> bool:
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO inventory_items (user_id, item_key, quantity) VALUES (?, ?, ?) "
-        "ON CONFLICT(user_id, item_key) DO UPDATE SET quantity = quantity + excluded.quantity",
+        "ON CONFLICT(user_id, item_key) DO UPDATE SET quantity = inventory_items.quantity + EXCLUDED.quantity",
         (user_id, item_key, quantity),
     )
     conn.commit()
