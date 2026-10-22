@@ -356,6 +356,8 @@ def record_season_activity(user_id, task_type, amount=1):
              season["id"], user_id, task["task_key"]))
     conn.commit()
     conn.close()
+    # Every successful activity also contributes to a live global community goal.
+    contribute_to_event(user_id, min(10, max(1, int(amount))))
 
 def get_season_status(user_id):
     season = ensure_current_season()
