@@ -904,6 +904,15 @@
       <p class="label" id="halloween-event-description"></p>
       <button class="btn" id="halloween-event-claim" onclick="claimHalloweenReward()">Забрать награду</button>
     </div>
+    <div class="card" id="world-event-card" style="display:none;">
+      <h2 id="world-event-title">🌍 Глобальное событие</h2>
+      <p class="label" id="world-event-description"></p>
+      <div class="stat-row"><span>Осталось</span><span id="world-event-timer">—</span></div>
+      <div class="stat-row"><span>Награда</span><span id="world-event-reward">—</span></div>
+      <button class="btn" id="world-event-claim" onclick="claimWorldEvent()">🎁 Забрать награду</button>
+      <p class="label" id="world-event-message"></p>
+    </div>
+
     <div class="card">
       <div class="profile-header">
         <div id="p-avatar-wrapper">
@@ -1117,6 +1126,35 @@
       <div class="item-row">
         <span>📡 Пинг бота</span>
         <button class="btn btn-small" onclick="adminPing()">Проверить</button>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <h3>🌍 Глобальные события</h3>
+        <p class="label" id="admin-event-status">Загрузка статуса…</p>
+        <label class="label" for="admin-event-type">Тип события</label>
+        <select id="admin-event-type" style="width:100%;margin:6px 0;">
+          <option value="treasure_hunt">💎 Охота за сокровищами</option>
+          <option value="luck_hour">🍀 Час удачи</option>
+          <option value="lavender_bloom">💜 Цветение лаванды</option>
+          <option value="traveling_merchant">🛒 Странствующий торговец</option>
+          <option value="rift">🌀 Разлом измерений</option>
+          <option value="community_goal">🌍 Общее достижение</option>
+          <option value="daily_mystery">🔮 Тайна дня</option>
+          <option value="magical_storm">⚡ Магическая буря</option>
+        </select>
+        <div class="form-row">
+          <input id="admin-event-duration" type="number" min="5" max="240" value="60" placeholder="Минуты">
+          <input id="admin-event-reward" type="number" min="0" max="50000" value="500" placeholder="Награда LDC">
+        </div>
+        <input id="admin-event-xp" type="number" min="0" max="5000" value="100" placeholder="Сезонный опыт" style="width:100%;margin:6px 0;">
+        <button class="btn" onclick="adminStartWorldEvent()">▶️ Запустить сейчас</button>
+        <button class="btn btn-small" onclick="adminEndWorldEvent()">⏹ Завершить событие</button>
+        <hr>
+        <label class="label"><input type="checkbox" id="admin-event-random" checked> Разрешить случайные события</label>
+        <button class="btn btn-small" onclick="adminSaveEventSettings()">Сохранить настройки</button>
+        <h4>📅 Запланировать событие (время UTC)</h4>
+        <input id="admin-event-scheduled-at" type="datetime-local" style="width:100%;margin:6px 0;">
+        <button class="btn btn-small" onclick="adminScheduleWorldEvent()">Запланировать</button>
+        <p class="label" id="admin-event-result"></p>
       </div>
       <div id="admin-result"></div>
     </div>
@@ -1489,6 +1527,16 @@
         <button class="tile" disabled title="Временно отключено"><span class="ic">🔁</span>Трейды (отключены)</button>
       </div>
     </div>
+    <div class="card" id="season-card">
+      <h2>🌸 Сезон Lavender Dream</h2>
+      <p class="label" id="season-title">Загрузка сезона…</p>
+      <div class="stat-row"><span>Уровень</span><span id="season-level">0</span></div>
+      <div class="stat-row"><span>Сезонный опыт</span><span id="season-xp">0 XP</span></div>
+      <div class="stat-row"><span>До конца</span><span id="season-time-left">—</span></div>
+      <div id="season-tasks"></div>
+      <h3>🏆 Топ сезона</h3>
+      <div id="season-leaderboard"></div>
+    </div>
     <div class="card">
       <h2>📂 Дополнительно</h2>
       <div class="item-row">
@@ -1639,7 +1687,7 @@
     if (name === "pets") loadPets();
     if (name === "work") loadWork();
     if (name === "wheel") loadWheel();
-    if (name === "more") loadMore();
+    if (name === "more") { loadMore(); loadSeason(); }
     if (name === "games") loadGames();
     if (name === "cosmetics") loadCosmetics();
     if (name === "settings") loadSettings();
@@ -1654,8 +1702,131 @@
     if (name === "tech-admin") techInit();
   }
 
+  function formatEventRemaining(seconds) {
+    const s = Math.max(0, Number(seconds) || 0);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h ? `${h} ч ${m} мин` : `${m} мин`;
+  }
+  async function loadWorldEvent() {
+    const card = document.getElementById("world-event-card");
+    if (!card) return;
+    try {
+      const data = await apiGet("/api/world-events/current");
+      if (!data.active || !data.event) { card.style.display = "none"; return; }
+      const e = data.event;
+      card.style.display = "block";
+      document.getElementById("world-event-title").textContent = e.title || "🌍 Глобальное событие";
+      document.getElementById("world-event-description").textContent = e.description || "";
+      document.getElementById("world-event-timer").textContent = formatEventRemaining(e.remaining_seconds);
+      document.getElementById("world-event-reward").textContent = `${Number(e.reward_ldc || 0).toLocaleString()} LDC + ${Number(e.reward_xp || 0)} XP`;
+      const btn = document.getElementById("world-event-claim");
+      btn.disabled = !!data.claimed;
+      btn.textContent = data.claimed ? "✅ Награда получена" : "🎁 Забрать награду";
+      window._worldEventRemaining = Number(e.remaining_seconds || 0);
+    } catch (e) {
+      card.style.display = "none";
+      console.warn("World event status unavailable", e);
+    }
+  }
+  async function claimWorldEvent() {
+    try {
+      const result = await apiPost("/api/world-events/claim", {});
+      showMsg("world-event-message", `Получено: +${Number(result.reward_ldc || 0).toLocaleString()} LDC и +${Number(result.reward_xp || 0)} сезонного XP`, true);
+      await loadWorldEvent(); await loadSeason(); await loadProfile();
+    } catch (e) { showMsg("world-event-message", e.message, false); }
+  }
+  async function loadSeason() {
+    const tasksEl = document.getElementById("season-tasks");
+    if (!tasksEl) return;
+    try {
+      const data = await apiGet("/api/seasons/current");
+      const s = data.season || {}, p = data.progress || {};
+      document.getElementById("season-title").textContent = s.title || "Текущий сезон";
+      document.getElementById("season-level").textContent = Number(p.level || 0);
+      document.getElementById("season-xp").textContent = `${Number(p.xp || 0).toLocaleString()} XP`;
+      const ends = s.ends_at ? new Date(s.ends_at).getTime() : 0;
+      document.getElementById("season-time-left").textContent = ends > Date.now()
+        ? formatEventRemaining(Math.floor((ends - Date.now()) / 1000)) : "Завершён";
+      tasksEl.innerHTML = (data.tasks || []).map(t => `
+        <div class="item-row">
+          <span>${escapeHtml(t.title)}<br><span class="label">${escapeHtml(t.description)} · ${Number(t.progress || 0)}/${Number(t.target || 0)}</span></span>
+          <button class="btn btn-small" ${!t.completed || t.claimed ? "disabled" : ""} onclick="claimSeasonTask('${String(t.task_key).replace(/'/g, "\\'")}')">${t.claimed ? "Получено" : "Забрать"}</button>
+        </div>`).join("") || '<p class="label">Задания скоро появятся.</p>';
+      document.getElementById("season-leaderboard").innerHTML = (data.leaderboard || []).map((r,i) =>
+        `<div class="stat-row"><span>${i+1}. ${escapeHtml(r.username || ("ID " + r.user_id))}</span><span>${Number(r.xp || 0).toLocaleString()} XP</span></div>`
+      ).join("") || '<p class="label">Рейтинг пока пуст.</p>';
+    } catch (e) { tasksEl.innerHTML = '<p class="label">Не удалось загрузить сезон.</p>'; }
+  }
+  async function claimSeasonTask(taskKey) {
+    try {
+      const result = await apiPost("/api/seasons/claim-task", {task_key: taskKey});
+      showMsg("season-tasks", `Награда: +${Number(result.reward_ldc || 0).toLocaleString()} LDC, +${Number(result.reward_xp || 0)} XP`, true);
+      await loadSeason();
+    } catch (e) { showMsg("season-tasks", e.message, false); }
+  }
+  async function loadAdminWorldEvents() {
+    try {
+      const data = await apiGet("/api/admin/world-events");
+      const e = data.active;
+      document.getElementById("admin-event-status").textContent = e
+        ? `Активно: ${e.title} · ${formatEventRemaining(e.remaining_seconds)}`
+        : "Активного события нет";
+      document.getElementById("admin-event-random").checked = !!(data.settings && data.settings.random_enabled);
+      if (data.settings && data.settings.default_duration_minutes)
+        document.getElementById("admin-event-duration").value = data.settings.default_duration_minutes;
+    } catch (_) { /* hidden for non-admins */ }
+  }
+  async function adminStartWorldEvent() {
+    try {
+      const result = await apiPost("/api/admin/world-events/start", {
+        event_type: document.getElementById("admin-event-type").value,
+        duration_minutes: Number(document.getElementById("admin-event-duration").value || 60),
+        reward_ldc: Number(document.getElementById("admin-event-reward").value || 0),
+        reward_xp: Number(document.getElementById("admin-event-xp").value || 0)
+      });
+      document.getElementById("admin-event-result").textContent = "Событие запущено.";
+      await loadAdminWorldEvents(); await loadWorldEvent();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+  async function adminEndWorldEvent() {
+    try {
+      await apiPost("/api/admin/world-events/end", {});
+      document.getElementById("admin-event-result").textContent = "Событие завершено; действует пауза.";
+      await loadAdminWorldEvents(); await loadWorldEvent();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+  async function adminSaveEventSettings() {
+    try {
+      await apiPost("/api/admin/world-events/settings", {
+        random_enabled: document.getElementById("admin-event-random").checked,
+        min_gap_minutes: 60,
+        default_duration_minutes: Number(document.getElementById("admin-event-duration").value || 60)
+      });
+      document.getElementById("admin-event-result").textContent = "Настройки сохранены.";
+      await loadAdminWorldEvents();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+  async function adminScheduleWorldEvent() {
+    try {
+      const localValue = document.getElementById("admin-event-scheduled-at").value;
+      if (!localValue) throw new Error("Укажи дату и время (UTC).");
+      const scheduledAt = new Date(localValue + "Z").toISOString();
+      await apiPost("/api/admin/world-events/schedule", {
+        event_type: document.getElementById("admin-event-type").value,
+        scheduled_at: scheduledAt,
+        duration_minutes: Number(document.getElementById("admin-event-duration").value || 60),
+        reward_ldc: Number(document.getElementById("admin-event-reward").value || 500),
+        reward_xp: Number(document.getElementById("admin-event-xp").value || 100)
+      });
+      document.getElementById("admin-event-result").textContent = "Событие запланировано.";
+      await loadAdminWorldEvents();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+
   async function loadProfile() {
     const data = await apiGet("/api/profile");
+    loadWorldEvent();
+    loadAdminWorldEvents();
     let displayName = data.username ? "@" + data.username : "ID " + data.user_id;
     if (data.cosmetics) {
       if (data.cosmetics.frame && cosData && cosData.frames[data.cosmetics.frame]) {
