@@ -3484,7 +3484,6 @@ ISLAND_RESOURCE_ACTIONS = {
     "merchant": {"outputs": {"trade_goods": (2, 4)}, "needs": {}, "message": "Ты подготовил товары для торговли."},
     "cook": {"outputs": {"meals": (1, 3)}, "needs": {"crops": 2, "fish": 1}, "message": "Ты приготовил еду для экспедиций."},
     "artist": {"outputs": {"decor": (1, 2)}, "needs": {}, "message": "Ты создал предметы декора."},
-    "musician": {"outputs": {"music_tokens": (1, 2)}, "needs": {}, "message": "Ты создал музыкальные жетоны."},
     "photographer": {"outputs": {"photos": (1, 3)}, "needs": {}, "message": "Ты сделал снимки острова."},
     "vet": {"outputs": {"pet_treats": (1, 2)}, "needs": {"crops": 1}, "message": "Ты приготовил лакомства для питомцев."},
     "programmer": {"outputs": {"circuits": (1, 2)}, "needs": {"ore": 1}, "message": "Ты собрал электронные платы."},
@@ -3494,7 +3493,7 @@ ISLAND_RESOURCE_NAMES = {
     "fiber": "🧵 Волокно", "crops": "🌾 Урожай", "fish": "🐟 Рыба",
     "seeds": "🌱 Семена", "tools": "🔧 Инструменты", "gears": "⚙️ Механизмы",
     "maps": "🗺️ Карты", "trade_goods": "📦 Торговые товары", "meals": "🍲 Еда",
-    "decor": "🖼️ Декор", "music_tokens": "🎵 Музыкальные жетоны",
+    "decor": "🖼️ Декор",
     "photos": "📸 Фотографии", "pet_treats": "🦴 Лакомства", "circuits": "🔌 Платы",
     "crystal": "💎 Кристаллы", "artifacts": "🏺 Артефакты",
 }
@@ -4825,10 +4824,6 @@ def tech_find_user(init_data: str = Query(..., alias="initData"),
     except Exception:
         pets = []
     try:
-        clan = bot_db.clan_get_user_clan(target_id)
-    except Exception:
-        clan = None
-    try:
         island = bot_db.island_get(target_id)
     except Exception:
         island = {"has_island": False}
@@ -4839,7 +4834,6 @@ def tech_find_user(init_data: str = Query(..., alias="initData"),
         "balance": row["balance"],
         "purchases": [{"id": p[0], "item_type": p[1], "is_used": bool(p[2])} for p in purchases],
         "pets_count": len(pets),
-        "clan": {"id": clan["id"], "name": clan["name"]} if clan else None,
         "island": island,
     }
 
