@@ -1216,6 +1216,14 @@
       <h3>🏷️ Мои титулы</h3>
       <div id="achievement-titles"></div>
     </div>
+    <div class="card" id="system-market-card">
+      <h2>🏪 Системный магазин</h2>
+      <p class="label">Покупай припасы для острова и экспедиций. Ненужные ресурсы можно продать системе за LDC. Предметы между игроками не передаются.</p>
+      <h3>🛒 Предложения NPC</h3>
+      <div id="system-market-offers"></div>
+      <h3>📦 Твои ресурсы</h3>
+      <div id="system-market-inventory"></div>
+    </div>
     <div class="card" id="pet-expeditions-card">
       <h2>🧭 Экспедиции питомцев</h2>
       <p class="label">Отправь питомца за LDC и редкими коллекционными находками. Пока он в экспедиции, забрать награду можно после возвращения.</p>
@@ -1386,7 +1394,7 @@
     if (name === "pets") loadPets();
     if (name === "work") loadWork();
     if (name === "wheel") loadWheel();
-    if (name === "more") { loadMore(); loadSeason(); loadAchievements(); loadCollection(); loadPetExpeditions(); }
+    if (name === "more") { loadMore(); loadSeason(); loadAchievements(); loadCollection(); loadPetExpeditions(); loadSystemMarket(); }
     if (name === "games") loadGames();
     if (name === "cosmetics") loadCosmetics();
     if (name === "settings") loadSettings();
@@ -1484,6 +1492,37 @@
       await loadSeason();
     } catch (e) { showMsg("season-tasks", e.message, false); }
   }
+  async function loadSystemMarket() {
+    const offersEl = document.getElementById("system-market-offers");
+    if (!offersEl) return;
+    try {
+      const data = await apiGet("/api/system-market/current");
+      offersEl.innerHTML = (data.offers || []).map(o =>
+        `<div class="item-row"><span><b>${escapeHtml(o.name)}</b><br><span class="label">${(o.items || []).map(i => escapeHtml(i.name) + " ×" + Number(i.quantity)).join(", ")}</span></span>
+        <button class="btn btn-small" onclick="buySystemMarketOffer('${o.key}')">${Number(o.price).toLocaleString()} LDC</button></div>`
+      ).join("") || '<p class="label">Предложений нет.</p>';
+      document.getElementById("system-market-inventory").innerHTML = (data.inventory || []).map(i =>
+        `<div class="item-row"><span>${escapeHtml(i.name)} ×${Number(i.quantity)}<br><span class="label">Цена: ${Number(i.sell_price).toLocaleString()} LDC за штуку</span></span>
+        <div><button class="btn btn-small" onclick="sellSystemMarketItem('${i.key}',1)">Продать 1</button>
+        ${Number(i.quantity) >= 5 ? `<button class="btn btn-small" onclick="sellSystemMarketItem('${i.key}',5)">Продать 5</button>` : ""}</div></div>`
+      ).join("") || '<p class="label">У тебя пока нет ресурсов для продажи.</p>';
+    } catch (e) { offersEl.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+  async function buySystemMarketOffer(offerKey) {
+    try {
+      const result = await apiPost("/api/system-market/buy", {offer_key: offerKey});
+      toast(`Покупка: ${result.offer}, списано ${Number(result.price).toLocaleString()} LDC`);
+      await loadSystemMarket(); await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function sellSystemMarketItem(itemKey, amount) {
+    try {
+      const result = await apiPost("/api/system-market/sell", {item_key: itemKey, amount});
+      toast(`Продано ${result.amount} · +${Number(result.reward_ldc).toLocaleString()} LDC`);
+      await loadSystemMarket(); await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
   async function loadPetExpeditions() {
     const list = document.getElementById("pet-expeditions-list");
     if (!list) return;
