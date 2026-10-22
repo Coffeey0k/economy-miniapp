@@ -914,7 +914,7 @@ def get_system_market(user_id):
     discount = 15 if active_event and active_event.get("event_type") == "traveling_merchant" else 0
     conn = _db()
     cur = conn.cursor()
-    cur.execute("SELECT item_key, quantity FROM inventory_items WHERE user_id = ? AND quantity > 0",
+    cur.execute("SELECT item_key, quantity FROM island_inventory WHERE user_id = ? AND quantity > 0",
                 (user_id,))
     quantities = {row["item_key"]: int(row["quantity"]) for row in cur.fetchall()}
     conn.close()
@@ -954,9 +954,9 @@ def buy_system_market_offer(user_id, offer_key):
         if cur.rowcount != 1:
             raise ValueError("Баланс изменился. Попробуй ещё раз")
         for item_key, quantity in offer["items"].items():
-            cur.execute("""INSERT INTO inventory_items (user_id, item_key, quantity)
+            cur.execute("""INSERT INTO island_inventory (user_id, item_key, quantity)
                 VALUES (?, ?, ?) ON CONFLICT(user_id, item_key) DO UPDATE SET
-                quantity = inventory_items.quantity + excluded.quantity""",
+                quantity = island_inventory.quantity + excluded.quantity""",
                 (user_id, item_key, int(quantity)))
         conn.commit()
         try:
@@ -985,7 +985,7 @@ def sell_system_market_item(user_id, item_key, amount=1):
     conn = _db()
     cur = conn.cursor()
     try:
-        cur.execute("""UPDATE inventory_items SET quantity = quantity - ?
+        cur.execute("""UPDATE island_inventory SET quantity = quantity - ?
             WHERE user_id = ? AND item_key = ? AND quantity >= ?""",
             (amount, user_id, item_key, amount))
         if cur.rowcount != 1:
@@ -993,7 +993,7 @@ def sell_system_market_item(user_id, item_key, amount=1):
         cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (price, user_id))
         if cur.rowcount != 1:
             raise ValueError("Профиль игрока не найден")
-        cur.execute("DELETE FROM inventory_items WHERE user_id = ? AND item_key = ? AND quantity <= 0",
+        cur.execute("DELETE FROM island_inventory WHERE user_id = ? AND item_key = ? AND quantity <= 0",
                     (user_id, item_key))
         conn.commit()
         return {"ok": True, "item": SYSTEM_ITEM_NAMES[item_key], "amount": amount, "reward_ldc": price}
