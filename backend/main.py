@@ -46,8 +46,9 @@ logger = logging.getLogger(__name__)
 init_db()
 bot_db.DB_NAME = os.environ.get("DB_PATH", bot_db.DB_NAME)
 bot_db.init_db()  # Ensure boost/event tables exist even when the API starts before the bot.
+import world_events as world_events
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -204,6 +205,32 @@ async def audit_rejected_api_requests(request: Request, call_next):
         # Returning a response instead of re-raising keeps the response inside
         # the outer CORS middleware, so browsers receive the actual 500 status.
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    if response.status_code < 400 and request.method.upper() == "POST":
+        path = request.url.path
+        activity = None
+        if path == "/api/professions/work":
+            activity = ("work", 1)
+        elif path.startswith("/api/games/") or path.startswith("/api/minesweeper/") or path.startswith("/api/tictactoe/"):
+            activity = ("game", 1)
+        elif path.startswith("/api/pets/"):
+            activity = ("pet", 1)
+        elif path in {"/api/tasks/claim", "/api/tasks/complete"}:
+            activity = ("daily_task", 1)
+        elif path.startswith("/api/cosmetics/"):
+            activity = ("collect", 1)
+        elif path.startswith("/api/island/visit"):
+            activity = ("visit", 1)
+        if activity:
+            try:
+                uid = get_telegram_user_id(request.query_params.get("initData", "")) if request.query_params.get("initData") else None
+                if uid is None and request.method.upper() == "POST":
+                    # Most Mini App POST routes carry initData in their JSON body.
+                    body = await request.json()
+                    uid = get_telegram_user_id(body.get("initData", "")) if isinstance(body, dict) else None
+                if uid:
+                    world_events.record_season_activity(uid, activity[0], activity[1])
+            except Exception:
+                logger.exception("Не удалось обновить сезонный прогресс для %s", path)
     if response.status_code >= 400:
         logger.warning(
             "API_REJECTED method=%s path=%s status=%s client=%s",
@@ -5988,6 +6015,159 @@ def open_gift(payload: dict = Body(...)):
     conn.close()
 
     return {"ok": True, "message": f"Открыто: {result_text}", "gift_type": gift_type}
+
+# ========== ГЛОБАЛЬНЫЕ СОБЫТИЯ И СЕЗОНЫ ==========
+
+def _broadcast_world_event(event: dict):
+    """Notify registered players about a global event; failures for blocked bots are ignored."""
+    try:
+        users = bot_db.get_all_users()
+    except Exception:
+        logger.exception("Не удалось получить список игроков для объявления события")
+        return
+    message = (
+        f"🌍 ГЛОБАЛЬНОЕ СОБЫТИЕ: {event.get('title', 'Событие')}\n\n"
+        f"{event.get('description', '')}\n\n"
+        f"⏳ Длительность: {max(1, int(event.get('remaining_seconds', 3600)) // 60)} мин.\n"
+        f"🎁 Награда за участие: {int(event.get('reward_ldc', 0)):,} LDC и "
+        f"{int(event.get('reward_xp', 0))} сезонного опыта.\n\n"
+        "Открой Lavender Dream в боте или веб-приложении, чтобы участвовать."
+    )
+    for user in users:
+        uid = user.get("user_id") if isinstance(user, dict) else None
+        if not uid or (isinstance(user, dict) and user.get("is_banned")):
+            continue
+        _safe_bot_send(int(uid), message)
+        time.sleep(0.05)
+
+
+@app.get("/api/world-events/current")
+def world_event_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    event = world_events.get_current_event()
+    if not event:
+        return {"active": False, "event": None}
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM world_event_claims WHERE event_id = ? AND user_id = ?",
+                (event["id"], user_id))
+    claimed = cur.fetchone() is not None
+    conn.close()
+    return {"active": True, "event": event, "claimed": claimed}
+
+
+@app.post("/api/world-events/claim")
+def world_event_claim(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        result = world_events.claim_event(user_id)
+        world_events.record_season_activity(user_id, "event", 1)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/seasons/current")
+def season_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.get_season_status(user_id)
+
+
+@app.post("/api/seasons/claim-task")
+def season_claim_task(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    task_key = str(payload.get("task_key") or "").strip()
+    if not task_key or len(task_key) > 80:
+        raise HTTPException(status_code=400, detail="Некорректное задание")
+    try:
+        return world_events.claim_season_task(user_id, task_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/world-events")
+def admin_world_events(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+    return {
+        "active": world_events.get_current_event(),
+        "settings": world_events.get_settings(),
+        "events": world_events.list_events(30),
+        "schedules": world_events.list_schedules(30),
+        "types": [{"key": key, "title": value[0], "description": value[1]}
+                  for key, value in world_events.EVENT_TYPES.items()],
+    }
+
+
+@app.post("/api/admin/world-events/start")
+def admin_world_event_start(payload: dict = Body(...), background_tasks: BackgroundTasks = None):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    try:
+        event = world_events.start_event(
+            event_type=str(payload.get("event_type") or ""),
+            duration_minutes=int(payload.get("duration_minutes") or 60),
+            reward_ldc=int(payload.get("reward_ldc") or 0),
+            reward_xp=int(payload.get("reward_xp") or 0),
+            title=payload.get("title"), description=payload.get("description"),
+            source="manual", created_by=user_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if background_tasks is not None:
+        background_tasks.add_task(_broadcast_world_event, event)
+    return {"ok": True, "event": event}
+
+
+@app.post("/api/admin/world-events/end")
+def admin_world_event_end(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    event_id = payload.get("event_id")
+    try:
+        ended = world_events.end_event(int(event_id) if event_id else None)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный ID события")
+    if not ended:
+        raise HTTPException(status_code=404, detail="Активное событие не найдено")
+    return {"ok": True, "message": "Событие завершено"}
+
+
+@app.post("/api/admin/world-events/settings")
+def admin_world_event_settings(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    try:
+        settings = world_events.update_settings(
+            random_enabled=payload.get("random_enabled"),
+            min_gap_minutes=payload.get("min_gap_minutes"),
+            default_duration_minutes=payload.get("default_duration_minutes"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Некорректные настройки события") from exc
+    return {"ok": True, "settings": settings}
+
+
+@app.post("/api/admin/world-events/schedule")
+def admin_world_event_schedule(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    try:
+        schedule_id = world_events.create_schedule(
+            event_type=str(payload.get("event_type") or ""),
+            scheduled_at=str(payload.get("scheduled_at") or ""),
+            duration_minutes=int(payload.get("duration_minutes") or 60),
+            reward_ldc=int(payload.get("reward_ldc") or 500),
+            reward_xp=int(payload.get("reward_xp") or 100),
+            title=payload.get("title"), description=payload.get("description"),
+            created_by=user_id,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "schedule_id": schedule_id}
+
 
 # ========== API: ТЕХ.АДМИН ==========
 
