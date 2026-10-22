@@ -6100,7 +6100,7 @@ def admin_world_events(init_data: str = Query(..., alias="initData")):
 
 
 @app.post("/api/admin/world-events/start")
-def admin_world_event_start(payload: dict = Body(...), background_tasks: BackgroundTasks = None):
+def admin_world_event_start(background_tasks: BackgroundTasks, payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     _require_admin(user_id)
     try:
