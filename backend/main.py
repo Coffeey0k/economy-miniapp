@@ -5361,6 +5361,33 @@ def collection_current(init_data: str = Query(..., alias="initData")):
     return world_events.get_collection(user_id)
 
 
+@app.get("/api/system-market/current")
+def system_market_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.get_system_market(user_id)
+
+
+@app.post("/api/system-market/buy")
+def system_market_buy(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        result = world_events.buy_system_market_offer(user_id, payload.get("offer_key"))
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/system-market/sell")
+def system_market_sell(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        return world_events.sell_system_market_item(
+            user_id, payload.get("item_key"), payload.get("amount", 1)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/pets/expeditions/current")
 def pet_expeditions_current(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
