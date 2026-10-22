@@ -4132,18 +4132,16 @@ def track_message_tasks(user_id: int, is_reply: bool = False,
         if result:
             completed.append(result)
 
-    # Активист / Житель — каждое сообщение
-    track("activist")
-    track("resident")
-
+    # Track by activity category so every variant of a category works.
+    track("messages")
     if is_reply:
-        track("friendly")
+        track("replies")
     if is_photo:
-        track("photographer")
+        track("photo")
     if is_audio:
         track("audio")
     if is_night:
-        track("night_owl")
+        track("night_message")
 
     return completed
 
