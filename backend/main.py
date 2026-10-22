@@ -229,6 +229,10 @@ async def audit_rejected_api_requests(request: Request, call_next):
             activity = ("work", 1)
         elif path.startswith("/api/island/visit"):
             activity = ("visit", 1)
+        elif path == "/api/island/profession-action":
+            activity = ("craft", 1)
+        elif path in {"/api/island/expeditions/start", "/api/island/expeditions/claim"}:
+            activity = ("pet", 1)
         if activity:
             try:
                 uid = get_telegram_user_id(request.query_params.get("initData", "")) if request.query_params.get("initData") else None
