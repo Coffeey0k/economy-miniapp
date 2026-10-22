@@ -689,3 +689,140 @@ def claim_season_level(user_id, level):
         raise
     finally:
         conn.close()
+
+
+PET_EXPEDITION_DESTINATIONS = {
+    "forest": {"name": "🌲 Лавандовый лес", "minutes": 30, "min_ldc": 200, "max_ldc": 500,
+               "items": ["wildflower", "lavender_leaf"], "description": "Короткая прогулка с небольшими находками."},
+    "cave": {"name": "💎 Кристальная пещера", "minutes": 60, "min_ldc": 500, "max_ldc": 1200,
+             "items": ["cave_crystal", "old_coin"], "description": "Опасный маршрут с шансом найти редкий предмет."},
+    "island": {"name": "🏝️ Затерянный остров", "minutes": 120, "min_ldc": 1000, "max_ldc": 2500,
+               "items": ["sea_pearl", "ancient_relic"], "description": "Долгая экспедиция за ценными находками."},
+}
+PET_EXPEDITION_ITEM_NAMES = {
+    "wildflower": "Лесной цветок",
+    "lavender_leaf": "Лавандовый лист",
+    "cave_crystal": "Кристалл пещеры",
+    "old_coin": "Старинная монета",
+    "sea_pearl": "Морская жемчужина",
+    "ancient_relic": "Древняя реликвия",
+}
+
+
+def list_pet_expeditions(user_id):
+    now = datetime.utcnow()
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, pet_name, pet_emoji, rarity FROM pets WHERE user_id = ? AND is_active = TRUE ORDER BY id",
+                (user_id,))
+    pets = [dict(row) for row in cur.fetchall()]
+    cur.execute("""SELECT e.*, p.pet_name, p.pet_emoji, p.rarity
+        FROM pet_expeditions e JOIN pets p ON p.id = e.pet_id
+        WHERE e.user_id = ? ORDER BY e.id DESC LIMIT 20""", (user_id,))
+    expeditions = []
+    for row in cur.fetchall():
+        item = dict(row)
+        ends = _dt(item.get("ends_at"))
+        item["remaining_seconds"] = max(0, int((ends - now).total_seconds())) if ends else 0
+        item["can_claim"] = item.get("status") == "active" and item["remaining_seconds"] == 0
+        expeditions.append(item)
+    conn.close()
+    return {
+        "pets": pets,
+        "expeditions": expeditions,
+        "destinations": [{"key": key, **value} for key, value in PET_EXPEDITION_DESTINATIONS.items()],
+    }
+
+
+def start_pet_expedition(user_id, pet_id, destination):
+    destination = str(destination or "")
+    if destination not in PET_EXPEDITION_DESTINATIONS:
+        raise ValueError("Неизвестный маршрут экспедиции")
+    try:
+        pet_id = int(pet_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Некорректный питомец") from exc
+    destination_info = PET_EXPEDITION_DESTINATIONS[destination]
+    now = datetime.utcnow()
+    conn = _db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT id, pet_name FROM pets WHERE id = ? AND user_id = ? AND is_active = TRUE FOR UPDATE",
+                    (pet_id, user_id))
+        pet = cur.fetchone()
+        if not pet:
+            raise ValueError("Питомец не найден или не принадлежит тебе")
+        cur.execute("SELECT id FROM pet_expeditions WHERE user_id = ? AND status = 'active' LIMIT 1 FOR UPDATE",
+                    (user_id,))
+        active = cur.fetchone()
+        if active:
+            raise ValueError("Сначала забери награду за предыдущую экспедицию")
+        minutes = int(destination_info["minutes"])
+        reward_ldc = random.randint(int(destination_info["min_ldc"]), int(destination_info["max_ldc"]))
+        reward_item = random.choice(destination_info["items"]) if random.random() < 0.35 else None
+        outcome = random.choice([
+            "Питомец нашёл следы древней магии.",
+            "Питомец вернулся с необычной находкой.",
+            "Питомец исследовал новый маршрут.",
+            "Питомец удачно избежал опасности.",
+        ])
+        end_at = now + timedelta(minutes=minutes)
+        cur.execute("""INSERT INTO pet_expeditions
+            (user_id, pet_id, destination, status, started_at, ends_at, reward_ldc, reward_item, outcome)
+            VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)""",
+            (user_id, pet_id, destination, now.isoformat(), end_at.isoformat(), reward_ldc, reward_item, outcome))
+        expedition_id = cur.lastrowid
+        conn.commit()
+        return {"ok": True, "id": expedition_id, "pet_name": pet["pet_name"],
+                "destination": destination_info["name"], "duration_minutes": minutes,
+                "ends_at": end_at.isoformat()}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def claim_pet_expedition(user_id, expedition_id):
+    try:
+        expedition_id = int(expedition_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Некорректная экспедиция") from exc
+    conn = _db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""SELECT * FROM pet_expeditions WHERE id = ? AND user_id = ? FOR UPDATE""",
+                    (expedition_id, user_id))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("Экспедиция не найдена")
+        if row["status"] != "active":
+            raise ValueError("Награда за экспедицию уже получена")
+        if not _dt(row["ends_at"]) or _dt(row["ends_at"]) > datetime.utcnow():
+            raise ValueError("Питомец ещё в пути")
+        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?",
+                    (int(row["reward_ldc"]), user_id))
+        if cur.rowcount != 1:
+            raise ValueError("Профиль игрока не найден")
+        item_name = None
+        if row["reward_item"]:
+            item_key = f"pet_expedition_{expedition_id}_{row['reward_item']}"
+            item_name = PET_EXPEDITION_ITEM_NAMES.get(row["reward_item"], "Редкая находка")
+            cur.execute("""INSERT INTO user_collection_items (user_id, item_key, item_type, item_name, source)
+                VALUES (?, ?, 'expedition', ?, 'pet_expedition') ON CONFLICT(user_id, item_key) DO NOTHING""",
+                (user_id, item_key, item_name))
+        cur.execute("""UPDATE pet_expeditions SET status = 'claimed', claimed_at = ?
+            WHERE id = ? AND user_id = ? AND status = 'active'""",
+            (datetime.utcnow().isoformat(), expedition_id, user_id))
+        if cur.rowcount != 1:
+            raise ValueError("Награда за экспедицию уже получена")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    add_season_xp(user_id, 100)
+    record_season_activity(user_id, "pet", 1)
+    return {"ok": True, "reward_ldc": int(row["reward_ldc"]), "reward_item": item_name,
+            "outcome": row["outcome"]}
