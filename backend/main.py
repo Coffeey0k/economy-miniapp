@@ -5276,6 +5276,19 @@ def admin_world_event_settings(payload: dict = Body(...)):
     return {"ok": True, "settings": settings}
 
 
+@app.post("/api/admin/world-events/schedule/cancel")
+def admin_world_event_schedule_cancel(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    try:
+        schedule_id = int(payload.get("schedule_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный ID расписания")
+    if not world_events.cancel_schedule(schedule_id):
+        raise HTTPException(status_code=404, detail="Ожидающее событие не найдено")
+    return {"ok": True}
+
+
 @app.post("/api/admin/world-events/schedule")
 def admin_world_event_schedule(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
