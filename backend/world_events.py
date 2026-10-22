@@ -96,6 +96,7 @@ def start_event(event_type, duration_minutes=60, reward_ldc=500, reward_xp=100,
     duration = min(240, max(5, int(duration_minutes)))
     reward_ldc = min(50000, max(0, int(reward_ldc)))
     reward_xp = min(5000, max(0, int(reward_xp)))
+    get_current_event()  # Expire stale events and enforce the post-event cooldown.
     now = datetime.utcnow()
     conn = _db()
     cur = conn.cursor()
@@ -157,14 +158,14 @@ def end_event(event_id=None):
         return False
     cur.execute("UPDATE world_events SET status = 'ended', ended_at = ? WHERE id = ? AND status = 'active'",
                 (now.isoformat(), active_id))
-    if cur.rowcount:
+    changed = cur.rowcount > 0
+    if changed:
         gap = max(0, int(settings["min_gap_minutes"] or 60))
         next_allowed = now + timedelta(minutes=gap)
         cur.execute("""UPDATE world_event_settings SET active_event_id = NULL, next_allowed_at = ?,
             next_random_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1""",
             (next_allowed.isoformat(), (next_allowed + timedelta(minutes=random.randint(60, 240))).isoformat()))
     conn.commit()
-    changed = cur.rowcount > 0
     conn.close()
     return changed
 
