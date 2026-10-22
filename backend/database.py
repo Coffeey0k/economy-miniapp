@@ -842,8 +842,9 @@ def init_db():
     ):
         cur.execute(f"DROP TABLE IF EXISTS {obsolete_table}")
 
-    # Old music-specific daily tasks are no longer valid.
+    # Remove legacy music-only inventory and daily-task records.
     cur.execute("DELETE FROM daily_tasks WHERE task_type = 'musician'")
+    cur.execute("DELETE FROM inventory_items WHERE item_key = 'music_tokens'")
 
     # Existing musician jobs are migrated to the equivalent artist job so no
     # player loses their profession or salary progression.
