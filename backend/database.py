@@ -11,6 +11,15 @@ DB_NAME = "paradise.db"
 
 logger = logging.getLogger(__name__)
 
+
+def _record_season_activity(user_id: int, task_type: str, amount: int = 1):
+    """Best-effort seasonal progression hook shared by bot and web actions."""
+    try:
+        from world_events import record_season_activity
+        record_season_activity(user_id, task_type, amount)
+    except Exception:
+        logger.exception("Не удалось обновить сезонный прогресс user_id=%s task=%s", user_id, task_type)
+
 def init_db():
 
     conn = sqlite3.connect(DB_NAME)
@@ -1596,6 +1605,7 @@ def update_game_stats(user_id: int, won: bool, amount: int):
     """, (1 if won else 0, amount if won else 0, amount if not won else 0, user_id))
     conn.commit()
     conn.close()
+    _record_season_activity(user_id, "game", 1)
 
 
 # === СТАТИСТИКА ===
@@ -2187,6 +2197,7 @@ def care_for_pet(user_id: int, pet_id: int, action: str) -> tuple:
     )
     conn.commit()
     conn.close()
+    _record_season_activity(user_id, "pet", 1)
     return True, msg
 
 
@@ -2366,6 +2377,7 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     """, (now.isoformat(), new_days, new_level, today, user_id))
     conn.commit()
     conn.close()
+    _record_season_activity(user_id, "work", 1)
     bonus_parts = []
     if friend_bonus > 0: bonus_parts.append(f"+{friend_bonus}% друзья")
     bonus_text = f" ({', '.join(bonus_parts)})" if bonus_parts else ""
@@ -2490,6 +2502,8 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
         update_balance(user_id, completed_reward)
     if ticket_rewards:
         change_wheel_tickets(user_id, ticket_rewards)
+    if completed:
+        _record_season_activity(user_id, "daily_task", len(completed))
     if not completed:
         return None
     return {"task_type": task_type, "names": completed_names,
@@ -3764,6 +3778,7 @@ def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
             set_cosmetics(user_id, status=item_key)
         elif item_type == "theme":
             set_cosmetics(user_id, theme=item_key)
+        _record_season_activity(user_id, "collect", 1)
         return True, "✅ Применено бесплатно"
 
     if get_balance(user_id) < price:
@@ -3784,6 +3799,7 @@ def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
     elif item_type == "theme":
         set_cosmetics(user_id, theme=item_key)
 
+    _record_season_activity(user_id, "collect", 1)
     return True, f"Куплено! Списано {price:,} 🪙"
 
 
