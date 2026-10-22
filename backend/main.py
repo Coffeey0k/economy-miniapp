@@ -1394,8 +1394,8 @@ def arcade_action(payload: dict = Body(...)):
 
     now = datetime.now().isoformat()
     if finished:
-        if reward > 0:
-            change_balance(cur, user_id, reward)
+        # Claim the active session before crediting the reward; concurrent/replayed
+        # requests cannot settle the same game twice.
         cur.execute(
             "UPDATE arcade_sessions SET state = %s, status = 'finished', reward = %s, updated_at = %s WHERE id = %s AND status = 'active'",
             (json.dumps(state, ensure_ascii=False), reward, now, session_id),
@@ -1404,6 +1404,8 @@ def arcade_action(payload: dict = Body(...)):
             conn.rollback()
             conn.close()
             raise HTTPException(status_code=409, detail="Игра уже была завершена")
+        if reward > 0:
+            change_balance(cur, user_id, reward)
         try:
             bot_db.update_task_progress(user_id, "games", 1)
         except Exception:
