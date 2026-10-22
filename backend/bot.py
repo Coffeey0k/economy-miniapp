@@ -1208,6 +1208,82 @@ async def transfer_word_trigger(message: Message, state: FSMContext):
     await state.set_state(TransferStates.waiting_recipient)
 
 
+@dp.message(Command("expeditions"))
+@dp.message(F.text.lower().strip().in_({"экспедиции питомцев", "экспедиция питомца", "экспедиции"}))
+async def pet_expeditions_word_trigger(message: Message):
+    try:
+        data = world_events.list_pet_expeditions(message.from_user.id)
+        lines = ["🧭 Экспедиции питомцев", ""]
+        builder = InlineKeyboardBuilder()
+        active = [e for e in data.get("expeditions", []) if e.get("status") == "active"]
+        if active:
+            for expedition in active:
+                lines.append(
+                    f"🐾 {expedition.get('pet_name', 'Питомец')} — {expedition.get('destination', '')}"
+                )
+                if expedition.get("can_claim"):
+                    builder.row(InlineKeyboardButton(
+                        text=f"🎁 Забрать награду #{expedition['id']}",
+                        callback_data=f"petexp_claim_{expedition['id']}",
+                    ))
+                else:
+                    lines.append(f"⏳ Осталось: {max(0, int(expedition.get('remaining_seconds') or 0)) // 60} мин.")
+            lines.extend(["", "Сначала забери награду, затем можно отправить питомца снова."])
+        else:
+            pets = data.get("pets", [])
+            if not pets:
+                lines.append("У тебя пока нет доступных питомцев для экспедиции.")
+            else:
+                lines.append("Выбери питомца и маршрут:")
+                for pet in pets[:4]:
+                    for destination in data.get("destinations", []):
+                        builder.row(InlineKeyboardButton(
+                            text=f"{pet.get('pet_emoji', '🐾')} {pet.get('pet_name', 'Питомец')[:12]} · {destination['name'][:18]}",
+                            callback_data=f"petexp_start_{pet['id']}_{destination['key']}",
+                        ))
+                lines.extend(["", "🌲 Лес — 30 мин. · 💎 Пещера — 60 мин. · 🏝️ Остров — 120 мин."])
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if active or data.get("pets") else None)
+    except Exception:
+        logger.exception("Не удалось открыть экспедиции питомцев")
+        await message.answer("Не удалось загрузить экспедиции. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("petexp_start_"))
+async def pet_expedition_start_callback(callback: CallbackQuery):
+    try:
+        _, _, _, pet_id, destination = callback.data.split("_", 4)
+        result = world_events.start_pet_expedition(callback.from_user.id, pet_id, destination)
+        await callback.answer("Питомец отправился!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"🧭 {result['pet_name']} отправился по маршруту {result['destination']}. "
+                f"Вернётся примерно через {result['duration_minutes']} минут."
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось начать экспедицию питомца")
+        await callback.answer("Не удалось начать экспедицию. Попробуй позже.", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("petexp_claim_"))
+async def pet_expedition_claim_callback(callback: CallbackQuery):
+    try:
+        expedition_id = int(callback.data[len("petexp_claim_"):])
+        result = world_events.claim_pet_expedition(callback.from_user.id, expedition_id)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            item = f" и предмет «{result['reward_item']}»" if result.get("reward_item") else ""
+            await callback.message.answer(
+                f"🎁 Экспедиция завершена: +{int(result['reward_ldc']):,} LDC{item}\n{result.get('outcome', '')}"
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось забрать награду экспедиции")
+        await callback.answer("Не удалось забрать награду. Попробуй позже.", show_alert=True)
+
+
 @dp.message(Command("achievements"))
 @dp.message(F.text.lower().strip().in_({"достижения", "ачивки"}))
 async def achievements_word_trigger(message: Message):
