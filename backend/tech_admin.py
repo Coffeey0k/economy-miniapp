@@ -340,8 +340,6 @@ async def tech_show_user(message: Message, state: FSMContext):
     )
     if prof and prof["profession"]:
         text += f"💼 Профессия: {prof['profession']} (ур. {prof['level']})\n"
-    if clan:
-        text += f"🏛️ Клан: {clan['emoji']} {clan['name']} ({clan['role']})\n"
     if island["has_island"]:
         builds = []
         if island["has_house"]: builds.append("🏠")
