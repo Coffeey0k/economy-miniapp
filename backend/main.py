@@ -447,10 +447,13 @@ def fetch_profile(user_id: int) -> dict:
         "theme": (cos_row["theme"] if cos_row and cos_row["theme"] else "reef"),
     }
 
-    # --- значки ---
+    # --- значки и активный титул ---
     cur.execute("SELECT badge FROM user_badges WHERE user_id = %s", (user_id,))
     badges = [r["badge"] for r in cur.fetchall()]
-   
+    cur.execute("SELECT title_name FROM user_titles WHERE user_id = %s AND is_active = TRUE LIMIT 1", (user_id,))
+    title_row = cur.fetchone()
+    active_title = title_row["title_name"] if title_row else None
+
     conn.close()
 
     return {
@@ -465,6 +468,7 @@ def fetch_profile(user_id: int) -> dict:
         "purchases": purchases,
         "cosmetics": cosmetics,
         "badges": badges,
+        "active_title": active_title,
     }
 
 
