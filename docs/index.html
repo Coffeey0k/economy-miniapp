@@ -1194,7 +1194,6 @@
         <button class="tile" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
         <button class="tile" onclick="switchTab('rcc')"><span class="ic">💰</span>LCC</button>
         <button class="tile" onclick="switchTab('gifts')"><span class="ic">🎁</span>Подарки</button>
-        <button class="tile" disabled title="Временно отключено"><span class="ic">🔁</span>Трейды (отключены)</button>
       </div>
     </div>
     <div class="card" id="season-card">
@@ -3282,7 +3281,7 @@
       </div>`;
     });
     html += `</div><h2 style="margin-top:20px">🧑‍🌾 Работа по профессии</h2>`;
-    const supported = new Set(["artist","musician","photographer","gardener","cook","vet","programmer","farmer","fisher","miner","blacksmith","engineer","explorer","merchant"]);
+    const supported = new Set(["artist","photographer","gardener","cook","vet","programmer","farmer","fisher","miner","blacksmith","engineer","explorer","merchant"]);
     const prof = islandData.profession;
     const remaining = Math.max(0, Number(progress.action_remaining_seconds || 0));
     const fmtTime = (s) => `${Math.floor(s/3600)} ч ${Math.floor((s%3600)/60)} мин`;
