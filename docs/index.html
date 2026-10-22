@@ -1596,7 +1596,7 @@
         document.getElementById("p-username").style.color = hex;
       }
     }
-    document.getElementById("p-username").textContent = displayName;
+    document.getElementById("p-username").textContent = displayName + (data.active_title ? " · " + data.active_title : "");
     document.getElementById("p-balance").textContent = data.balance + " 🪙";
     document.getElementById("p-rank").textContent = data.rank;
     document.getElementById("p-warns").textContent = data.warns;
