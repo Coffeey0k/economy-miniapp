@@ -5168,8 +5168,18 @@ def world_event_current(init_data: str = Query(..., alias="initData")):
     cur.execute("SELECT 1 FROM world_event_claims WHERE event_id = ? AND user_id = ?",
                 (event["id"], user_id))
     claimed = cur.fetchone() is not None
+    cur.execute("SELECT contribution FROM world_event_participants WHERE event_id = ? AND user_id = ?",
+                (event["id"], user_id))
+    participant = cur.fetchone()
     conn.close()
-    return {"active": True, "event": event, "claimed": claimed}
+    user_progress = int(participant["contribution"] or 0) if participant else 0
+    if event.get("event_type") == "community_goal":
+        can_claim = not claimed and user_progress > 0 and int(event.get("progress") or 0) >= int(event.get("goal") or 1)
+    else:
+        can_claim = not claimed and user_progress >= int(event.get("goal") or 1)
+    return {"active": True, "event": event, "claimed": claimed,
+            "user_progress": user_progress, "user_goal": int(event.get("goal") or 1),
+            "can_claim": can_claim}
 
 
 @app.post("/api/world-events/claim")
