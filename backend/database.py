@@ -3880,6 +3880,10 @@ def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
             set_cosmetics(user_id, theme=item_key)
         return True, "✅ Применено (уже куплено)"
 
+    # Seasonal cosmetics are unlocked only by the season reward track.
+    if item_type == "frame" and FRAMES[item_key].get("rarity") == "season":
+        return False, "Эта рамка открывается только как сезонная награда."
+
     # Бесплатное
     if price == 0:
         mark_owned(user_id, item_type, item_key)
