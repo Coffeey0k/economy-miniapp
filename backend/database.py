@@ -2495,8 +2495,12 @@ def assign_daily_tasks(user_id: int):
     existing = get_user_tasks(user_id, date)
     if existing:
         return
-    task_keys = list(DAILY_TASKS.keys())
-    chosen = random.sample(task_keys, 3)
+    tasks_by_type = {}
+    for task_key, task_info in DAILY_TASKS.items():
+        tasks_by_type.setdefault(task_info.get("type", task_key), []).append(task_key)
+    available_types = list(tasks_by_type)
+    chosen_types = random.sample(available_types, min(3, len(available_types)))
+    chosen = [random.choice(tasks_by_type[task_type]) for task_type in chosen_types]
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     for key in chosen:
