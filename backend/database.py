@@ -85,7 +85,7 @@ def init_db():
     # Пользователи
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             username TEXT,
             balance INTEGER DEFAULT 0,
             is_banned INTEGER DEFAULT 0,
@@ -104,7 +104,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS purchases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id BIGINT,
             item_type TEXT,
             purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_used BOOLEAN DEFAULT 0
@@ -114,7 +114,7 @@ def init_db():
     # Варны
     cur.execute("""
         CREATE TABLE IF NOT EXISTS warns (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             warn_count INTEGER DEFAULT 0
         )
     """)
@@ -122,7 +122,7 @@ def init_db():
     # Статистика игр
     cur.execute("""
         CREATE TABLE IF NOT EXISTS game_stats (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             games_played INTEGER DEFAULT 0,
             games_won INTEGER DEFAULT 0,
             total_earned INTEGER DEFAULT 0,
@@ -134,7 +134,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS new_members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id BIGINT,
             username TEXT,
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -144,7 +144,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id BIGINT,
             pet_name TEXT,
             pet_emoji TEXT,
             rarity TEXT,
@@ -208,7 +208,7 @@ def init_db():
     # === ПРОФЕССИИ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS professions (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             profession TEXT,
             level INTEGER DEFAULT 1,
             last_work TIMESTAMP,
@@ -220,7 +220,7 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS profession_progress (
-            user_id INTEGER,
+            user_id BIGINT,
             profession TEXT,
             level INTEGER DEFAULT 1,
             days_worked INTEGER DEFAULT 0,
@@ -233,7 +233,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS daily_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id BIGINT,
             task_type TEXT,
             progress INTEGER DEFAULT 0,
             target INTEGER,
@@ -262,7 +262,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS promo_activations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT,
-            user_id INTEGER,
+            user_id BIGINT,
             activated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -281,7 +281,7 @@ def init_db():
     # === ТУТОРИАЛ / ПОДСКАЗКИ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_settings (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             tutorial_done BOOLEAN DEFAULT 0,
             hints_enabled BOOLEAN DEFAULT 1
         )
@@ -849,6 +849,15 @@ def init_db():
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Telegram IDs exceed PostgreSQL INTEGER for many accounts. Migrate all
+    # legacy user-id columns to BIGINT before they are used by bot/web handlers.
+    for user_table in (
+        "users", "purchases", "warns", "game_stats", "new_members", "pets",
+        "professions", "profession_progress", "daily_tasks", "promo_activations",
+        "user_settings",
+    ):
+        cur.execute(f"ALTER TABLE {user_table} ALTER COLUMN user_id TYPE BIGINT")
 
     # One-time feature removal: the old player-to-player trade, clan and music
     # systems have no remaining runtime dependencies. Drop their data/tables.
