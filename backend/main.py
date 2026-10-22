@@ -930,7 +930,7 @@ def get_tasks(init_data: str = Query(..., alias="initData")):
     user_id = get_telegram_user_id(init_data)
     # Ensure Mini App users receive today's tasks even if they haven't sent a bot message.
     bot_db.assign_daily_tasks(user_id)
-    today = datetime.now().date().isoformat()
+    today = bot_db.daily_task_date()
     conn = db()
     cur = conn.cursor()
     cur.execute("""
