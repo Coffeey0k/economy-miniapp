@@ -1532,6 +1532,14 @@ def play_game(payload: dict = Body(...)):
     conn.commit()
     conn.close()
     try:
+        bot_db.update_task_progress(user_id, "games", 1)
+    except Exception:
+        logger.exception("Не удалось обновить ежедневное игровое задание для Mini App")
+    try:
+        world_events.record_season_activity(user_id, "game", 1)
+    except Exception:
+        logger.exception("Не удалось обновить сезонный прогресс игры Mini App")
+    try:
         bot_db.log_action(
             user_id, "game",
             f"Игра Mini App: {game}; ставка={bet}; выигрыш={win}; результат={text}",
