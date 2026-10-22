@@ -28,6 +28,10 @@ def main():
         user_id INTEGER, profession TEXT, level INTEGER DEFAULT 1,
         days_worked INTEGER DEFAULT 0, last_work TIMESTAMP,
         PRIMARY KEY (user_id, profession))""")
+    cur.execute("""CREATE TABLE daily_tasks (
+        id SERIAL PRIMARY KEY, user_id INTEGER, task_type TEXT, progress INTEGER DEFAULT 0,
+        target INTEGER, reward INTEGER, is_done BOOLEAN DEFAULT FALSE,
+        is_claimed BOOLEAN DEFAULT FALSE, assigned_date TEXT)""")
     conn.commit()
     conn.close()
 
@@ -35,7 +39,7 @@ def main():
     database.init_db()
     conn = db_compat.connect(database.DB_NAME)
     cur = conn.cursor()
-    for table in ("web_rules_read", "professions", "profession_progress"):
+    for table in ("web_rules_read", "professions", "profession_progress", "daily_tasks"):
         cur.execute("""SELECT data_type FROM information_schema.columns
             WHERE table_name = ? AND column_name = 'user_id'""", (table,))
         row = cur.fetchone()
