@@ -1228,16 +1228,18 @@ async def season_word_trigger(message: Message):
             "📋 Сезонные задания:",
         ]
         builder = InlineKeyboardBuilder()
+        reward_button_count = 0
         for task in status.get("tasks", []):
             mark = "✅" if task.get("claimed") else "🎁" if task.get("completed") else "▫️"
             lines.append(
                 f"{mark} {task['title']} — {int(task.get('progress') or 0)}/{int(task.get('target') or 0)}"
             )
-            if task.get("completed") and not task.get("claimed") and len(builder.buttons) < 5:
+            if task.get("completed") and not task.get("claimed") and reward_button_count < 5:
                 builder.row(InlineKeyboardButton(
                     text=f"🎁 {task['title'][:28]}",
                     callback_data=f"season_claim_{task['task_key']}",
                 ))
+                reward_button_count += 1
         lines.extend(["", "Награды за задания дают сезонный опыт и LDC."])
         await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if builder.buttons else None)
     except Exception:
