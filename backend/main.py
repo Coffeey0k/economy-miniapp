@@ -4990,6 +4990,11 @@ def send_gift(payload: dict = Body(...)):
         if not r:
             conn.close()
             raise HTTPException(status_code=404, detail="Питомец не найден")
+        cur.execute("SELECT 1 FROM pet_expeditions WHERE pet_id = %s AND user_id = %s AND status = 'active' LIMIT 1",
+                    (pet_id, user_id))
+        if cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="Нельзя подарить питомца, пока он находится в экспедиции")
         cur.execute("DELETE FROM pets WHERE id = %s AND user_id = %s", (pet_id, user_id))
         gift_data = json.dumps({"pet_name": r["pet_name"], "rarity": r["rarity"], "income": r["income"]})
 
