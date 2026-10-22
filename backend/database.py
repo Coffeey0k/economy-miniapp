@@ -3696,7 +3696,9 @@ FRAMES = {
     "spiral":   {"name": "🌀", "price": 30000, "rarity": "base", "display": "🌀 {name} 🌀"},
     "diamond":  {"name": "💎", "price": 100000, "rarity": "rare", "display": "💎 {name} 💎"},
     "crown":    {"name": "👑", "price": 250000, "rarity": "rare", "display": "👑 {name} 👑"},
-    "rainbow":  {"name": "🌈", "price": 500000, "rarity": "rare", "display": "🌈 {name} 🌈"}, 
+    "rainbow":  {"name": "🌈", "price": 500000, "rarity": "rare", "display": "🌈 {name} 🌈"},
+    "season_lavender_frame": {"name": "💜 Сезонная лаванда", "price": 0, "rarity": "season", "display": "💜 {name} 💜"},
+    "seasonal_glow": {"name": "✨ Лавандовое сияние", "price": 0, "rarity": "season", "display": "✨ {name} ✨"},
 }
 
 # Статусы
