@@ -172,6 +172,21 @@ def init_db():
         )
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS pet_expeditions (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            pet_id BIGINT NOT NULL,
+            destination TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            started_at TEXT NOT NULL,
+            ends_at TEXT NOT NULL,
+            reward_ldc BIGINT NOT NULL DEFAULT 0,
+            reward_item TEXT,
+            outcome TEXT,
+            claimed_at TEXT
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS inventory_items (
             user_id BIGINT NOT NULL,
             item_key TEXT NOT NULL,
@@ -4358,6 +4373,7 @@ def _delete_user_full(cur, user_id: int):
         "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
         "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
         "daily_transfer_usage", "inventory_items", "minesweeper_games", "battleship_games",
+        "pet_expeditions",
         "season_progress", "season_task_progress", "season_level_claims",
         "achievement_progress", "user_titles", "user_collection_items",
         "world_event_claims", "world_event_participants",
