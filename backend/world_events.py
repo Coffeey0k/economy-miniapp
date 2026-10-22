@@ -892,6 +892,8 @@ SYSTEM_MARKET_OFFERS = {
 
 
 def get_system_market(user_id):
+    active_event = get_current_event()
+    discount = 15 if active_event and active_event.get("event_type") == "traveling_merchant" else 0
     conn = _db()
     cur = conn.cursor()
     cur.execute("SELECT item_key, quantity FROM inventory_items WHERE user_id = ? AND quantity > 0",
@@ -903,11 +905,14 @@ def get_system_market(user_id):
          "sell_price": SYSTEM_MARKET_PRICES[key]}
         for key, name in SYSTEM_ITEM_NAMES.items() if quantities.get(key, 0) > 0
     ]
-    offers = [{"key": key, "name": value["name"], "price": value["price"],
+    offers = [{"key": key, "name": value["name"],
+               "base_price": value["price"],
+               "price": int(value["price"] * (100 - discount) / 100),
+               "discount_percent": discount,
                "items": [{"name": SYSTEM_ITEM_NAMES.get(item, item), "quantity": amount}
                          for item, amount in value["items"].items()]}
               for key, value in SYSTEM_MARKET_OFFERS.items()]
-    return {"inventory": inventory, "offers": offers}
+    return {"inventory": inventory, "offers": offers, "discount_percent": discount}
 
 
 def buy_system_market_offer(user_id, offer_key):
@@ -936,7 +941,10 @@ def buy_system_market_offer(user_id, offer_key):
                 quantity = inventory_items.quantity + excluded.quantity""",
                 (user_id, item_key, int(quantity)))
         conn.commit()
-        record_season_activity(user_id, "collect", 1)
+        try:
+            record_season_activity(user_id, "collect", 1)
+        except Exception:
+            pass
         return {"ok": True, "offer": offer["name"], "price": price, "discount_percent": discount}
     except Exception:
         conn.rollback()
