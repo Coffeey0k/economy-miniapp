@@ -48,6 +48,7 @@ def main():
     conn = database.sqlite3.connect(database.DB_NAME)
     cur = conn.cursor()
     user_id = 9_000_000_001  # Exercise BIGINT Telegram IDs.
+    cur.execute("INSERT INTO web_rules_read (user_id) VALUES (?)", (user_id,))
     cur.execute(
         """INSERT INTO users (user_id, username, balance)
            VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET
