@@ -333,7 +333,7 @@ def contribute_to_event(user_id, amount=1, activity_type=None):
         VALUES (?, ?, ?) ON CONFLICT(event_id, user_id) DO UPDATE SET
         contribution = CASE WHEN world_event_participants.contribution >= ?
             THEN world_event_participants.contribution
-            ELSE MIN(?, world_event_participants.contribution + excluded.contribution) END,
+            ELSE LEAST(?, world_event_participants.contribution + excluded.contribution) END,
         updated_at = CURRENT_TIMESTAMP""",
         (event["id"], user_id, contribution, int(event.get("goal") or 1),
          int(event.get("goal") or 1)))
