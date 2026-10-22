@@ -141,7 +141,7 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                 uid = event.from_user.id
                 db.assign_daily_tasks(uid)
                 text_value = event.text or event.caption or ""
-                now = datetime.now()
+                now = datetime.now(ZoneInfo("Europe/Moscow"))
                 if event.chat.type in {"group", "supergroup"}:
                     # Basic message/reply/photo/audio/night tasks are handled by
                     # track_daily_tasks below. This middleware handles the newer
@@ -158,14 +158,14 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                         db.update_task_progress(uid, "morning_message", 1)
                     if now.weekday() >= 5:
                         db.update_task_progress(uid, "weekend_messages", 1)
-                    hour_key = (uid, now.date().isoformat(), now.hour)
+                    hour_key = (uid, db.daily_task_date(), now.hour)
                     if hour_key not in _task_active_hour_seen:
                         _task_active_hour_seen.add(hour_key)
                         db.update_task_progress(uid, "active_hours", 1)
                     if len(_task_active_hour_seen) > 50000:
                         # Drop expired hour keys only; never clear current-hour
                         # keys or active users could earn the same task repeatedly.
-                        current_date = now.date().isoformat()
+                        current_date = db.daily_task_date()
                         current_hour_keys = {
                             key for key in _task_active_hour_seen
                             if key[1] == current_date and key[2] == now.hour
@@ -2609,7 +2609,7 @@ async def track_daily_tasks(message: Message, state: FSMContext):
     is_audio = message.voice is not None or message.audio is not None
 
     # Ночной житель — после 20:00
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
     is_night = now.hour >= 20
 
     # Обновляем прогресс
@@ -2682,10 +2682,10 @@ async def blocked_users_cleanup_loop():
 
 
 async def daily_tasks_reset():
-    """Сброс ежедневных заданий в 5:00 МСК"""
+    """Сброс ежедневных заданий ровно в 05:00 по Москве."""
     while True:
-        now = datetime.now()
-        target = now.replace(hour=2, minute=0, second=0, microsecond=0)  # 5 МСК = 2 UTC
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        target = now.replace(hour=5, minute=0, second=0, microsecond=0)
         if target <= now:
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
