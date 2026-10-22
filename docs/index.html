@@ -1216,6 +1216,16 @@
       <h3>🏷️ Мои титулы</h3>
       <div id="achievement-titles"></div>
     </div>
+    <div class="card" id="pet-expeditions-card">
+      <h2>🧭 Экспедиции питомцев</h2>
+      <p class="label">Отправь питомца за LDC и редкими коллекционными находками. Пока он в экспедиции, забрать награду можно после возвращения.</p>
+      <label class="label" for="pet-expedition-pet">Питомец</label>
+      <select id="pet-expedition-pet" style="width:100%;margin:6px 0;"></select>
+      <label class="label" for="pet-expedition-destination">Маршрут</label>
+      <select id="pet-expedition-destination" style="width:100%;margin:6px 0;"></select>
+      <button class="btn" onclick="startPetExpedition()">🚀 Отправить в экспедицию</button>
+      <div id="pet-expeditions-list"></div>
+    </div>
     <div class="card" id="collection-card">
       <h2>📚 Коллекция и бестиарий</h2>
       <div id="collection-summary"></div>
@@ -1376,7 +1386,7 @@
     if (name === "pets") loadPets();
     if (name === "work") loadWork();
     if (name === "wheel") loadWheel();
-    if (name === "more") { loadMore(); loadSeason(); loadAchievements(); loadCollection(); }
+    if (name === "more") { loadMore(); loadSeason(); loadAchievements(); loadCollection(); loadPetExpeditions(); }
     if (name === "games") loadGames();
     if (name === "cosmetics") loadCosmetics();
     if (name === "settings") loadSettings();
@@ -1474,6 +1484,49 @@
       await loadSeason();
     } catch (e) { showMsg("season-tasks", e.message, false); }
   }
+  async function loadPetExpeditions() {
+    const list = document.getElementById("pet-expeditions-list");
+    if (!list) return;
+    try {
+      const data = await apiGet("/api/pets/expeditions/current");
+      const petSelect = document.getElementById("pet-expedition-pet");
+      const destinationSelect = document.getElementById("pet-expedition-destination");
+      const selectedPet = petSelect.value;
+      petSelect.innerHTML = (data.pets || []).map(p =>
+        `<option value="${Number(p.id)}">${escapeHtml(p.pet_emoji || "🐾")} ${escapeHtml(p.pet_name)} · ${escapeHtml(p.rarity || "обычный")}</option>`
+      ).join("");
+      if (selectedPet && [...petSelect.options].some(o => o.value === selectedPet)) petSelect.value = selectedPet;
+      destinationSelect.innerHTML = (data.destinations || []).map(d =>
+        `<option value="${escapeHtml(d.key)}">${escapeHtml(d.name)} · ${Number(d.minutes)} мин. · ${Number(d.min_ldc).toLocaleString()}–${Number(d.max_ldc).toLocaleString()} LDC</option>`
+      ).join("");
+      const active = (data.expeditions || []).filter(e => e.status === "active");
+      document.getElementById("pet-expeditions-card").querySelector("button.btn").disabled = !data.pets?.length || active.length > 0;
+      list.innerHTML = (data.expeditions || []).map(e => `
+        <div class="item-row">
+          <span><b>${escapeHtml(e.pet_emoji || "🐾")} ${escapeHtml(e.pet_name)}</b><br>
+          <span class="label">${escapeHtml(e.destination)} · ${e.can_claim ? "Вернулся!" : e.status === "claimed" ? "Завершено" : formatEventRemaining(e.remaining_seconds)}</span></span>
+          ${e.can_claim ? `<button class="btn btn-small" onclick="claimPetExpedition(${Number(e.id)})">Забрать</button>` : ""}
+        </div>`).join("") || '<p class="label">Питомцы ещё не отправлялись в экспедиции.</p>';
+    } catch (e) { list.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+  async function startPetExpedition() {
+    try {
+      const petId = Number(document.getElementById("pet-expedition-pet").value);
+      const destination = document.getElementById("pet-expedition-destination").value;
+      if (!petId || !destination) throw new Error("Сначала выбери питомца и маршрут.");
+      const result = await apiPost("/api/pets/expeditions/start", {pet_id: petId, destination});
+      toast(`${result.pet_name} отправился в экспедицию: ${result.destination}`);
+      await loadPetExpeditions();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function claimPetExpedition(expeditionId) {
+    try {
+      const result = await apiPost("/api/pets/expeditions/claim", {expedition_id: expeditionId});
+      toast(`Экспедиция завершена: +${Number(result.reward_ldc || 0).toLocaleString()} LDC${result.reward_item ? " · " + result.reward_item : ""}`);
+      await loadPetExpeditions(); await loadCollection(); await loadSeason(); await loadAchievements(); await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
   async function loadAchievements() {
     const el = document.getElementById("achievements-list");
     if (!el) return;
