@@ -454,3 +454,179 @@ def claim_season_task(user_id, task_key):
         raise
     finally:
         conn.close()
+
+
+def record_achievement_progress(user_id, activity, amount=1):
+    amount = max(1, min(100, int(amount)))
+    conn = _db()
+    cur = conn.cursor()
+    try:
+        for item in ACHIEVEMENTS:
+            if item["activity"] != activity:
+                continue
+            cur.execute("""INSERT INTO achievement_progress (user_id, achievement_key, progress)
+                VALUES (?, ?, 0) ON CONFLICT(user_id, achievement_key) DO NOTHING""",
+                (user_id, item["key"]))
+            cur.execute("SELECT progress, completed_at FROM achievement_progress WHERE user_id = ? AND achievement_key = ?",
+                        (user_id, item["key"]))
+            row = cur.fetchone()
+            if not row or row["completed_at"]:
+                continue
+            new_progress = min(int(item["target"]), int(row["progress"] or 0) + amount)
+            completed = new_progress >= int(item["target"])
+            cur.execute("""UPDATE achievement_progress SET progress = ?, completed_at = ?
+                WHERE user_id = ? AND achievement_key = ? AND completed_at IS NULL""",
+                (new_progress, datetime.utcnow().isoformat() if completed else None, user_id, item["key"]))
+            if completed and item.get("title_key"):
+                cur.execute("""INSERT INTO user_titles (user_id, title_key, title_name, source)
+                    VALUES (?, ?, ?, 'achievement') ON CONFLICT(user_id, title_key) DO NOTHING""",
+                    (user_id, item["title_key"], item["title_name"]))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_achievements(user_id):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT achievement_key, progress, completed_at, claimed_at FROM achievement_progress WHERE user_id = ?",
+                (user_id,))
+    existing = {row["achievement_key"]: dict(row) for row in cur.fetchall()}
+    cur.execute("SELECT title_key, title_name, is_active FROM user_titles WHERE user_id = ? ORDER BY acquired_at DESC",
+                (user_id,))
+    titles = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    result = []
+    for item in ACHIEVEMENTS:
+        row = existing.get(item["key"], {})
+        result.append({
+            **item,
+            "progress": int(row.get("progress") or 0),
+            "completed": bool(row.get("completed_at")),
+            "claimed": bool(row.get("claimed_at")),
+        })
+    return {"achievements": result, "titles": titles}
+
+
+def claim_achievement(user_id, achievement_key):
+    item = next((x for x in ACHIEVEMENTS if x["key"] == achievement_key), None)
+    if not item:
+        raise ValueError("Достижение не найдено")
+    conn = _db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""SELECT progress, completed_at, claimed_at FROM achievement_progress
+            WHERE user_id = ? AND achievement_key = ? FOR UPDATE""", (user_id, achievement_key))
+        row = cur.fetchone()
+        if not row or not row["completed_at"]:
+            raise ValueError("Достижение ещё не выполнено")
+        if row["claimed_at"]:
+            raise ValueError("Награда уже получена")
+        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?",
+                    (int(item["reward_ldc"]), user_id))
+        if cur.rowcount != 1:
+            raise ValueError("Профиль игрока не найден")
+        cur.execute("""UPDATE achievement_progress SET claimed_at = ?
+            WHERE user_id = ? AND achievement_key = ? AND claimed_at IS NULL""",
+            (datetime.utcnow().isoformat(), user_id, achievement_key))
+        if cur.rowcount != 1:
+            raise ValueError("Награда уже получена")
+        conn.commit()
+        return {"ok": True, "reward_ldc": int(item["reward_ldc"]), "title": item.get("title_name")}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def set_active_title(user_id, title_key):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT title_name FROM user_titles WHERE user_id = ? AND title_key = ?", (user_id, title_key))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise ValueError("Этот титул ещё не открыт")
+    cur.execute("UPDATE user_titles SET is_active = FALSE WHERE user_id = ?", (user_id,))
+    cur.execute("UPDATE user_titles SET is_active = TRUE WHERE user_id = ? AND title_key = ?", (user_id, title_key))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "title_key": title_key, "title_name": row["title_name"]}
+
+
+def get_collection(user_id):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT item_key, item_type, item_name, source, acquired_at FROM user_collection_items WHERE user_id = ? ORDER BY acquired_at DESC",
+                (user_id,))
+    items = [dict(row) for row in cur.fetchall()]
+    cur.execute("SELECT title_key, title_name, is_active, acquired_at FROM user_titles WHERE user_id = ? ORDER BY acquired_at DESC",
+                (user_id,))
+    titles = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    try:
+        pets_raw = bot_db.get_user_pets(user_id)
+    except Exception:
+        pets_raw = []
+    pets = []
+    for pet in pets_raw:
+        if isinstance(pet, dict):
+            pets.append({"name": pet.get("name") or pet.get("pet_name") or "Питомец",
+                         "rarity": pet.get("rarity") or "обычный"})
+        elif isinstance(pet, (tuple, list)):
+            pets.append({"name": str(pet[1] if len(pet) > 1 else "Питомец"),
+                         "rarity": str(pet[3] if len(pet) > 3 else "обычный")})
+    return {"items": items, "titles": titles, "pets": pets,
+            "summary": {"items": len(items), "titles": len(titles), "pets": len(pets)}}
+
+
+def claim_season_level(user_id, level):
+    level = int(level)
+    season = ensure_current_season()
+    conn = _db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT xp, level FROM season_progress WHERE season_id = ? AND user_id = ? FOR UPDATE",
+                    (season["id"], user_id))
+        progress = cur.fetchone()
+        if not progress or int(progress["level"] or 0) < level:
+            raise ValueError("Этот уровень сезона ещё не достигнут")
+        cur.execute("SELECT reward_type, reward_key, amount, description FROM season_level_rewards WHERE season_id = ? AND level = ?",
+                    (season["id"], level))
+        reward = cur.fetchone()
+        if not reward:
+            raise ValueError("Для этого уровня нет отдельной награды")
+        cur.execute("INSERT INTO season_level_claims (season_id, user_id, level) VALUES (?, ?, ?)",
+                    (season["id"], user_id, level))
+        reward_type = reward["reward_type"]
+        reward_key = reward["reward_key"] or ""
+        amount = int(reward["amount"] or 0)
+        description = reward["description"]
+        if reward_type == "ldc":
+            cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+            if cur.rowcount != 1:
+                raise ValueError("Профиль игрока не найден")
+        elif reward_type == "title":
+            title_key = f"{season['season_key']}_{reward_key}"
+            cur.execute("""INSERT INTO user_titles (user_id, title_key, title_name, source)
+                VALUES (?, ?, ?, 'season') ON CONFLICT(user_id, title_key) DO NOTHING""",
+                (user_id, title_key, description.replace("Титул ", "").strip("«»")))
+        else:
+            item_key = f"{season['season_key']}_{reward_key}"
+            cur.execute("""INSERT INTO user_collection_items (user_id, item_key, item_type, item_name, source)
+                VALUES (?, ?, ?, ?, 'season') ON CONFLICT(user_id, item_key) DO NOTHING""",
+                (user_id, item_key, reward_type, description))
+        conn.commit()
+        return {"ok": True, "level": level, "reward_type": reward_type,
+                "reward": description, "amount": amount if reward_type == "ldc" else 1}
+    except Exception as exc:
+        conn.rollback()
+        if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+            raise ValueError("Награда за этот уровень уже получена") from exc
+        raise
+    finally:
+        conn.close()
