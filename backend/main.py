@@ -4751,6 +4751,7 @@ def _delete_user_full_main(cur, user_id: int):
         "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
         "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
         "daily_transfer_usage", "inventory_items", "minesweeper_games", "battleship_games",
+        "pet_expeditions",
         "season_progress", "season_task_progress", "season_level_claims",
         "achievement_progress", "user_titles", "user_collection_items",
         "world_event_claims", "world_event_participants",
