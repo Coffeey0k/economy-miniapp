@@ -122,12 +122,13 @@ def start_event(event_type, duration_minutes=60, reward_ldc=500, reward_xp=100,
         default_title, default_description = EVENT_TYPES[event_type]
         end_at = now + timedelta(minutes=duration)
         event_key = f"{event_type}_{int(now.timestamp())}"
+        goal = 20 if event_type == "community_goal" else 1
         cur.execute("""INSERT INTO world_events
             (event_key, title, description, event_type, status, source, starts_at, ends_at,
              reward_ldc, reward_xp, goal, progress, created_by)
-            VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, 1, 0, ?)""",
+            VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, 0, ?)""",
             (event_key, (title or default_title)[:120], (description or default_description)[:1000],
-             event_type, source, now.isoformat(), end_at.isoformat(), reward_ldc, reward_xp, created_by))
+             event_type, source, now.isoformat(), end_at.isoformat(), reward_ldc, reward_xp, goal, created_by))
         event_id = cur.lastrowid
         cur.execute("""UPDATE world_event_settings SET active_event_id = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = 1""", (event_id,))
@@ -240,8 +241,17 @@ def claim_event(user_id):
     event = get_current_event()
     if not event:
         raise ValueError("Сейчас нет активного события")
-    if event["event_type"] == "community_goal" and int(event.get("progress") or 0) < int(event.get("goal") or 1):
-        raise ValueError("Общая цель события ещё не достигнута")
+    if event["event_type"] == "community_goal":
+        if int(event.get("progress") or 0) < int(event.get("goal") or 1):
+            raise ValueError("Общая цель события ещё не достигнута")
+        conn = _db()
+        cur = conn.cursor()
+        cur.execute("SELECT contribution FROM world_event_participants WHERE event_id = ? AND user_id = ?",
+                    (event["id"], user_id))
+        participant = cur.fetchone()
+        conn.close()
+        if not participant or int(participant["contribution"] or 0) < 1:
+            raise ValueError("Сначала внеси вклад в общее событие")
     conn = _db()
     cur = conn.cursor()
     try:
@@ -268,8 +278,13 @@ def contribute_to_event(user_id, amount=1):
         return None
     conn = _db()
     cur = conn.cursor()
+    contribution = max(1, min(10, int(amount)))
     cur.execute("UPDATE world_events SET progress = LEAST(goal, progress + ?) WHERE id = ? AND status = 'active'",
-                (max(1, min(10, int(amount))), event["id"]))
+                (contribution, event["id"]))
+    cur.execute("""INSERT INTO world_event_participants (event_id, user_id, contribution)
+        VALUES (?, ?, ?) ON CONFLICT(event_id, user_id) DO UPDATE SET
+        contribution = world_event_participants.contribution + excluded.contribution,
+        updated_at = CURRENT_TIMESTAMP""", (event["id"], user_id, contribution))
     conn.commit()
     conn.close()
     return True
