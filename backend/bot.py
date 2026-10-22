@@ -3015,6 +3015,11 @@ async def main():
         {"command": "help", "description": "ℹ️ Помощь"},
         {"command": "rules", "description": "📜 Правила Lavender Dream"},
         {"command": "feedback", "description": "✉️ Обратная связь"},
+        {"command": "season", "description": "🌸 Сезон Lavender Dream"},
+        {"command": "expeditions", "description": "🧭 Экспедиции питомцев"},
+        {"command": "market", "description": "🏪 Системный магазин"},
+        {"command": "achievements", "description": "🏆 Достижения"},
+        {"command": "collection", "description": "📚 Коллекция и бестиарий"},
         {"command": "admin", "description": "👑 Админ-панель"},
     ])
     asyncio.create_task(weekly_clean_reminder())
