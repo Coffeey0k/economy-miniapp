@@ -2625,6 +2625,24 @@ async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
             logger.exception("Не удалось выполнить необязательную операцию")
 
 
+
+@dp.callback_query(F.data == "world_event_claim")
+async def world_event_claim_callback(callback: CallbackQuery):
+    try:
+        result = world_events.claim_event(callback.from_user.id)
+        world_events.record_season_activity(callback.from_user.id, "event", 1)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"🎁 Получено: +{int(result['reward_ldc']):,} LDC и +{int(result['reward_xp'])} сезонного опыта."
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось выдать награду глобального события")
+        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
+
+
 async def announce_world_event(event: dict):
     message = (
         f"🌍 ГЛОБАЛЬНОЕ СОБЫТИЕ: {event.get('title', 'Событие')}\\n\\n"
@@ -2632,14 +2650,16 @@ async def announce_world_event(event: dict):
         f"⏳ Длительность: {max(1, int(event.get('remaining_seconds', 3600)) // 60)} мин.\\n"
         f"🎁 Награда за участие: {int(event.get('reward_ldc', 0)):,} LDC и "
         f"{int(event.get('reward_xp', 0))} сезонного опыта.\\n\\n"
-        "Открой Lavender Dream в боте или веб-приложении, чтобы участвовать."
+        "Выполняй действия в Lavender Dream и нажми кнопку, чтобы забрать награду."
     )
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🎁 Забрать награду", callback_data="world_event_claim"))
     for user in db.get_all_users():
         uid = user.get("user_id")
         if not uid or user.get("is_banned"):
             continue
         try:
-            await bot.send_message(int(uid), message)
+            await bot.send_message(int(uid), message, reply_markup=builder.as_markup())
         except Exception:
             # Пользователь мог заблокировать бота или запретить сообщения.
             logger.debug("Не удалось отправить уведомление о событии user_id=%s", uid)
