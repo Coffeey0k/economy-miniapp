@@ -229,6 +229,7 @@ async def audit_rejected_api_requests(request: Request, call_next):
                     uid = get_telegram_user_id(body.get("initData", "")) if isinstance(body, dict) else None
                 if uid:
                     world_events.record_season_activity(uid, activity[0], activity[1])
+                    world_events.contribute_to_event(uid, activity[1])
             except Exception:
                 logger.exception("Не удалось обновить сезонный прогресс для %s", path)
     if response.status_code >= 400:
@@ -6037,7 +6038,7 @@ def _broadcast_world_event(event: dict):
         uid = user.get("user_id") if isinstance(user, dict) else None
         if not uid or (isinstance(user, dict) and user.get("is_banned")):
             continue
-        _safe_bot_send(int(uid), message)
+        _safe_bot_send(int(uid), message, reply_markup={"inline_keyboard": [[{"text": "🎁 Забрать награду", "callback_data": "world_event_claim"}]]})
         time.sleep(0.05)
 
 
