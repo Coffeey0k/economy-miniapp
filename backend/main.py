@@ -729,9 +729,16 @@ def get_inventory_endpoint(init_data: str = Query(..., alias="initData")):
 def buy_pet_food_endpoint(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     item_key = str(payload.get("item_key") or "")
+    raw_quantity = payload.get("quantity", 1)
+    if isinstance(raw_quantity, bool) or not isinstance(raw_quantity, (int, float, str)):
+        raise HTTPException(status_code=400, detail="Некорректное количество")
+    if isinstance(raw_quantity, float) and not raw_quantity.is_integer():
+        raise HTTPException(status_code=400, detail="Количество должно быть целым числом")
+    if isinstance(raw_quantity, str) and not raw_quantity.strip().isdigit():
+        raise HTTPException(status_code=400, detail="Количество должно быть целым числом")
     try:
-        quantity = int(payload.get("quantity") or 1)
-    except (TypeError, ValueError):
+        quantity = int(raw_quantity)
+    except (TypeError, ValueError, OverflowError):
         raise HTTPException(status_code=400, detail="Некорректное количество")
     prices = {
         "cat_food": 250, "dog_food": 250, "rabbit_food": 250,
@@ -765,7 +772,15 @@ def buy_pet_food_endpoint(payload: dict = Body(...)):
 @app.post("/api/inventory/use-pet-food")
 def use_pet_food_endpoint(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
-    pet_id = int(payload.get("pet_id") or 0)
+    try:
+        raw_pet_id = payload.get("pet_id")
+        if isinstance(raw_pet_id, bool):
+            raise ValueError("boolean pet id")
+        pet_id = int(raw_pet_id)
+    except (TypeError, ValueError, OverflowError):
+        raise HTTPException(status_code=400, detail="Некорректный питомец")
+    if pet_id <= 0:
+        raise HTTPException(status_code=400, detail="Некорректный питомец")
     ok, message = bot_db.use_pet_food(user_id, pet_id)
     if not ok:
         raise HTTPException(status_code=400, detail=message)
