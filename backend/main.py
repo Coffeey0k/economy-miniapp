@@ -107,8 +107,9 @@ PROFESSION_INFO = {
     "merchant": {"name": "🛒 Торговец", "salary": 1150, "cooldown_hours": 4},
     "ruler": {"name": "👑 Правитель Lavender Dream", "salary": 10000, "cooldown_hours": 12},
 }
-HIRE_COST = 1000
-FIRE_EXTRA_COST = 1000
+# Трудоустройство и смена профессии бесплатны.
+HIRE_COST = 0
+FIRE_EXTRA_COST = 0
 
 PET_EGGS = {
     "ordinary": {"price": 1000, "name": "🥚 Обычное яйцо",
@@ -821,7 +822,7 @@ def get_professions(init_data: str = Query(..., alias="initData")):
         for key, p in PROFESSION_INFO.items()
         if key != "ruler" or is_admin
     ]
-    return {"current": current, "all": all_professions, "hire_cost": HIRE_COST}
+    return {"current": current, "all": all_professions, "hire_cost": 0}
 
 
 @app.post("/api/professions/hire")
@@ -839,14 +840,6 @@ def hire_profession(payload: dict = Body(...)):
         "SELECT total_changes, profession FROM professions WHERE user_id = ?", (user_id,)
     )
     row = cur.fetchone()
-    cost = HIRE_COST
-    if row and row["profession"]:
-        cost += FIRE_EXTRA_COST * (row["total_changes"] + 1)
-
-    if not change_balance(cur, user_id, -cost):
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {cost} 🪙")
-
     changes = (row["total_changes"] + 1) if row else 0
     cur.execute("""
         INSERT INTO professions (user_id, profession, level, days_worked, total_changes)
