@@ -1208,6 +1208,96 @@ async def transfer_word_trigger(message: Message, state: FSMContext):
     await state.set_state(TransferStates.waiting_recipient)
 
 
+@dp.message(Command("achievements"))
+@dp.message(F.text.lower().strip().in_({"достижения", "ачивки"}))
+async def achievements_word_trigger(message: Message):
+    try:
+        data = world_events.get_achievements(message.from_user.id)
+        lines = ["🏆 Достижения Lavender Dream", ""]
+        builder = InlineKeyboardBuilder()
+        buttons = 0
+        for item in data.get("achievements", []):
+            done = item.get("completed")
+            claimed = item.get("claimed")
+            lines.append(f"{'🎁' if done and not claimed else '✅' if claimed else '▫️'} {item['title']} — {int(item.get('progress') or 0)}/{int(item['target'])}")
+            if done and not claimed and buttons < 6:
+                builder.row(InlineKeyboardButton(
+                    text=f"🎁 {item['title'][:28]}",
+                    callback_data=f"achievement_claim_{item['key']}",
+                ))
+                buttons += 1
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if buttons else None)
+    except Exception:
+        logger.exception("Не удалось открыть достижения")
+        await message.answer("Не удалось загрузить достижения. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("achievement_claim_"))
+async def achievement_claim_callback(callback: CallbackQuery):
+    key = callback.data[len("achievement_claim_"):]
+    try:
+        result = world_events.claim_achievement(callback.from_user.id, key)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"🏆 Достижение получено: +{int(result['reward_ldc']):,} LDC. "
+                f"Открыт титул: {result.get('title') or '—'}."
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось получить награду достижения")
+        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
+
+
+@dp.message(Command("collection"))
+@dp.message(F.text.lower().strip().in_({"коллекция", "моя коллекция", "бестиарий"}))
+async def collection_word_trigger(message: Message):
+    try:
+        data = world_events.get_collection(message.from_user.id)
+        summary = data.get("summary", {})
+        lines = [
+            "📚 Коллекция Lavender Dream",
+            f"🐾 Питомцев: {summary.get('pets', 0)}",
+            f"🎒 Коллекционных предметов: {summary.get('items', 0)}",
+            f"🏷️ Титулов: {summary.get('titles', 0)}",
+        ]
+        items = data.get("items", [])
+        if items:
+            lines.extend(["", "Предметы:"])
+            lines.extend(f"• {item['item_name']}" for item in items[:10])
+        titles = data.get("titles", [])
+        builder = InlineKeyboardBuilder()
+        if titles:
+            lines.extend(["", "Титулы:"])
+            for title in titles[:8]:
+                lines.append(f"{'⭐ ' if title.get('is_active') else '• '}{title['title_name']}")
+                if not title.get("is_active"):
+                    builder.row(InlineKeyboardButton(
+                        text=f"Выбрать: {title['title_name'][:24]}",
+                        callback_data=f"title_equip_{title['title_key']}",
+                    ))
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if builder.buttons else None)
+    except Exception:
+        logger.exception("Не удалось открыть коллекцию")
+        await message.answer("Не удалось загрузить коллекцию. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("title_equip_"))
+async def title_equip_callback(callback: CallbackQuery):
+    key = callback.data[len("title_equip_"):]
+    try:
+        result = world_events.set_active_title(callback.from_user.id, key)
+        await callback.answer("Титул выбран!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"🏷️ Активный титул: {result['title_name']}")
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось выбрать титул")
+        await callback.answer("Не удалось выбрать титул. Попробуй позже.", show_alert=True)
+
+
 @dp.message(Command("season"))
 @dp.message(F.text.lower().strip().in_({"сезон", "сезоны"}))
 async def season_word_trigger(message: Message):
@@ -1240,11 +1330,34 @@ async def season_word_trigger(message: Message):
                     callback_data=f"season_claim_{task['task_key']}",
                 ))
                 reward_button_count += 1
+        for reward in status.get("level_rewards", []):
+            if int(progress.get("level") or 0) >= int(reward.get("level") or 0) and not reward.get("claimed") and reward_button_count < 8:
+                builder.row(InlineKeyboardButton(
+                    text=f"🎁 Уровень {reward['level']}: {reward['description'][:22]}",
+                    callback_data=f"season_level_claim_{reward['level']}",
+                ))
+                reward_button_count += 1
         lines.extend(["", "Награды за задания дают сезонный опыт и LDC."])
-        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if builder.buttons else None)
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if reward_button_count else None)
     except Exception:
         logger.exception("Не удалось открыть сезон")
         await message.answer("Не удалось загрузить сезон. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("season_level_claim_"))
+async def season_level_claim_callback(callback: CallbackQuery):
+    try:
+        level = int(callback.data[len("season_level_claim_"):])
+        result = world_events.claim_season_level(callback.from_user.id, level)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            reward_text = f"+{int(result.get('amount') or 0):,} LDC" if result.get("reward_type") == "ldc" else result.get("reward", "Награда получена")
+            await callback.message.answer(f"🌸 Награда уровня {level}: {reward_text}")
+    except (ValueError, TypeError) as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось получить награду уровня сезона")
+        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("season_claim_"))
