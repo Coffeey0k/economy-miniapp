@@ -203,7 +203,7 @@ def create_schedule(event_type, scheduled_at, duration_minutes=60, reward_ldc=50
         (event_type, scheduled_at, duration_minutes, reward_ldc, reward_xp, title, description, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (event_type, when.isoformat(), min(240, max(5, int(duration_minutes))),
-         min(50000, max(0, int(reward_ldc))), min(5000, max(0, int(reward_xp)),
+         min(50000, max(0, int(reward_ldc))), min(5000, max(0, int(reward_xp))),
          (title or "")[:120] or None, (description or "")[:1000] or None, created_by))
     schedule_id = cur.lastrowid
     conn.commit()
@@ -269,8 +269,6 @@ def contribute_to_event(user_id, amount=1):
     cur = conn.cursor()
     cur.execute("UPDATE world_events SET progress = LEAST(goal, progress + ?) WHERE id = ? AND status = 'active'",
                 (max(1, min(10, int(amount))), event["id"]))
-    cur.execute("INSERT INTO world_event_claims (event_id, user_id, claimed_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(event_id, user_id) DO NOTHING",
-                (event["id"], user_id))
     conn.commit()
     conn.close()
     return True
