@@ -460,6 +460,8 @@ def init_db():
             target INTEGER NOT NULL,
             reward_xp INTEGER NOT NULL DEFAULT 0,
             reward_ldc BIGINT NOT NULL DEFAULT 0,
+            period_type TEXT NOT NULL DEFAULT 'season',
+            period_key TEXT NOT NULL DEFAULT 'season',
             PRIMARY KEY (season_id, task_key)
         )
     """)
