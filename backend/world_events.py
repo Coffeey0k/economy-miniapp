@@ -385,9 +385,13 @@ def record_season_activity(user_id, task_type, amount=1):
              season["id"], user_id, task["task_key"]))
     conn.commit()
     conn.close()
-    record_achievement_progress(user_id, task_type, max(1, int(amount)))
+    safe_amount = min(100, max(1, int(amount)))
+    record_achievement_progress(user_id, task_type, safe_amount)
+    # Small XP awards make normal play useful for the 30-day season track.
+    if task_type != "event":
+        add_season_xp(user_id, safe_amount * 5)
     # Every successful activity also contributes to a live global community goal.
-    contribute_to_event(user_id, min(10, max(1, int(amount))))
+    contribute_to_event(user_id, min(10, safe_amount))
 
 def get_season_status(user_id):
     season = ensure_current_season()
