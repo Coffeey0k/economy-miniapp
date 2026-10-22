@@ -1219,7 +1219,9 @@
     <div class="card" id="collection-card">
       <h2>📚 Коллекция и бестиарий</h2>
       <div id="collection-summary"></div>
-      <h3>🐾 Питомцы</h3>
+      <h3>📖 Бестиарий</h3>
+      <div id="collection-bestiary"></div>
+      <h3>🐾 Мои питомцы</h3>
       <div id="collection-pets"></div>
       <h3>🎒 Коллекционные предметы</h3>
       <div id="collection-items"></div>
@@ -1500,8 +1502,12 @@
       const data = await apiGet("/api/collection/current");
       const s = data.summary || {};
       summary.innerHTML = `<div class="stat-row"><span>Питомцы</span><b>${Number(s.pets || 0)}</b></div>
+        <div class="stat-row"><span>Открытые виды</span><b>${Number(s.species_discovered || 0)}/${Number(s.species_total || 0)}</b></div>
         <div class="stat-row"><span>Предметы</span><b>${Number(s.items || 0)}</b></div>
         <div class="stat-row"><span>Титулы</span><b>${Number(s.titles || 0)}</b></div>`;
+      document.getElementById("collection-bestiary").innerHTML = (data.bestiary || []).map(p =>
+        `<div class="stat-row"><span>${p.discovered ? "🐾" : "🔒"} ${p.discovered ? escapeHtml(p.name) : "Неизвестное существо"}</span><span class="label">${p.discovered ? escapeHtml(p.rarity) : "Не найдено"}</span></div>`
+      ).join("") || '<p class="label">Бестиарий пуст.</p>';
       document.getElementById("collection-pets").innerHTML = (data.pets || []).map(p =>
         `<div class="stat-row"><span>${escapeHtml(p.name)}</span><span class="label">${escapeHtml(p.rarity)}</span></div>`
       ).join("") || '<p class="label">Питомцы пока не собраны.</p>';
