@@ -44,6 +44,7 @@ ACHIEVEMENTS = [
     {"key":"pet_friend","title":"Друг питомцев","description":"Выполни 10 действий по уходу или экспедициям.","activity":"pet","target":10,"reward_ldc":300,"title_key":"pet_friend","title_name":"Друг питомцев"},
     {"key":"daily_10","title":"Постоянство","description":"Заверши 10 ежедневных заданий.","activity":"daily_task","target":10,"reward_ldc":500,"title_key":"steady_player","title_name":"Постоянный игрок"},
     {"key":"event_3","title":"Охотник за событиями","description":"Участвуй в 3 глобальных событиях.","activity":"event","target":3,"reward_ldc":400,"title_key":"event_hunter","title_name":"Охотник за событиями"},
+    {"key":"secret_event","title":"Тайный участник","description":"Секретное достижение. Найди его сам.","activity":"event","target":1,"reward_ldc":300,"title_key":"secret_finder","title_name":"Искатель тайн","secret":True},
     {"key":"collector_5","title":"Коллекционер","description":"Получи 5 предметов коллекции или косметики.","activity":"collect","target":5,"reward_ldc":400,"title_key":"collector","title_name":"Коллекционер"},
     {"key":"explorer_5","title":"Исследователь","description":"Посети 5 островов или поместий.","activity":"visit","target":5,"reward_ldc":300,"title_key":"explorer","title_name":"Исследователь"},
     {"key":"craft_5","title":"Мастерская","description":"Выполни 5 островных производственных действий.","activity":"craft","target":5,"reward_ldc":350,"title_key":"craft_master","title_name":"Мастер"},
@@ -377,6 +378,22 @@ def ensure_current_season():
                 (season_id, task_key, title, description, task_type, target, reward_xp, reward_ldc)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(season_id, task_key) DO NOTHING""",
                 (season["id"],) + task)
+    day_key = now.strftime("%Y%m%d")
+    week_key = now.strftime("%G%V")
+    periodic_tasks = [
+        (f"daily_game_{day_key}", "🎮 Ежедневная игра", "Сыграй 3 мини-игры сегодня.", "game", 3, 50, 100, "daily", day_key),
+        (f"daily_work_{day_key}", "💼 Ежедневная смена", "Выполни одну рабочую смену сегодня.", "work", 1, 60, 100, "daily", day_key),
+        (f"daily_pet_{day_key}", "🐾 Забота дня", "Позаботься о питомце или забери экспедицию.", "pet", 1, 40, 75, "daily", day_key),
+        (f"weekly_games_{week_key}", "🎯 Игровая неделя", "Сыграй 20 мини-игр за неделю.", "game", 20, 200, 500, "weekly", week_key),
+        (f"weekly_work_{week_key}", "🧰 Рабочая неделя", "Выполни 5 рабочих смен за неделю.", "work", 5, 150, 400, "weekly", week_key),
+        (f"weekly_events_{week_key}", "🌍 Событийная неделя", "Забери награды за 2 глобальных события.", "event", 2, 200, 500, "weekly", week_key),
+        (f"weekly_pets_{week_key}", "🧭 Путешественник недели", "Заверши 5 действий с питомцами или экспедициями.", "pet", 5, 150, 350, "weekly", week_key),
+    ]
+    for task_key, title, description, task_type, target, reward_xp, reward_ldc, period_type, period_key in periodic_tasks:
+        cur.execute("""INSERT INTO season_tasks
+            (season_id, task_key, title, description, task_type, target, reward_xp, reward_ldc, period_type, period_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(season_id, task_key) DO NOTHING""",
+            (season["id"], task_key, title, description, task_type, target, reward_xp, reward_ldc, period_type, period_key))
     for level, reward_type, reward_key, amount, description in LEVEL_REWARDS:
         cur.execute("""INSERT INTO season_level_rewards
             (season_id, level, reward_type, reward_key, amount, description)
@@ -408,8 +425,13 @@ def record_season_activity(user_id, task_type, amount=1):
         return
     conn = _db()
     cur = conn.cursor()
-    cur.execute("SELECT task_key, target FROM season_tasks WHERE season_id = ? AND task_type = ?",
-                (season["id"], task_type))
+    day_key = datetime.utcnow().strftime("%Y%m%d")
+    week_key = datetime.utcnow().strftime("%G%V")
+    cur.execute("""SELECT task_key, target FROM season_tasks
+        WHERE season_id = ? AND task_type = ?
+        AND (period_type = 'season' OR (period_type = 'daily' AND period_key = ?)
+             OR (period_type = 'weekly' AND period_key = ?))""",
+        (season["id"], task_type, day_key, week_key))
     tasks = cur.fetchall()
     for task in tasks:
         cur.execute("""INSERT INTO season_task_progress
@@ -442,11 +464,15 @@ def get_season_status(user_id):
     cur.execute("SELECT * FROM season_progress WHERE season_id = ? AND user_id = ?", (season["id"], user_id))
     progress = cur.fetchone()
     cur.execute("""SELECT t.task_key, t.title, t.description, t.task_type, t.target, t.reward_xp,
-        t.reward_ldc, COALESCE(p.progress, 0) AS progress, COALESCE(p.completed, FALSE) AS completed,
+        t.reward_ldc, t.period_type, COALESCE(p.progress, 0) AS progress, COALESCE(p.completed, FALSE) AS completed,
         COALESCE(p.claimed, FALSE) AS claimed
         FROM season_tasks t LEFT JOIN season_task_progress p
         ON p.season_id = t.season_id AND p.user_id = ? AND p.task_key = t.task_key
-        WHERE t.season_id = ? ORDER BY t.task_key""", (user_id, season["id"]))
+        WHERE t.season_id = ? AND
+        (t.period_type = 'season' OR (t.period_type = 'daily' AND t.period_key = ?)
+         OR (t.period_type = 'weekly' AND t.period_key = ?))
+        ORDER BY t.period_type, t.task_key""", (user_id, season["id"],
+        datetime.utcnow().strftime("%Y%m%d"), datetime.utcnow().strftime("%G%V")))
     tasks = [dict(row) for row in cur.fetchall()]
     cur.execute("""SELECT u.user_id, u.username, p.xp, p.level FROM season_progress p
         JOIN users u ON u.user_id = p.user_id WHERE p.season_id = ?
@@ -469,7 +495,8 @@ def claim_season_task(user_id, task_key):
     conn = _db()
     cur = conn.cursor()
     try:
-        cur.execute("""SELECT t.reward_xp, t.reward_ldc, p.progress, p.completed, p.claimed
+        cur.execute("""SELECT t.reward_xp, t.reward_ldc, t.period_type, t.period_key,
+            p.progress, p.completed, p.claimed
             FROM season_tasks t JOIN season_task_progress p
             ON p.season_id = t.season_id AND p.task_key = t.task_key
             WHERE t.season_id = ? AND t.task_key = ? AND p.user_id = ? FOR UPDATE""",
@@ -477,6 +504,12 @@ def claim_season_task(user_id, task_key):
         row = cur.fetchone()
         if not row or not row["completed"]:
             raise ValueError("Задание ещё не выполнено")
+        current_day = datetime.utcnow().strftime("%Y%m%d")
+        current_week = datetime.utcnow().strftime("%G%V")
+        if row["period_type"] == "daily" and row["period_key"] != current_day:
+            raise ValueError("Время ежедневного задания уже закончилось")
+        if row["period_type"] == "weekly" and row["period_key"] != current_week:
+            raise ValueError("Время еженедельного задания уже закончилось")
         if row["claimed"]:
             raise ValueError("Награда уже получена")
         cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?",
@@ -548,11 +581,18 @@ def get_achievements(user_id):
     result = []
     for item in ACHIEVEMENTS:
         row = existing.get(item["key"], {})
+        completed = bool(row.get("completed_at"))
+        hidden = bool(item.get("secret")) and not completed
         result.append({
-            **item,
-            "progress": int(row.get("progress") or 0),
-            "completed": bool(row.get("completed_at")),
+            "key": item["key"],
+            "title": "???" if hidden else item["title"],
+            "description": "Секретное достижение. Найди его сам." if hidden else item["description"],
+            "target": int(item["target"]),
+            "reward_ldc": 0 if hidden else int(item["reward_ldc"]),
+            "progress": 0 if hidden else int(row.get("progress") or 0),
+            "completed": completed,
             "claimed": bool(row.get("claimed_at")),
+            "secret": bool(item.get("secret")),
         })
     return {"achievements": result, "titles": titles}
 
