@@ -1242,7 +1242,8 @@ async def pet_expeditions_word_trigger(message: Message):
                             callback_data=f"petexp_start_{pet['id']}_{destination['key']}",
                         ))
                 lines.extend(["", "🌲 Лес — 30 мин. · 💎 Пещера — 60 мин. · 🏝️ Остров — 120 мин."])
-        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if active or data.get("pets") else None)
+        has_buttons = any(e.get("can_claim") for e in active) if active else bool(data.get("pets"))
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if has_buttons else None)
     except Exception:
         logger.exception("Не удалось открыть экспедиции питомцев")
         await message.answer("Не удалось загрузить экспедиции. Попробуй позже.")
@@ -1251,7 +1252,7 @@ async def pet_expeditions_word_trigger(message: Message):
 @dp.callback_query(F.data.startswith("petexp_start_"))
 async def pet_expedition_start_callback(callback: CallbackQuery):
     try:
-        _, _, _, pet_id, destination = callback.data.split("_", 4)
+        _, _, pet_id, destination = callback.data.split("_", 3)
         result = world_events.start_pet_expedition(callback.from_user.id, pet_id, destination)
         await callback.answer("Питомец отправился!", show_alert=True)
         if callback.message:
