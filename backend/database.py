@@ -2280,6 +2280,11 @@ def sell_pet_to_system(user_id: int, pet_id: int) -> tuple:
     if not pet:
         conn.close()
         return False, "Питомец не найден."
+    cur.execute("SELECT 1 FROM pet_expeditions WHERE pet_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
+                (pet_id, user_id))
+    if cur.fetchone():
+        conn.close()
+        return False, "Нельзя продать питомца, пока он находится в экспедиции."
     price = max(100, int(pet[0]) * 10)
     cur.execute("DELETE FROM pets WHERE id = ? AND user_id = ?", (pet_id, user_id))
     if cur.rowcount != 1:
