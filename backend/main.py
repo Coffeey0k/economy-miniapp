@@ -4781,6 +4781,16 @@ def _mark_user_blocked(user_id: int):
         logger.exception("Не удалось выполнить необязательную операцию")
 
 
+def _get_username(user_id: int) -> str:
+    """Resolve a user's display name for gift notifications."""
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT username FROM users WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row["username"] if row and row["username"] else str(user_id)
+
+
 def _safe_bot_send(chat_id: int, text: str, **kwargs) -> bool:
     """Безопасная отправка ЛС. Если юзер заблокировал — помечает его."""
     try:
