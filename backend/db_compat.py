@@ -403,39 +403,6 @@ def init_db():
         )
     """)
 
-    # === КЛАНЫ ===
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS clans (
-            id SERIAL PRIMARY KEY,
-            name TEXT UNIQUE,
-            emoji TEXT,
-            leader_id BIGINT,
-            description TEXT,
-            bank BIGINT DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS clan_members (
-            user_id BIGINT PRIMARY KEY,
-            clan_id INTEGER,
-            role TEXT DEFAULT 'member',
-            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS clan_requests (
-            id SERIAL PRIMARY KEY,
-            clan_id INTEGER,
-            user_id BIGINT,
-            status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(clan_id, user_id)
-        )
-    """)
-    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS web_rules_read (
             user_id BIGINT PRIMARY KEY,
@@ -447,6 +414,15 @@ def init_db():
     cur.execute(
         "ALTER TABLE web_rules_read ALTER COLUMN user_id TYPE BIGINT"
     )
+
+    # Remove obsolete feature tables; their dependent application code has been
+    # removed and the historical records are explicitly no longer retained.
+    for obsolete_table in (
+        "clan_requests", "clan_members", "clans",
+        "web_trades", "pet_trades",
+        "music_personal", "music_shared", "music_slots",
+    ):
+        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table} CASCADE")
 
     conn.commit()
     conn.close()

@@ -46,8 +46,9 @@ logger = logging.getLogger(__name__)
 init_db()
 bot_db.DB_NAME = os.environ.get("DB_PATH", bot_db.DB_NAME)
 bot_db.init_db()  # Ensure boost/event tables exist even when the API starts before the bot.
+import world_events as world_events
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -60,7 +61,6 @@ ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.str
 
 PROFESSIONS = {
     "artist": "🎨 Художник",
-    "musician": "🎸 Музыкант",
     "photographer": "📸 Фотограф",
     "gardener": "🌿 Садовник",
     "cook": "🍳 Повар",
@@ -91,7 +91,6 @@ CONFIRMATION_REQUIRED = {"unban", "admin"}
 
 PROFESSION_INFO = {
     "artist": {"name": "🎨 Художник", "salary": 500, "cooldown_hours": 2},
-    "musician": {"name": "🎸 Музыкант", "salary": 500, "cooldown_hours": 2},
     "photographer": {"name": "📸 Фотограф", "salary": 1000, "cooldown_hours": 3},
     "gardener": {"name": "🌿 Садовник", "salary": 1000, "cooldown_hours": 3},
     "cook": {"name": "🍳 Повар", "salary": 1000, "cooldown_hours": 3},
@@ -106,8 +105,9 @@ PROFESSION_INFO = {
     "merchant": {"name": "🛒 Торговец", "salary": 1150, "cooldown_hours": 4},
     "ruler": {"name": "👑 Правитель Lavender Dream", "salary": 10000, "cooldown_hours": 12},
 }
-HIRE_COST = 1000
-FIRE_EXTRA_COST = 1000
+# Трудоустройство и смена профессии бесплатны.
+HIRE_COST = 0
+FIRE_EXTRA_COST = 0
 
 PET_EGGS = {
     "ordinary": {"price": 1000, "name": "🥚 Обычное яйцо",
@@ -140,7 +140,6 @@ DAILY_TASK_NAMES = {
     "resident": "🌴 Житель Lavender Dream",
     "friendly": "🤍 Дружелюбный",
     "photographer": "📸 Фотограф",
-    "musician": "🎵 Музыкант",
     "night_owl": "🌙 Ночной житель",
     "early_bird": "🌅 Ранняя пташка",
     "storyteller": "📖 Рассказчик",
@@ -152,6 +151,19 @@ DAILY_TASK_NAMES = {
     "voice_star": "🎙️ Голос чата",
     "link_sharer": "🔗 Делится полезным",
     "weekend_vibes": "🎉 Выходной вайб",
+    "conversation_king": "🗣️ Душа чата",
+    "reply_master": "💌 Мастер ответов",
+    "photo_album": "📸 Фотоальбом",
+    "night_shift": "🌃 Ночная смена",
+    "sunrise": "🌄 Встречая рассвет",
+    "long_story": "📚 Большой рассказ",
+    "emoji_festival": "🎊 Фестиваль эмодзи",
+    "question_master": "🧠 Почемучка",
+    "gamer_marathon": "🎮 Игровой марафон",
+    "voice_lover": "🎙️ Голосовой марафон",
+    "link_guide": "🧭 Навигатор",
+    "weekend_grinder": "🔥 Выходной марафон",
+    "social_hours_pro": "🦋 Всегда на связи",
 }
 
 DAILY_TASK_DESCS = {
@@ -159,7 +171,6 @@ DAILY_TASK_DESCS = {
     "resident": "Отправь 50 сообщений в чат",
     "friendly": "Ответь (реплаем) на 5 разных сообщений",
     "photographer": "Отправь фото в чат",
-    "musician": "Отправь музыку или голосовое в чат",
     "night_owl": "Напиши сообщение после 20:00",
     "early_bird": "Напиши сообщение до 09:00",
     "storyteller": "Отправь 20 сообщений длиной от 50 символов",
@@ -168,9 +179,22 @@ DAILY_TASK_DESCS = {
     "emoji_master": "Отправь 15 сообщений с эмодзи",
     "questioner": "Отправь 10 сообщений с вопросительным знаком",
     "game_player": "Сыграй 3 игры в мини-приложении",
-    "voice_star": "Отправь 3 голосовых или музыкальных сообщения",
+    "voice_star": "Отправь 3 голосовых сообщения",
     "link_sharer": "Отправь 3 сообщения со ссылками",
     "weekend_vibes": "Напиши 25 сообщений в выходной день",
+    "conversation_king": "Отправь 100 сообщений в чат",
+    "reply_master": "Ответь на 15 сообщений участников",
+    "photo_album": "Отправь 3 фотографии в чат",
+    "night_shift": "Напиши 5 сообщений после 20:00",
+    "sunrise": "Напиши 3 сообщения до 09:00",
+    "long_story": "Отправь 15 длинных сообщений",
+    "emoji_festival": "Отправь 25 сообщений с эмодзи",
+    "question_master": "Отправь 20 сообщений с вопросом",
+    "gamer_marathon": "Сыграй 10 игр",
+    "voice_lover": "Отправь 5 голосовых сообщений",
+    "link_guide": "Отправь 5 сообщений со ссылками",
+    "weekend_grinder": "Отправь 40 сообщений в выходной",
+    "social_hours_pro": "Будь активен в чате в течение 5 разных часов",
 }
 
 app = FastAPI()
@@ -180,12 +204,6 @@ app = FastAPI()
 async def audit_rejected_api_requests(request: Request, call_next):
     """Record rejected requests and return CORS-compatible 500 responses."""
     client_host = request.client.host if request.client else "unknown"
-    if request.url.path.startswith("/api/trades"):
-        logger.info("Disabled trade endpoint requested method=%s path=%s client=%s", request.method, request.url.path, client_host)
-        return JSONResponse(
-            status_code=410,
-            content={"detail": "Обмены временно отключены. История и данные сохранены."},
-        )
     try:
         response = await call_next(request)
     except Exception:
@@ -204,6 +222,28 @@ async def audit_rejected_api_requests(request: Request, call_next):
         # Returning a response instead of re-raising keeps the response inside
         # the outer CORS middleware, so browsers receive the actual 500 status.
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    if response.status_code < 400 and request.method.upper() in {"POST", "GET"}:
+        path = request.url.path
+        activity = None
+        if path == "/api/professions/work":
+            activity = ("work", 1)
+        elif path.startswith("/api/island/visit"):
+            activity = ("visit", 1)
+        elif path == "/api/island/profession-action":
+            activity = ("craft", 1)
+        elif path in {"/api/island/expeditions/start", "/api/island/expeditions/claim"}:
+            activity = ("pet", 1)
+        if activity:
+            try:
+                uid = get_telegram_user_id(request.query_params.get("initData", "")) if request.query_params.get("initData") else None
+                if uid is None and request.method.upper() == "POST":
+                    # Most Mini App POST routes carry initData in their JSON body.
+                    body = await request.json()
+                    uid = get_telegram_user_id(body.get("initData", "")) if isinstance(body, dict) else None
+                if uid:
+                    world_events.record_season_activity(uid, activity[0], activity[1])
+            except Exception:
+                logger.exception("Не удалось обновить сезонный прогресс для %s", path)
     if response.status_code >= 400:
         logger.warning(
             "API_REJECTED method=%s path=%s status=%s client=%s",
@@ -407,10 +447,13 @@ def fetch_profile(user_id: int) -> dict:
         "theme": (cos_row["theme"] if cos_row and cos_row["theme"] else "reef"),
     }
 
-    # --- значки ---
+    # --- значки и активный титул ---
     cur.execute("SELECT badge FROM user_badges WHERE user_id = %s", (user_id,))
     badges = [r["badge"] for r in cur.fetchall()]
-   
+    cur.execute("SELECT title_name FROM user_titles WHERE user_id = %s AND is_active = TRUE LIMIT 1", (user_id,))
+    title_row = cur.fetchone()
+    active_title = title_row["title_name"] if title_row else None
+
     conn.close()
 
     return {
@@ -425,6 +468,7 @@ def fetch_profile(user_id: int) -> dict:
         "purchases": purchases,
         "cosmetics": cosmetics,
         "badges": badges,
+        "active_title": active_title,
     }
 
 
@@ -793,7 +837,7 @@ def get_professions(init_data: str = Query(..., alias="initData")):
         for key, p in PROFESSION_INFO.items()
         if key != "ruler" or is_admin
     ]
-    return {"current": current, "all": all_professions, "hire_cost": HIRE_COST}
+    return {"current": current, "all": all_professions, "hire_cost": 0}
 
 
 @app.post("/api/professions/hire")
@@ -811,14 +855,6 @@ def hire_profession(payload: dict = Body(...)):
         "SELECT total_changes, profession FROM professions WHERE user_id = ?", (user_id,)
     )
     row = cur.fetchone()
-    cost = HIRE_COST
-    if row and row["profession"]:
-        cost += FIRE_EXTRA_COST * (row["total_changes"] + 1)
-
-    if not change_balance(cur, user_id, -cost):
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {cost} 🪙")
-
     changes = (row["total_changes"] + 1) if row else 0
     cur.execute("""
         INSERT INTO professions (user_id, profession, level, days_worked, total_changes)
@@ -3473,7 +3509,6 @@ ISLAND_RESOURCE_ACTIONS = {
     "merchant": {"outputs": {"trade_goods": (2, 4)}, "needs": {}, "message": "Ты подготовил товары для торговли."},
     "cook": {"outputs": {"meals": (1, 3)}, "needs": {"crops": 2, "fish": 1}, "message": "Ты приготовил еду для экспедиций."},
     "artist": {"outputs": {"decor": (1, 2)}, "needs": {}, "message": "Ты создал предметы декора."},
-    "musician": {"outputs": {"music_tokens": (1, 2)}, "needs": {}, "message": "Ты создал музыкальные жетоны."},
     "photographer": {"outputs": {"photos": (1, 3)}, "needs": {}, "message": "Ты сделал снимки острова."},
     "vet": {"outputs": {"pet_treats": (1, 2)}, "needs": {"crops": 1}, "message": "Ты приготовил лакомства для питомцев."},
     "programmer": {"outputs": {"circuits": (1, 2)}, "needs": {"ore": 1}, "message": "Ты собрал электронные платы."},
@@ -3483,7 +3518,7 @@ ISLAND_RESOURCE_NAMES = {
     "fiber": "🧵 Волокно", "crops": "🌾 Урожай", "fish": "🐟 Рыба",
     "seeds": "🌱 Семена", "tools": "🔧 Инструменты", "gears": "⚙️ Механизмы",
     "maps": "🗺️ Карты", "trade_goods": "📦 Торговые товары", "meals": "🍲 Еда",
-    "decor": "🖼️ Декор", "music_tokens": "🎵 Музыкальные жетоны",
+    "decor": "🖼️ Декор",
     "photos": "📸 Фотографии", "pet_treats": "🦴 Лакомства", "circuits": "🔌 Платы",
     "crystal": "💎 Кристаллы", "artifacts": "🏺 Артефакты",
 }
@@ -3509,188 +3544,6 @@ HOUSE_COOLDOWN = 5 * 3600
 SHIP_INCOME = 75000
 SHIP_COOLDOWN = 48 * 3600
 
-
-
-# ========== ТРЕЙДЫ ПРЕДМЕТАМИ MINI APP ==========
-
-TRADE_ITEM_TYPES = {"color", "frame", "status", "theme"}
-
-
-@app.get("/api/trades/inventory")
-def get_trade_inventory(init_data: str = Query(..., alias="initData")):
-    user_id = get_telegram_user_id(init_data)
-    conn = db()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT item_type, item_key FROM user_cosmetics_owned WHERE user_id = %s ORDER BY item_type, item_key",
-        (user_id,),
-    )
-    items = [dict(row) for row in cur.fetchall()]
-    conn.close()
-    return {"items": items}
-
-
-@app.get("/api/trades/target-inventory")
-def get_target_trade_inventory(username: str = Query(...), init_data: str = Query(..., alias="initData")):
-    user_id = get_telegram_user_id(init_data)
-    target_name = username.strip().lstrip("@")
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users WHERE LOWER(REPLACE(username, '@', '')) = LOWER(%s) LIMIT 1", (target_name,))
-    target = cur.fetchone()
-    if not target:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Игрок не найден")
-    target_id = int(target["user_id"])
-    if target_id == user_id:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Нельзя обмениваться с самим собой")
-    cur.execute("SELECT item_type, item_key FROM user_cosmetics_owned WHERE user_id = %s ORDER BY item_type, item_key", (target_id,))
-    items = [dict(row) for row in cur.fetchall()]
-    conn.close()
-    return {"items": items}
-
-
-@app.get("/api/trades")
-def get_trades(init_data: str = Query(..., alias="initData")):
-    user_id = get_telegram_user_id(init_data)
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT t.id, t.from_user, t.to_user, t.offer_type, t.offer_key,
-               t.request_type, t.request_key, t.status, t.created_at,
-               u1.username AS from_username, u2.username AS to_username
-        FROM web_trades t
-        LEFT JOIN users u1 ON u1.user_id = t.from_user
-        LEFT JOIN users u2 ON u2.user_id = t.to_user
-        WHERE (t.from_user = %s OR t.to_user = %s)
-          AND t.status = 'pending'
-        ORDER BY t.id DESC LIMIT 50
-    """, (user_id, user_id))
-    rows = [dict(row) for row in cur.fetchall()]
-    conn.close()
-    return {"trades": rows}
-
-
-@app.post("/api/trades/create")
-def create_trade(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    target_username = str(payload.get("target_username", "")).strip().lstrip("@")
-    offer_type = payload.get("offer_type")
-    offer_key = payload.get("offer_key")
-    request_type = payload.get("request_type")
-    request_key = payload.get("request_key")
-    if not target_username or not offer_key or not request_key:
-        raise HTTPException(status_code=400, detail="Заполни получателя и оба предмета")
-    if offer_type not in TRADE_ITEM_TYPES or request_type not in TRADE_ITEM_TYPES:
-        raise HTTPException(status_code=400, detail="Неизвестный тип предмета")
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users WHERE LOWER(REPLACE(username, '@', '')) = LOWER(%s) LIMIT 1", (target_username,))
-    target = cur.fetchone()
-    if not target:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Игрок не найден")
-    target_id = int(target["user_id"])
-    if target_id == user_id:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Нельзя обмениваться с самим собой")
-    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
-                (user_id, offer_type, offer_key))
-    if not cur.fetchone():
-        conn.close()
-        raise HTTPException(status_code=400, detail="У тебя нет предмета, который предлагаешь")
-    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
-                (target_id, request_type, request_key))
-    if not cur.fetchone():
-        conn.close()
-        raise HTTPException(status_code=400, detail="У выбранного игрока нет запрошенного предмета")
-    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
-                (user_id, request_type, request_key))
-    if cur.fetchone():
-        conn.close()
-        raise HTTPException(status_code=400, detail="Ты уже владеешь запрошенным предметом")
-    cur.execute("""
-        INSERT INTO web_trades (from_user, to_user, offer_type, offer_key, request_type, request_key, status)
-        VALUES (%s, %s, %s, %s, %s, %s, 'pending')
-    """, (user_id, target_id, offer_type, offer_key, request_type, request_key))
-    trade_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return {"ok": True, "trade_id": trade_id, "message": "Предложение создано. Обмен произойдёт только после принятия."}
-
-
-@app.post("/api/trades/resolve")
-def resolve_trade(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    try:
-        trade_id = int(payload.get("trade_id"))
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="Некорректный ID обмена")
-    action = payload.get("action")
-    if action not in {"accept", "decline", "cancel"}:
-        raise HTTPException(status_code=400, detail="Неизвестное действие")
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM web_trades WHERE id = %s", (trade_id,))
-    trade = cur.fetchone()
-    if not trade or trade["status"] != "pending":
-        conn.close()
-        raise HTTPException(status_code=404, detail="Предложение уже недоступно")
-    if action == "cancel":
-        if user_id != trade["from_user"]:
-            conn.close()
-            raise HTTPException(status_code=403, detail="Отменить предложение может только автор")
-        cur.execute("UPDATE web_trades SET status = 'cancelled', resolved_at = CURRENT_TIMESTAMP WHERE id = %s AND status = 'pending'", (trade_id,))
-        conn.commit()
-        conn.close()
-        return {"ok": True, "message": "Предложение отменено"}
-    if user_id != trade["to_user"]:
-        conn.close()
-        raise HTTPException(status_code=403, detail="Только получатель может ответить на предложение")
-    if action == "decline":
-        cur.execute("UPDATE web_trades SET status = 'declined', resolved_at = CURRENT_TIMESTAMP WHERE id = %s AND status = 'pending'", (trade_id,))
-        conn.commit()
-        conn.close()
-        return {"ok": True, "message": "Предложение отклонено"}
-
-    # Проверяем владение обеими вещами заново внутри транзакции.
-    a = (trade["from_user"], trade["offer_type"], trade["offer_key"])
-    b = (trade["to_user"], trade["request_type"], trade["request_key"])
-    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s", a)
-    sender_owns = cur.fetchone() is not None
-    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s", b)
-    receiver_owns = cur.fetchone() is not None
-    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
-                (trade["from_user"], trade["request_type"], trade["request_key"]))
-    sender_would_duplicate = cur.fetchone() is not None
-    cur.execute("SELECT 1 FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s",
-                (trade["to_user"], trade["offer_type"], trade["offer_key"]))
-    receiver_would_duplicate = cur.fetchone() is not None
-    if not sender_owns or not receiver_owns or sender_would_duplicate or receiver_would_duplicate:
-        conn.rollback()
-        conn.close()
-        raise HTTPException(status_code=400, detail="Предметы изменились или обмен создаст дубликат. Предложение нельзя принять.")
-
-    cur.execute("DELETE FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s", a)
-    cur.execute("DELETE FROM user_cosmetics_owned WHERE user_id = %s AND item_type = %s AND item_key = %s", b)
-    cur.execute("INSERT INTO user_cosmetics_owned (user_id, item_type, item_key) VALUES (%s, %s, %s)",
-                (trade["from_user"], trade["request_type"], trade["request_key"]))
-    cur.execute("INSERT INTO user_cosmetics_owned (user_id, item_type, item_key) VALUES (%s, %s, %s)",
-                (trade["to_user"], trade["offer_type"], trade["offer_key"]))
-    # If an equipped item leaves its owner, clear the matching equipped slot.
-    col_map = {"color": "nickname_color", "frame": "frame", "status": "status", "theme": "theme"}
-    for owner_id, item_type, item_key in (a, b):
-        col = col_map[item_type]
-        cur.execute(f"UPDATE user_cosmetics SET {col} = NULL WHERE user_id = %s AND {col} = %s", (owner_id, item_key))
-    cur.execute("UPDATE web_trades SET status = 'accepted', resolved_at = CURRENT_TIMESTAMP WHERE id = %s AND status = 'pending'", (trade_id,))
-    if cur.rowcount != 1:
-        conn.rollback()
-        conn.close()
-        raise HTTPException(status_code=409, detail="Предложение уже обработано")
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": "Обмен завершён. Оба предмета переданы."}
 
 
 @app.get("/api/island")
@@ -4300,699 +4153,6 @@ def buy_island(payload: dict = Body(...)):
     conn.close()
     return {"ok": True, "message": f"Куплено: {ISLAND_NAMES[item]}", "balance": balance}
 
-# ========== API: КЛАНЫ ==========
-
-CLAN_CREATE_COST = 500000
-CLAN_MAX_MEMBERS = 20
-CLAN_BONUS_PER_MEMBER = 1
-CLAN_BONUS_MAX = 10
-
-
-def _get_user_clan(user_id: int):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT c.id, c.name, c.emoji, c.leader_id, c.description, c.bank, cm.role
-        FROM clans c
-        JOIN clan_members cm ON cm.clan_id = c.id
-        WHERE cm.user_id = %s
-    """, (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "id": row["id"], "name": row["name"], "emoji": row["emoji"],
-        "leader_id": row["leader_id"], "description": row["description"],
-        "bank": row["bank"], "role": row["role"],
-    }
-
-
-def _clan_member_count(cur, clan_id: int) -> int:
-    cur.execute("SELECT COUNT(*) c FROM clan_members WHERE clan_id = %s", (clan_id,))
-    return cur.fetchone()["c"]
-
-
-@app.get("/api/clans")
-def get_clans(init_data: str = Query(..., alias="initData")):
-    user_id = get_telegram_user_id(init_data)
-    conn = db()
-    cur = conn.cursor()
-
-    # Мой клан
-    my_clan = None
-    cur.execute("""
-        SELECT c.id, c.name, c.emoji, c.leader_id, c.description, c.bank, cm.role
-        FROM clans c
-        JOIN clan_members cm ON cm.clan_id = c.id
-        WHERE cm.user_id = %s
-    """, (user_id,))
-    row = cur.fetchone()
-    if row:
-        clan_id = row["id"]
-        # Участники
-        cur.execute("""
-            SELECT cm.user_id, cm.role, u.username, u.balance
-            FROM clan_members cm
-            JOIN users u ON u.user_id = cm.user_id
-            WHERE cm.clan_id = %s
-            ORDER BY
-                CASE cm.role WHEN 'leader' THEN 1 WHEN 'deputy' THEN 2 ELSE 3 END,
-                cm.joined_at
-        """, (clan_id,))
-        members = [
-            {"user_id": m["user_id"], "role": m["role"],
-             "username": m["username"], "balance": m["balance"]}
-            for m in cur.fetchall()
-        ]
-
-        # Заявки (только для лидера/зама)
-        pending = []
-        if row["role"] in ("leader", "deputy"):
-            cur.execute("""
-                SELECT cr.id, cr.user_id, u.username
-                FROM clan_requests cr
-                JOIN users u ON u.user_id = cr.user_id
-                WHERE cr.clan_id = %s AND cr.status = 'pending'
-            """, (clan_id,))
-            pending = [
-                {"request_id": p["id"], "user_id": p["user_id"], "username": p["username"]}
-                for p in cur.fetchall()
-            ]
-
-        my_clan = {
-            "id": row["id"], "name": row["name"], "emoji": row["emoji"],
-            "leader_id": row["leader_id"], "description": row["description"],
-            "bank": row["bank"], "role": row["role"],
-            "members": members,
-            "pending": pending,
-        }
-
-    # Топ кланов
-    cur.execute("""
-        SELECT c.id, c.name, c.emoji, c.bank,
-               (SELECT COUNT(*) FROM clan_members WHERE clan_id = c.id) AS members
-        FROM clans c
-        ORDER BY c.bank DESC LIMIT 10
-    """)
-    top = [
-        {"id": t["id"], "name": t["name"], "emoji": t["emoji"],
-         "bank": t["bank"], "members": t["members"]}
-        for t in cur.fetchall()
-    ]
-
-    # Все кланы (для поиска)
-    cur.execute("""
-        SELECT c.id, c.name, c.emoji, c.bank,
-               (SELECT COUNT(*) FROM clan_members WHERE clan_id = c.id) AS members
-        FROM clans c ORDER BY c.created_at DESC LIMIT 50
-    """)
-    all_clans = [
-        {"id": t["id"], "name": t["name"], "emoji": t["emoji"],
-         "bank": t["bank"], "members": t["members"]}
-        for t in cur.fetchall()
-    ]
-
-    balance = require_balance(cur, user_id)
-    conn.close()
-
-    return {
-        "my_clan": my_clan,
-        "top": top,
-        "all_clans": all_clans,
-        "balance": balance,
-        "create_cost": CLAN_CREATE_COST,
-        "max_members": CLAN_MAX_MEMBERS,
-    }
-
-
-@app.post("/api/clans/create")
-def create_clan(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    name = (payload.get("name") or "").strip()
-    emoji = (payload.get("emoji") or "🏛️").strip()
-    description = (payload.get("description") or "").strip()
-
-    if len(name) < 3 or len(name) > 20:
-        raise HTTPException(status_code=400, detail="Название должно быть 3–20 символов")
-
-    conn = db()
-    cur = conn.cursor()
-
-    # Уже в клане?
-    cur.execute("SELECT 1 FROM clan_members WHERE user_id = %s", (user_id,))
-    if cur.fetchone():
-        conn.close()
-        raise HTTPException(status_code=400, detail="Ты уже в клане")
-
-    cur.execute("SELECT id FROM clans WHERE LOWER(name) = %s", (name.lower(),))
-    if cur.fetchone():
-        conn.close()
-        raise HTTPException(status_code=400, detail="Такое название уже занято")
-
-    if not change_balance(cur, user_id, -CLAN_CREATE_COST):
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {CLAN_CREATE_COST:,}")
-
-    cur.execute("""
-        INSERT INTO clans (name, emoji, leader_id, description)
-        VALUES (%s, %s, %s, %s)
-    """, (name, emoji, user_id, description))
-    cur.execute("SELECT currval(pg_get_serial_sequence('clans', 'id'))")
-    clan_id = cur.fetchone()["currval"]
-
-    cur.execute("""
-        INSERT INTO clan_members (user_id, clan_id, role)
-        VALUES (%s, %s, 'leader')
-    """, (user_id, clan_id))
-    conn.commit()
-    balance = require_balance(cur, user_id)
-    conn.close()
-    return {"ok": True, "message": f"Клан {emoji} {name} создан!", "balance": balance}
-
-
-@app.post("/api/clans/join")
-def join_clan(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    clan_id = int(payload.get("clan_id"))
-
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT 1 FROM clan_members WHERE user_id = %s", (user_id,))
-    if cur.fetchone():
-        conn.close()
-        raise HTTPException(status_code=400, detail="Ты уже в клане")
-
-    cur.execute("SELECT id FROM clans WHERE id = %s", (clan_id,))
-    if not cur.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Клан не найден")
-
-    if _clan_member_count(cur, clan_id) >= CLAN_MAX_MEMBERS:
-        conn.close()
-        raise HTTPException(status_code=400, detail="В клане нет мест")
-
-    cur.execute("""
-        INSERT INTO clan_requests (clan_id, user_id)
-        VALUES (%s, %s)
-        ON CONFLICT (clan_id, user_id) DO UPDATE SET status = 'pending'
-    """, (clan_id, user_id))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": "Заявка отправлена"}
-
-
-@app.post("/api/clans/accept")
-def accept_clan_request(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    request_id = int(payload.get("request_id"))
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT clan_id, user_id, status FROM clan_requests WHERE id = %s", (request_id,))
-    row = cur.fetchone()
-    if not row or row["status"] != "pending":
-        conn.close()
-        raise HTTPException(status_code=404, detail="Заявка не найдена")
-
-    clan_id, target_user = row["clan_id"], row["user_id"]
-
-    # Проверка роли
-    cur.execute("SELECT role FROM clan_members WHERE user_id = %s AND clan_id = %s",
-                (user_id, clan_id))
-    rev = cur.fetchone()
-    if not rev or rev["role"] not in ("leader", "deputy"):
-        conn.close()
-        raise HTTPException(status_code=403, detail="Нет прав")
-
-    if _clan_member_count(cur, clan_id) >= CLAN_MAX_MEMBERS:
-        conn.close()
-        raise HTTPException(status_code=400, detail="В клане нет мест")
-
-    cur.execute("SELECT 1 FROM clan_members WHERE user_id = %s", (target_user,))
-    if cur.fetchone():
-        cur.execute("UPDATE clan_requests SET status = 'rejected' WHERE id = %s", (request_id,))
-        conn.commit()
-        conn.close()
-        raise HTTPException(status_code=400, detail="Пользователь уже в клане")
-
-    cur.execute("UPDATE clan_requests SET status = 'accepted' WHERE id = %s", (request_id,))
-    cur.execute("INSERT INTO clan_members (user_id, clan_id, role) VALUES (%s, %s, 'member')",
-                (target_user, clan_id))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": "Принят в клан"}
-
-
-@app.post("/api/clans/decline")
-def decline_clan_request(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    request_id = int(payload.get("request_id"))
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT clan_id FROM clan_requests WHERE id = %s AND status = 'pending'", (request_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Заявка не найдена")
-    clan_id = row["clan_id"]
-
-    cur.execute("SELECT role FROM clan_members WHERE user_id = %s AND clan_id = %s",
-                (user_id, clan_id))
-    rev = cur.fetchone()
-    if not rev or rev["role"] not in ("leader", "deputy"):
-        conn.close()
-        raise HTTPException(status_code=403, detail="Нет прав")
-
-    cur.execute("UPDATE clan_requests SET status = 'rejected' WHERE id = %s", (request_id,))
-    conn.commit()
-    conn.close()
-    return {"ok": True}
-
-
-@app.post("/api/clans/leave")
-def leave_clan(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT clan_id, role FROM clan_members WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Ты не в клане")
-    if row["role"] == "leader":
-        conn.close()
-        raise HTTPException(status_code=400, detail="Лидер не может выйти. Распусти клан.")
-
-    cur.execute("DELETE FROM clan_members WHERE user_id = %s", (user_id,))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": "Ты вышел из клана"}
-
-
-@app.post("/api/clans/deposit")
-def deposit_clan(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    amount = int(payload.get("amount") or 0)
-
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT clan_id FROM clan_members WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Ты не в клане")
-    clan_id = row["clan_id"]
-
-    if not change_balance(cur, user_id, -amount):
-        conn.close()
-        raise HTTPException(status_code=400, detail="Недостаточно монет")
-
-    cur.execute("UPDATE clans SET bank = bank + %s WHERE id = %s", (amount, clan_id))
-    conn.commit()
-    balance = require_balance(cur, user_id)
-    conn.close()
-    return {"ok": True, "message": f"Внесено {amount:,} 🪙", "balance": balance}
-
-
-@app.post("/api/clans/disband")
-def disband_clan(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT clan_id, role FROM clan_members WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Ты не в клане")
-    if row["role"] != "leader":
-        conn.close()
-        raise HTTPException(status_code=403, detail="Только лидер может распустить клан")
-
-    clan_id = row["clan_id"]
-    cur.execute("SELECT bank FROM clans WHERE id = %s", (clan_id,))
-    bank = cur.fetchone()["bank"] or 0
-
-    if bank > 0:
-        change_balance(cur, user_id, bank)
-
-    cur.execute("DELETE FROM clan_members WHERE clan_id = %s", (clan_id,))
-    cur.execute("DELETE FROM clan_requests WHERE clan_id = %s", (clan_id,))
-    cur.execute("DELETE FROM clans WHERE id = %s", (clan_id,))
-    conn.commit()
-    balance = require_balance(cur, user_id)
-    conn.close()
-    return {"ok": True, "message": f"Клан распущен. Казна {bank:,} 🪙 возвращена.", "balance": balance}
-
-
-@app.post("/api/clans/kick")
-def kick_from_clan(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    target_query = payload.get("username") or payload.get("user_id")
-
-    conn_tmp = db()
-    cur_tmp = conn_tmp.cursor()
-    if isinstance(target_query, str) and not target_query.isdigit():
-        q = target_query.lstrip("@").lower()
-        cur_tmp.execute("SELECT user_id FROM users WHERE LOWER(username) = %s", (q,))
-        row = cur_tmp.fetchone()
-        conn_tmp.close()
-        if not row:
-            raise HTTPException(status_code=404, detail="Игрок не найден")
-        target_id = row["user_id"]
-    else:
-        conn_tmp.close()
-        target_id = int(target_query)
-
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT clan_id, role FROM clan_members WHERE user_id = %s", (user_id,))
-    rev = cur.fetchone()
-    if not rev or rev["role"] not in ("leader", "deputy"):
-        conn.close()
-        raise HTTPException(status_code=403, detail="Нет прав")
-    clan_id = rev["clan_id"]
-
-    cur.execute("SELECT clan_id, role FROM clan_members WHERE user_id = %s", (target_id,))
-    tgt = cur.fetchone()
-    if not tgt or tgt["clan_id"] != clan_id:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Игрок не из твоего клана")
-
-    cur.execute("SELECT leader_id FROM clans WHERE id = %s", (clan_id,))
-    leader_id = cur.fetchone()["leader_id"]
-    if target_id == leader_id:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Нельзя кикнуть лидера")
-    if tgt["role"] == "deputy" and rev["role"] != "leader":
-        conn.close()
-        raise HTTPException(status_code=400, detail="Зам не может кикнуть зама")
-
-    cur.execute("DELETE FROM clan_members WHERE user_id = %s", (target_id,))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": "Игрок кикнут"}
-
-# ========== API: МУЗЫКА ==========
-
-MUSIC_PERSONAL_BASE = 15
-MUSIC_SHARED_MAX = 100
-MUSIC_SLOT_PRICE = 2000
-
-
-@app.get("/api/music/personal")
-def music_personal_get(init_data: str = Query(..., alias="initData")):
-    user_id = get_telegram_user_id(init_data)
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT id, url, title, author, platform, added_at
-        FROM music_personal WHERE user_id = %s
-        ORDER BY added_at DESC
-    """, (user_id,))
-    tracks = [
-        {"id": r["id"], "url": r["url"], "title": r["title"],
-         "author": r["author"], "platform": r["platform"], "added_at": r["added_at"]}
-        for r in cur.fetchall()
-    ]
-
-    cur.execute("SELECT extra_slots FROM music_slots WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    extra = row["extra_slots"] if row else 0
-    limit = MUSIC_PERSONAL_BASE + extra
-
-    balance = require_balance(cur, user_id)
-    conn.close()
-
-    return {
-        "tracks": tracks,
-        "limit": limit,
-        "slots_used": len(tracks),
-        "slot_price": MUSIC_SLOT_PRICE,
-        "balance": balance,
-    }
-
-
-@app.get("/api/music/shared")
-def music_shared_get(init_data: str = Query(..., alias="initData")):
-    user_id = get_telegram_user_id(init_data)
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at, u.username
-        FROM music_shared ms
-        LEFT JOIN users u ON u.user_id = ms.user_id
-        WHERE ms.status = 'approved'
-        ORDER BY ms.reviewed_at DESC NULLS LAST
-    """)
-    tracks = [
-        {"id": r["id"], "url": r["url"], "title": r["title"],
-         "author": r["author"], "platform": r["platform"],
-         "added_at": r["added_at"], "added_by": r["username"]}
-        for r in cur.fetchall()
-    ]
-
-    # Список на модерации (только для админов)
-    pending = []
-    is_admin = config.is_full_admin(user_id)
-    if is_admin:
-        cur.execute("""
-            SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at,
-                   u.username, ms.user_id
-            FROM music_shared ms
-            LEFT JOIN users u ON u.user_id = ms.user_id
-            WHERE ms.status = 'pending'
-            ORDER BY ms.added_at ASC
-        """)
-        pending = [
-            {"id": r["id"], "url": r["url"], "title": r["title"],
-             "author": r["author"], "platform": r["platform"],
-             "added_at": r["added_at"], "added_by": r["username"], "user_id": r["user_id"]}
-            for r in cur.fetchall()
-        ]
-
-    conn.close()
-    return {"tracks": tracks, "pending": pending, "is_admin": is_admin, "max_tracks": MUSIC_SHARED_MAX}
-
-
-@app.post("/api/music/add_personal")
-def music_add_personal(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    url = (payload.get("url") or "").strip()
-
-    if not url:
-        raise HTTPException(status_code=400, detail="Укажи ссылку")
-
-    info = _music_get_info(url)
-    if not info:
-        raise HTTPException(status_code=400, detail="Не удалось получить информацию о треке. Поддерживаются только YouTube и SoundCloud.")
-
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT extra_slots FROM music_slots WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    extra = row["extra_slots"] if row else 0
-    limit = MUSIC_PERSONAL_BASE + extra
-
-    cur.execute("SELECT COUNT(*) c FROM music_personal WHERE user_id = %s", (user_id,))
-    count = cur.fetchone()["c"]
-    if count >= limit:
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Плейлист полон ({count}/{limit}). Купи слот за {MUSIC_SLOT_PRICE:,} 🪙")
-
-    cur.execute("""
-        INSERT INTO music_personal (user_id, url, title, author, platform)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (user_id, url, info["title"], info["author"], info["platform"]))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": f"Добавлено: {info['title']} — {info['author']}"}
-
-
-@app.post("/api/music/add_shared")
-def music_add_shared(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    url = (payload.get("url") or "").strip()
-
-    if not url:
-        raise HTTPException(status_code=400, detail="Укажи ссылку")
-
-    info = _music_get_info(url)
-    if not info:
-        raise HTTPException(status_code=400, detail="Не удалось получить информацию. Только YouTube и SoundCloud.")
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) c FROM music_shared WHERE status = 'approved'")
-    count = cur.fetchone()["c"]
-    if count >= MUSIC_SHARED_MAX:
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Общий плейлист полон ({MUSIC_SHARED_MAX})")
-
-    cur.execute("""
-        INSERT INTO music_shared (user_id, url, title, author, platform, status)
-        VALUES (%s, %s, %s, %s, %s, 'pending')
-    """, (user_id, url, info["title"], info["author"], info["platform"]))
-    conn.commit()
-
-    # Отправим уведомления админам
-    sender = _get_username(user_id)
-    for aid in ADMIN_IDS:
-        if aid == user_id:
-            continue
-        _bot_send_music_moderation(aid, info["title"], info["author"], sender, url)
-    # Владельцу тоже
-    if config.OWNER_ID not in ADMIN_IDS:
-        _bot_send_music_moderation(config.OWNER_ID, info["title"], info["author"], sender, url)
-
-    conn.close()
-    return {"ok": True, "message": "Трек отправлен на модерацию"}
-
-
-@app.post("/api/music/review")
-def music_review(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    _require_admin(user_id)
-
-    track_id = int(payload.get("track_id"))
-    approve = bool(payload.get("approve"))
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM music_shared WHERE id = %s AND status = 'pending'", (track_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Трек не найден или уже рассмотрен")
-
-    if row["user_id"] == user_id:
-        conn.close()
-        raise HTTPException(status_code=403, detail="Нельзя одобрить свой же трек")
-
-    new_status = "approved" if approve else "rejected"
-    cur.execute("""
-        UPDATE music_shared SET status = %s, reviewed_by = %s, reviewed_at = %s WHERE id = %s
-    """, (new_status, user_id, datetime.now().isoformat(), track_id))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": "Трек одобрен" if approve else "Трек отклонён"}
-
-
-@app.post("/api/music/delete_personal")
-def music_delete_personal(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    track_id = int(payload.get("track_id"))
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM music_personal WHERE id = %s AND user_id = %s", (track_id, user_id))
-    affected = cur.rowcount
-    conn.commit()
-    conn.close()
-    if affected == 0:
-        raise HTTPException(status_code=404, detail="Трек не найден")
-    return {"ok": True, "message": "Удалено"}
-
-
-@app.post("/api/music/delete_shared")
-def music_delete_shared(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    _require_admin(user_id)
-    track_id = int(payload.get("track_id"))
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM music_shared WHERE id = %s", (track_id,))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": "Удалено из общего плейлиста"}
-
-
-@app.post("/api/music/buy_slot")
-def music_buy_slot(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-
-    conn = db()
-    cur = conn.cursor()
-    if not change_balance(cur, user_id, -MUSIC_SLOT_PRICE):
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Недостаточно монет. Нужно: {MUSIC_SLOT_PRICE:,}")
-
-    cur.execute("""
-        INSERT INTO music_slots (user_id, extra_slots) VALUES (%s, 1)
-        ON CONFLICT (user_id) DO UPDATE SET extra_slots = music_slots.extra_slots + 1
-    """, (user_id,))
-    conn.commit()
-
-    cur.execute("SELECT extra_slots FROM music_slots WHERE user_id = %s", (user_id,))
-    extra = cur.fetchone()["extra_slots"]
-    balance = require_balance(cur, user_id)
-    conn.close()
-    return {"ok": True, "message": f"Куплен слот. Теперь лимит: {MUSIC_PERSONAL_BASE + extra}",
-            "balance": balance, "limit": MUSIC_PERSONAL_BASE + extra}
-
-
-# Вспомогательные функции
-
-
-
-def _music_get_info(url: str):
-    """oEmbed для YouTube и SoundCloud."""
-    url_lower = url.lower()
-    try:
-        if "youtube.com" in url_lower or "youtu.be" in url_lower:
-            oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
-            platform = "youtube"
-        elif "soundcloud.com" in url_lower:
-            oembed_url = f"https://soundcloud.com/oembed?url={url}&format=json"
-            platform = "soundcloud"
-        else:
-            return None
-
-        with httpx.Client(timeout=5) as client:
-            r = client.get(oembed_url)
-            if r.status_code != 200:
-                return None
-            data = r.json()
-            return {
-                "title": data.get("title", "Без названия"),
-                "author": data.get("author_name", "Неизвестен"),
-                "platform": platform,
-            }
-    except Exception:
-        return None
-
-
-def _get_username(user_id: int) -> str:
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT username FROM users WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row["username"] if row and row["username"] else str(user_id)
-
-
-def _bot_send_music_moderation(admin_id: int, title: str, author: str, sender: str, url: str):
-    """Отправляет ЛС админу с треком на модерацию."""
-    text = (
-        f"🎵 Новый трек на модерацию\n\n"
-        f"📌 {title}\n"
-        f"👤 Автор: {author}\n"
-        f"👥 Добавил: @{sender}\n"
-        f"🔗 {url}\n\n"
-        f"Открой веб-версию → 🎵 Музыка → Общий плейлист, чтобы одобрить."
-    )
-    _safe_bot_send(admin_id, text)
 
 # ========== API: RCC ==========
 
@@ -5579,8 +4739,6 @@ def _delete_user_full_main(cur, user_id: int):
         ("pet_care", "pet_id IN (SELECT id FROM pets WHERE user_id = %s)", (user_id,)),
         ("ttt_games", "(player_x = %s OR player_o = %s)", (user_id, user_id)),
         ("ttt_invites", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
-        ("web_trades", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
-        ("pet_trades", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
         ("gifts", "(from_user = %s OR to_user = %s)", (user_id, user_id)),
     ]
     for table, condition, params in related_deletes:
@@ -5590,11 +4748,13 @@ def _delete_user_full_main(cur, user_id: int):
         "purchases", "warns", "game_stats", "new_members",
         "pets", "professions", "profession_progress", "daily_tasks", "promo_activations",
         "user_cosmetics", "user_badges", "user_cosmetics_owned", "user_settings", "islands",
-        "clan_members", "clan_requests",
-        "music_personal", "music_shared", "music_slots",
         "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
         "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
         "daily_transfer_usage", "inventory_items", "minesweeper_games", "battleship_games",
+        "pet_expeditions",
+        "season_progress", "season_task_progress", "season_level_claims",
+        "achievement_progress", "user_titles", "user_collection_items",
+        "world_event_claims", "world_event_participants",
     ]
     for table in tables_with_user_id:
         safe_query(f"DELETE FROM {table} WHERE user_id = %s", (user_id,), context=table)
@@ -5602,15 +4762,6 @@ def _delete_user_full_main(cur, user_id: int):
     safe_query("DELETE FROM friends WHERE friend_id = %s", (user_id,), context="friends.friend_id")
     safe_query("DELETE FROM friend_requests WHERE to_user = %s", (user_id,), context="friend_requests.to_user")
     safe_query("DELETE FROM friend_requests WHERE from_user = %s", (user_id,), context="friend_requests.from_user")
-
-    clan_rows = safe_query(
-        "SELECT id FROM clans WHERE leader_id = %s", (user_id,), fetch=True, context="clans.leader_id"
-    ) or []
-    for row in clan_rows:
-        clan_id = row["id"] if hasattr(row, "keys") else row[0]
-        safe_query("DELETE FROM clan_members WHERE clan_id = %s", (clan_id,), context="clan_members.clan_id")
-        safe_query("DELETE FROM clan_requests WHERE clan_id = %s", (clan_id,), context="clan_requests.clan_id")
-        safe_query("DELETE FROM clans WHERE id = %s", (clan_id,), context="clans.id")
 
     safe_query("DELETE FROM users WHERE user_id = %s", (user_id,), context="users")
 
@@ -5628,6 +4779,16 @@ def _mark_user_blocked(user_id: int):
         conn.close()
     except Exception:
         logger.exception("Не удалось выполнить необязательную операцию")
+
+
+def _get_username(user_id: int) -> str:
+    """Resolve a user's display name for gift notifications."""
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT username FROM users WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row["username"] if row and row["username"] else str(user_id)
 
 
 def _safe_bot_send(chat_id: int, text: str, **kwargs) -> bool:
@@ -5839,6 +5000,11 @@ def send_gift(payload: dict = Body(...)):
         if not r:
             conn.close()
             raise HTTPException(status_code=404, detail="Питомец не найден")
+        cur.execute("SELECT 1 FROM pet_expeditions WHERE pet_id = %s AND user_id = %s AND status = 'active' LIMIT 1",
+                    (pet_id, user_id))
+        if cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="Нельзя подарить питомца, пока он находится в экспедиции")
         cur.execute("DELETE FROM pets WHERE id = %s AND user_id = %s", (pet_id, user_id))
         gift_data = json.dumps({"pet_name": r["pet_name"], "rarity": r["rarity"], "income": r["income"]})
 
@@ -5989,6 +5155,283 @@ def open_gift(payload: dict = Body(...)):
 
     return {"ok": True, "message": f"Открыто: {result_text}", "gift_type": gift_type}
 
+# ========== ГЛОБАЛЬНЫЕ СОБЫТИЯ И СЕЗОНЫ ==========
+
+def _broadcast_world_event(event: dict):
+    """Notify registered players about a global event; failures for blocked bots are ignored."""
+    try:
+        users = bot_db.get_all_users()
+    except Exception:
+        logger.exception("Не удалось получить список игроков для объявления события")
+        return
+    message = (
+        f"🌍 ГЛОБАЛЬНОЕ СОБЫТИЕ: {event.get('title', 'Событие')}\n\n"
+        f"{event.get('description', '')}\n\n"
+        f"⏳ Длительность: {max(1, int(event.get('remaining_seconds', 3600)) // 60)} мин.\n"
+        f"🎁 Награда за участие: {int(event.get('reward_ldc', 0)):,} LDC и "
+        f"{int(event.get('reward_xp', 0))} сезонного опыта.\n\n"
+        "Открой Lavender Dream в боте или веб-приложении, чтобы участвовать."
+    )
+    for user in users:
+        uid = user.get("user_id") if isinstance(user, dict) else None
+        if not uid or (isinstance(user, dict) and user.get("is_banned")):
+            continue
+        _safe_bot_send(int(uid), message, reply_markup={"inline_keyboard": [[{"text": "🎁 Забрать награду", "callback_data": "world_event_claim"}]]})
+        time.sleep(0.05)
+
+
+@app.get("/api/world-events/current")
+def world_event_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    event = world_events.get_current_event()
+    if not event:
+        return {"active": False, "event": None}
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM world_event_claims WHERE event_id = ? AND user_id = ?",
+                (event["id"], user_id))
+    claimed = cur.fetchone() is not None
+    cur.execute("SELECT contribution FROM world_event_participants WHERE event_id = ? AND user_id = ?",
+                (event["id"], user_id))
+    participant = cur.fetchone()
+    conn.close()
+    user_progress = int(participant["contribution"] or 0) if participant else 0
+    if event.get("event_type") == "community_goal":
+        can_claim = not claimed and user_progress > 0 and int(event.get("progress") or 0) >= int(event.get("goal") or 1)
+    else:
+        can_claim = not claimed and user_progress >= int(event.get("goal") or 1)
+    return {"active": True, "event": event, "claimed": claimed,
+            "user_progress": user_progress, "user_goal": int(event.get("goal") or 1),
+            "can_claim": can_claim}
+
+
+@app.post("/api/world-events/claim")
+def world_event_claim(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        result = world_events.claim_event(user_id)
+        try:
+            world_events.record_season_activity(user_id, "event", 1)
+        except Exception:
+            logger.exception("Награда события выдана, но прогресс события/сезона не обновлён user_id=%s", user_id)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/seasons/current")
+def season_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.get_season_status(user_id)
+
+
+@app.post("/api/seasons/claim-task")
+def season_claim_task(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    task_key = str(payload.get("task_key") or "").strip()
+    if not task_key or len(task_key) > 80:
+        raise HTTPException(status_code=400, detail="Некорректное задание")
+    try:
+        return world_events.claim_season_task(user_id, task_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/world-events")
+def admin_world_events(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    _require_admin(user_id)
+    return {
+        "active": world_events.get_current_event(),
+        "settings": world_events.get_settings(),
+        "events": world_events.list_events(30),
+        "schedules": world_events.list_schedules(30),
+        "types": [{"key": key, "title": value[0], "description": value[1]}
+                  for key, value in world_events.EVENT_TYPES.items()],
+    }
+
+
+@app.post("/api/admin/world-events/start")
+def admin_world_event_start(background_tasks: BackgroundTasks, payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    try:
+        event = world_events.start_event(
+            event_type=str(payload.get("event_type") or ""),
+            duration_minutes=int(payload.get("duration_minutes") or 60),
+            reward_ldc=int(payload.get("reward_ldc") or 0),
+            reward_xp=int(payload.get("reward_xp") or 0),
+            title=payload.get("title"), description=payload.get("description"),
+            source="manual", created_by=user_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if background_tasks is not None:
+        background_tasks.add_task(_broadcast_world_event, event)
+    return {"ok": True, "event": event}
+
+
+@app.post("/api/admin/world-events/end")
+def admin_world_event_end(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    event_id = payload.get("event_id")
+    try:
+        ended = world_events.end_event(int(event_id) if event_id else None)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный ID события")
+    if not ended:
+        raise HTTPException(status_code=404, detail="Активное событие не найдено")
+    return {"ok": True, "message": "Событие завершено"}
+
+
+@app.post("/api/admin/world-events/settings")
+def admin_world_event_settings(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    try:
+        settings = world_events.update_settings(
+            random_enabled=payload.get("random_enabled"),
+            min_gap_minutes=payload.get("min_gap_minutes"),
+            default_duration_minutes=payload.get("default_duration_minutes"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Некорректные настройки события") from exc
+    return {"ok": True, "settings": settings}
+
+
+@app.post("/api/admin/world-events/schedule/cancel")
+def admin_world_event_schedule_cancel(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    try:
+        schedule_id = int(payload.get("schedule_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный ID расписания")
+    if not world_events.cancel_schedule(schedule_id):
+        raise HTTPException(status_code=404, detail="Ожидающее событие не найдено")
+    return {"ok": True}
+
+
+@app.post("/api/admin/world-events/schedule")
+def admin_world_event_schedule(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    _require_admin(user_id)
+    try:
+        schedule_id = world_events.create_schedule(
+            event_type=str(payload.get("event_type") or ""),
+            scheduled_at=str(payload.get("scheduled_at") or ""),
+            duration_minutes=int(payload.get("duration_minutes") or 60),
+            reward_ldc=int(payload.get("reward_ldc") or 500),
+            reward_xp=int(payload.get("reward_xp") or 100),
+            title=payload.get("title"), description=payload.get("description"),
+            created_by=user_id,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "schedule_id": schedule_id}
+
+
+@app.post("/api/seasons/claim-level")
+def season_claim_level(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        return world_events.claim_season_level(user_id, int(payload.get("level")))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/achievements/current")
+def achievements_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.get_achievements(user_id)
+
+
+@app.post("/api/achievements/claim")
+def achievement_claim(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    key = str(payload.get("achievement_key") or "").strip()
+    if not key or len(key) > 80:
+        raise HTTPException(status_code=400, detail="Некорректное достижение")
+    try:
+        return world_events.claim_achievement(user_id, key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/achievements/title")
+def achievement_set_title(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    title_key = str(payload.get("title_key") or "").strip()
+    if not title_key or len(title_key) > 100:
+        raise HTTPException(status_code=400, detail="Некорректный титул")
+    try:
+        return world_events.set_active_title(user_id, title_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/current")
+def collection_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.get_collection(user_id)
+
+
+@app.get("/api/system-market/current")
+def system_market_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.get_system_market(user_id)
+
+
+@app.post("/api/system-market/buy")
+def system_market_buy(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        result = world_events.buy_system_market_offer(user_id, payload.get("offer_key"))
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/system-market/sell")
+def system_market_sell(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        return world_events.sell_system_market_item(
+            user_id, payload.get("item_key"), payload.get("amount", 1)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/pets/expeditions/current")
+def pet_expeditions_current(init_data: str = Query(..., alias="initData")):
+    user_id = get_telegram_user_id(init_data)
+    return world_events.list_pet_expeditions(user_id)
+
+
+@app.post("/api/pets/expeditions/start")
+def pet_expedition_start(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        return world_events.start_pet_expedition(
+            user_id, payload.get("pet_id"), payload.get("destination")
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/pets/expeditions/claim")
+def pet_expedition_claim(payload: dict = Body(...)):
+    user_id = get_telegram_user_id(payload.get("initData", ""))
+    try:
+        return world_events.claim_pet_expedition(user_id, payload.get("expedition_id"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 # ========== API: ТЕХ.АДМИН ==========
 
 def _require_tech_admin(user_id: int):
@@ -6125,25 +5568,6 @@ def tech_wipe_island_income(payload: dict = Body(...)):
     return {"ok": ok}
 
 
-@app.post("/api/tech/wipe_clan")
-def tech_wipe_clan(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    _require_tech_admin(user_id)
-    clan_id = int(payload.get("clan_id"))
-    to_leader = bool(payload.get("to_leader", True))
-    ok = bot_db.admin_wipe_clan(clan_id, give_bank_to_leader=to_leader)
-    return {"ok": ok}
-
-
-@app.post("/api/tech/take_clan_bank")
-def tech_take_clan_bank(payload: dict = Body(...)):
-    user_id = get_telegram_user_id(payload.get("initData", ""))
-    _require_tech_admin(user_id)
-    clan_id = int(payload.get("clan_id"))
-    ok = bot_db.admin_take_clan_bank(clan_id)
-    return {"ok": ok}
-
-
 @app.get("/api/tech/find_user")
 def tech_find_user(init_data: str = Query(..., alias="initData"),
                    query: str = Query(...)):
@@ -6176,10 +5600,6 @@ def tech_find_user(init_data: str = Query(..., alias="initData"),
     except Exception:
         pets = []
     try:
-        clan = bot_db.clan_get_user_clan(target_id)
-    except Exception:
-        clan = None
-    try:
         island = bot_db.island_get(target_id)
     except Exception:
         island = {"has_island": False}
@@ -6190,7 +5610,6 @@ def tech_find_user(init_data: str = Query(..., alias="initData"),
         "balance": row["balance"],
         "purchases": [{"id": p[0], "item_type": p[1], "is_used": bool(p[2])} for p in purchases],
         "pets_count": len(pets),
-        "clan": {"id": clan["id"], "name": clan["name"]} if clan else None,
         "island": island,
     }
 

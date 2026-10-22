@@ -30,7 +30,6 @@ class TechStates(StatesGroup):
     waiting_balance_amount = State()
     waiting_balance_new_value = State()
     waiting_purchase_user = State()
-    waiting_clan_id = State()
     waiting_island_user = State()
     waiting_income_user = State()
 
@@ -52,7 +51,6 @@ def tech_panel_menu() -> InlineKeyboardBuilder:
     builder.row(InlineKeyboardButton(text="🔍 Найти игрока", callback_data="tech_find_user"))
     builder.row(InlineKeyboardButton(text="🛍️ Покупки игрока", callback_data="tech_purchases_start"))
     builder.row(InlineKeyboardButton(text="💰 Баланс игрока", callback_data="tech_balance_start"))
-    builder.row(InlineKeyboardButton(text="🏛️ Кланы", callback_data="tech_clans_menu"))
     builder.row(InlineKeyboardButton(text="🏝️ Острова", callback_data="tech_islands_menu"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder
@@ -330,7 +328,6 @@ async def tech_show_user(message: Message, state: FSMContext):
     purchases = db.get_user_purchases(uid)
     pets = db.get_user_pets(uid)
     prof = db.get_profession(uid)
-    clan = db.clan_get_user_clan(uid)
     island = db.island_get(uid)
     rcc_stats = db.rcc_get_stats(uid)
 
@@ -343,8 +340,6 @@ async def tech_show_user(message: Message, state: FSMContext):
     )
     if prof and prof["profession"]:
         text += f"💼 Профессия: {prof['profession']} (ур. {prof['level']})\n"
-    if clan:
-        text += f"🏛️ Клан: {clan['emoji']} {clan['name']} ({clan['role']})\n"
     if island["has_island"]:
         builds = []
         if island["has_house"]: builds.append("🏠")
@@ -621,7 +616,6 @@ async def tech_wipe_all(callback: CallbackQuery):
     builder.row(InlineKeyboardButton(text="🛍️ Только покупки", callback_data=f"tech_wipe_all_purch_{uid}_0"))
     builder.row(InlineKeyboardButton(text="🏝️ Остров", callback_data=f"tech_island_wipe_{uid}_all"))
     builder.row(InlineKeyboardButton(text="💰 Снять доход острова", callback_data=f"tech_income_wipe_{uid}"))
-    builder.row(InlineKeyboardButton(text="🏛️ Выйти из клана", callback_data=f"tech_clan_kick_{uid}"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="tech_panel"))
 
     await callback.message.edit_text(
@@ -629,139 +623,6 @@ async def tech_wipe_all(callback: CallbackQuery):
         reply_markup=builder.as_markup()
     )
     await callback.answer()
-
-
-# ==================== КЛАНЫ ====================
-
-def tech_clans_menu() -> InlineKeyboardBuilder:
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="📋 Все кланы", callback_data="tech_clans_all"))
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="tech_panel"))
-    return builder
-
-
-@router.callback_query(F.data == "tech_clans_menu")
-async def tech_clans_menu_h(callback: CallbackQuery):
-    if not _guard(callback):
-        await callback.answer("❌ Нет доступа", show_alert=True)
-        return
-    await callback.message.edit_text(
-        "🏛️ Управление кланами",
-        reply_markup=tech_clans_menu().as_markup()
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "tech_clans_all")
-async def tech_clans_all(callback: CallbackQuery):
-    if not _guard(callback):
-        await callback.answer("❌ Нет доступа", show_alert=True)
-        return
-
-    top = db.clan_top(30)
-    if not top:
-        await callback.message.edit_text(
-            "🏛️ Кланов нет.",
-            reply_markup=tech_clans_menu().as_markup()
-        )
-        await callback.answer()
-        return
-
-    text = "🏛️ Все кланы:\n\n"
-    builder = InlineKeyboardBuilder()
-    for c in top:
-        text += f"{c['emoji']} {c['name']} (id={c['id']}) — {c['bank']:,} 🪙, {c['members']} чел.\n"
-        builder.row(InlineKeyboardButton(
-            text=f"🗑️ Распустить {c['name']}",
-            callback_data=f"tech_clan_disband_{c['id']}"
-        ))
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="tech_clans_menu"))
-
-    await callback.message.edit_text(text[:4000], reply_markup=builder.as_markup())
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("tech_clan_disband_"))
-async def tech_clan_disband(callback: CallbackQuery):
-    if not _guard(callback):
-        await callback.answer("❌ Нет доступа", show_alert=True)
-        return
-
-    clan_id = int(callback.data.replace("tech_clan_disband_", ""))
-
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="🗑️ Удалить, казна лидеру", callback_data=f"tech_clan_wipe_{clan_id}_1"),
-        InlineKeyboardButton(text="💥 Удалить, казна в никуда", callback_data=f"tech_clan_wipe_{clan_id}_0")
-    )
-    builder.row(InlineKeyboardButton(text="💰 Просто забрать казну", callback_data=f"tech_clan_bank_{clan_id}"))
-    builder.row(InlineKeyboardButton(text="🔙 Отмена", callback_data="tech_clans_all"))
-
-    await callback.message.edit_text(
-        f"Что сделать с кланом #{clan_id}?",
-        reply_markup=builder.as_markup()
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("tech_clan_wipe_"))
-async def tech_clan_wipe(callback: CallbackQuery):
-    if not _guard(callback):
-        await callback.answer("❌ Нет доступа", show_alert=True)
-        return
-
-    parts = callback.data.replace("tech_clan_wipe_", "").split("_")
-    clan_id = int(parts[0])
-    to_leader = bool(int(parts[1]))
-
-    ok = db.admin_wipe_clan(clan_id, give_bank_to_leader=to_leader)
-    await callback.answer("✅ Клан распущен" if ok else "❌ Ошибка", show_alert=True)
-    await callback.message.edit_text(
-        "Готово.",
-        reply_markup=tech_panel_menu().as_markup()
-    )
-
-
-@router.callback_query(F.data.startswith("tech_clan_bank_"))
-async def tech_clan_bank(callback: CallbackQuery):
-    if not _guard(callback):
-        await callback.answer("❌ Нет доступа", show_alert=True)
-        return
-
-    clan_id = int(callback.data.replace("tech_clan_bank_", ""))
-    ok = db.admin_take_clan_bank(clan_id)
-    await callback.answer("✅ Казна забрана" if ok else "❌ Ошибка", show_alert=True)
-    await callback.message.edit_text(
-        "Готово.",
-        reply_markup=tech_panel_menu().as_markup()
-    )
-
-
-@router.callback_query(F.data.startswith("tech_clan_kick_"))
-async def tech_clan_kick_user(callback: CallbackQuery):
-    if not _guard(callback):
-        await callback.answer("❌ Нет доступа", show_alert=True)
-        return
-
-    uid = int(callback.data.replace("tech_clan_kick_", ""))
-    clan = db.clan_get_user_clan(uid)
-    if not clan:
-        await callback.answer("❌ Игрок не в клане", show_alert=True)
-        return
-
-    # Просто выкидываем из клана
-    conn = db.sqlite3.connect(db.DB_NAME)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM clan_members WHERE user_id = ?", (uid,))
-    conn.commit()
-    conn.close()
-
-    db.log_action(uid, "tech_action", f"Тех.админ выкинул из клана {clan['name']}")
-    await callback.answer(f"✅ Кикнут из {clan['name']}", show_alert=True)
-    await callback.message.edit_text(
-        "Готово.",
-        reply_markup=tech_panel_menu().as_markup()
-    )
 
 
 # ==================== ОСТРОВА ====================

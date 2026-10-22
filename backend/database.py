@@ -11,6 +11,15 @@ DB_NAME = "paradise.db"
 
 logger = logging.getLogger(__name__)
 
+
+def _record_season_activity(user_id: int, task_type: str, amount: int = 1):
+    """Best-effort seasonal progression hook shared by bot and web actions."""
+    try:
+        from world_events import record_season_activity
+        record_season_activity(user_id, task_type, amount)
+    except Exception:
+        logger.exception("Не удалось обновить сезонный прогресс user_id=%s task=%s", user_id, task_type)
+
 def init_db():
 
     conn = sqlite3.connect(DB_NAME)
@@ -76,7 +85,7 @@ def init_db():
     # Пользователи
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             username TEXT,
             balance INTEGER DEFAULT 0,
             is_banned INTEGER DEFAULT 0,
@@ -95,7 +104,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS purchases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id BIGINT,
             item_type TEXT,
             purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_used BOOLEAN DEFAULT 0
@@ -105,7 +114,7 @@ def init_db():
     # Варны
     cur.execute("""
         CREATE TABLE IF NOT EXISTS warns (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             warn_count INTEGER DEFAULT 0
         )
     """)
@@ -113,7 +122,7 @@ def init_db():
     # Статистика игр
     cur.execute("""
         CREATE TABLE IF NOT EXISTS game_stats (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             games_played INTEGER DEFAULT 0,
             games_won INTEGER DEFAULT 0,
             total_earned INTEGER DEFAULT 0,
@@ -125,7 +134,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS new_members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id BIGINT,
             username TEXT,
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -135,7 +144,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id BIGINT,
             pet_name TEXT,
             pet_emoji TEXT,
             rarity TEXT,
@@ -163,6 +172,21 @@ def init_db():
         )
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS pet_expeditions (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            pet_id BIGINT NOT NULL,
+            destination TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            started_at TEXT NOT NULL,
+            ends_at TEXT NOT NULL,
+            reward_ldc BIGINT NOT NULL DEFAULT 0,
+            reward_item TEXT,
+            outcome TEXT,
+            claimed_at TEXT
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS inventory_items (
             user_id BIGINT NOT NULL,
             item_key TEXT NOT NULL,
@@ -179,38 +203,12 @@ def init_db():
         ON CONFLICT(pet_id) DO NOTHING
     """)
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS web_trades (
-            id SERIAL PRIMARY KEY,
-            from_user BIGINT NOT NULL,
-            to_user BIGINT NOT NULL,
-            offer_type TEXT NOT NULL,
-            offer_key TEXT NOT NULL,
-            request_type TEXT NOT NULL,
-            request_key TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            resolved_at TIMESTAMP
-        )
-    """)
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS pet_trades (
-            id SERIAL PRIMARY KEY,
-            from_user BIGINT NOT NULL,
-            to_user BIGINT NOT NULL,
-            from_pet BIGINT NOT NULL,
-            to_pet BIGINT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            resolved_at TIMESTAMP
-        )
-    """)
 
     # === ПРОФЕССИИ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS professions (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             profession TEXT,
             level INTEGER DEFAULT 1,
             last_work TIMESTAMP,
@@ -222,7 +220,7 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS profession_progress (
-            user_id INTEGER,
+            user_id BIGINT,
             profession TEXT,
             level INTEGER DEFAULT 1,
             days_worked INTEGER DEFAULT 0,
@@ -235,7 +233,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS daily_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id BIGINT,
             task_type TEXT,
             progress INTEGER DEFAULT 0,
             target INTEGER,
@@ -264,7 +262,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS promo_activations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT,
-            user_id INTEGER,
+            user_id BIGINT,
             activated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -283,7 +281,7 @@ def init_db():
     # === ТУТОРИАЛ / ПОДСКАЗКИ ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_settings (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             tutorial_done BOOLEAN DEFAULT 0,
             hints_enabled BOOLEAN DEFAULT 1
         )
@@ -358,6 +356,177 @@ def init_db():
         CREATE TABLE IF NOT EXISTS seasonal_event_announcements (
             event_key TEXT PRIMARY KEY,
             announced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # === ГЛОБАЛЬНЫЕ СОБЫТИЯ И СЕЗОНЫ ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_event_settings (
+            id INTEGER PRIMARY KEY,
+            active_event_id BIGINT,
+            random_enabled BOOLEAN DEFAULT TRUE,
+            min_gap_minutes INTEGER DEFAULT 60,
+            default_duration_minutes INTEGER DEFAULT 60,
+            next_allowed_at TIMESTAMP,
+            next_random_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        INSERT INTO world_event_settings (id, random_enabled, min_gap_minutes, default_duration_minutes)
+        VALUES (1, TRUE, 60, 60) ON CONFLICT(id) DO NOTHING
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_events (
+            id SERIAL PRIMARY KEY,
+            event_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            source TEXT NOT NULL DEFAULT 'random',
+            starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ends_at TIMESTAMP NOT NULL,
+            reward_ldc BIGINT NOT NULL DEFAULT 0,
+            reward_xp INTEGER NOT NULL DEFAULT 0,
+            goal INTEGER NOT NULL DEFAULT 1,
+            progress INTEGER NOT NULL DEFAULT 0,
+            created_by BIGINT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ended_at TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_event_claims (
+            event_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (event_id, user_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_event_participants (
+            event_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            contribution INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (event_id, user_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS world_event_schedules (
+            id SERIAL PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            scheduled_at TIMESTAMP NOT NULL,
+            duration_minutes INTEGER NOT NULL DEFAULT 60,
+            reward_ldc BIGINT NOT NULL DEFAULT 500,
+            reward_xp INTEGER NOT NULL DEFAULT 100,
+            title TEXT,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_by BIGINT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS seasons (
+            id SERIAL PRIMARY KEY,
+            season_key TEXT UNIQUE NOT NULL,
+            title TEXT NOT NULL,
+            starts_at TIMESTAMP NOT NULL,
+            ends_at TIMESTAMP NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_progress (
+            season_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            xp BIGINT NOT NULL DEFAULT 0,
+            level INTEGER NOT NULL DEFAULT 0,
+            claimed_levels TEXT NOT NULL DEFAULT '[]',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (season_id, user_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_tasks (
+            season_id BIGINT NOT NULL,
+            task_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            task_type TEXT NOT NULL,
+            target INTEGER NOT NULL,
+            reward_xp INTEGER NOT NULL DEFAULT 0,
+            reward_ldc BIGINT NOT NULL DEFAULT 0,
+            period_type TEXT NOT NULL DEFAULT 'season',
+            period_key TEXT NOT NULL DEFAULT 'season',
+            PRIMARY KEY (season_id, task_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_task_progress (
+            season_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            task_key TEXT NOT NULL,
+            progress INTEGER NOT NULL DEFAULT 0,
+            completed BOOLEAN NOT NULL DEFAULT FALSE,
+            claimed BOOLEAN NOT NULL DEFAULT FALSE,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (season_id, user_id, task_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_level_rewards (
+            season_id BIGINT NOT NULL,
+            level INTEGER NOT NULL,
+            reward_type TEXT NOT NULL,
+            reward_key TEXT NOT NULL DEFAULT '',
+            amount BIGINT NOT NULL DEFAULT 0,
+            description TEXT NOT NULL,
+            PRIMARY KEY (season_id, level)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS season_level_claims (
+            season_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            level INTEGER NOT NULL,
+            claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (season_id, user_id, level)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS achievement_progress (
+            user_id BIGINT NOT NULL,
+            achievement_key TEXT NOT NULL,
+            progress INTEGER NOT NULL DEFAULT 0,
+            completed_at TIMESTAMP,
+            claimed_at TIMESTAMP,
+            PRIMARY KEY (user_id, achievement_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_titles (
+            user_id BIGINT NOT NULL,
+            title_key TEXT NOT NULL,
+            title_name TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'achievement',
+            acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN NOT NULL DEFAULT FALSE,
+            PRIMARY KEY (user_id, title_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_collection_items (
+            user_id BIGINT NOT NULL,
+            item_key TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'season',
+            acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, item_key)
         )
     """)
 
@@ -468,39 +637,6 @@ def init_db():
         )
     """)
 
-    # === КЛАНЫ ===
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS clans (
-            id SERIAL PRIMARY KEY,
-            name TEXT UNIQUE,
-            emoji TEXT,
-            leader_id BIGINT,
-            description TEXT,
-            bank BIGINT DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS clan_members (
-            user_id BIGINT PRIMARY KEY,
-            clan_id INTEGER,
-            role TEXT DEFAULT 'member',
-            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS clan_requests (
-            id SERIAL PRIMARY KEY,
-            clan_id INTEGER,
-            user_id BIGINT,
-            status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(clan_id, user_id)
-        )
-    """)
-    
     # === КОСМЕТИКА ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_cosmetics (
@@ -598,41 +734,6 @@ def init_db():
             x_pct DOUBLE PRECISION NOT NULL DEFAULT 50,
             y_pct DOUBLE PRECISION NOT NULL DEFAULT 50,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # === МУЗЫКА ===
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS music_personal (
-            id SERIAL PRIMARY KEY,
-            user_id BIGINT,
-            url TEXT,
-            title TEXT,
-            author TEXT,
-            platform TEXT,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS music_shared (
-            id SERIAL PRIMARY KEY,
-            user_id BIGINT,
-            url TEXT,
-            title TEXT,
-            author TEXT,
-            platform TEXT,
-            status TEXT DEFAULT 'pending',
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            reviewed_by BIGINT,
-            reviewed_at TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS music_slots (
-            user_id BIGINT PRIMARY KEY,
-            extra_slots INTEGER DEFAULT 0
         )
     """)
 
@@ -748,7 +849,41 @@ def init_db():
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
+    # Telegram IDs exceed PostgreSQL INTEGER for many accounts. Migrate all
+    # legacy user-id columns to BIGINT before they are used by bot/web handlers.
+    for user_table in (
+        "users", "purchases", "warns", "game_stats", "new_members", "pets",
+        "professions", "profession_progress", "daily_tasks", "promo_activations",
+        "user_settings",
+    ):
+        cur.execute(f"ALTER TABLE {user_table} ALTER COLUMN user_id TYPE BIGINT")
+
+    # One-time feature removal: the old player-to-player trade, clan and music
+    # systems have no remaining runtime dependencies. Drop their data/tables.
+    for obsolete_table in (
+        "clan_requests", "clan_members", "clans",
+        "web_trades", "pet_trades",
+        "music_personal", "music_shared", "music_slots",
+    ):
+        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table} CASCADE")
+
+    # Remove legacy music-only inventory and daily-task records.
+    cur.execute("DELETE FROM daily_tasks WHERE task_type = 'musician'")
+    cur.execute("DELETE FROM inventory_items WHERE item_key = 'music_tokens'")
+
+    # Existing musician jobs are migrated to the equivalent artist job so no
+    # player loses their profession or salary progression.
+    cur.execute("UPDATE professions SET profession = 'artist' WHERE profession = 'musician'")
+    cur.execute("""INSERT INTO profession_progress (user_id, profession, level, days_worked, last_work)
+        SELECT user_id, 'artist', level, days_worked, last_work
+        FROM profession_progress WHERE profession = 'musician'
+        ON CONFLICT(user_id, profession) DO UPDATE SET
+            level = GREATEST(profession_progress.level, excluded.level),
+            days_worked = GREATEST(profession_progress.days_worked, excluded.days_worked),
+            last_work = COALESCE(excluded.last_work, profession_progress.last_work)""")
+    cur.execute("DELETE FROM profession_progress WHERE profession = 'musician'")
+
     conn.commit()
     conn.close()
 
@@ -1549,6 +1684,7 @@ def update_game_stats(user_id: int, won: bool, amount: int):
     """, (1 if won else 0, amount if won else 0, amount if not won else 0, user_id))
     conn.commit()
     conn.close()
+    _record_season_activity(user_id, "game", 1)
 
 
 # === СТАТИСТИКА ===
@@ -1971,87 +2107,21 @@ def set_pet_active(pet_id: int, user_id: int, active: bool) -> bool:
 
 
 def transfer_pet(pet_id: int, from_user: int, to_user: int) -> bool:
+    """Transfer a pet as a gift, but never while it is away on an expedition."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+    cur.execute("""SELECT 1 FROM pet_expeditions
+        WHERE pet_id = ? AND user_id = ? AND status = 'active' LIMIT 1""",
+        (pet_id, from_user))
+    if cur.fetchone():
+        conn.close()
+        return False
     cur.execute("UPDATE pets SET user_id = ?, is_active = 0 WHERE id = ? AND user_id = ?",
                 (to_user, pet_id, from_user))
     affected = cur.rowcount
     conn.commit()
     conn.close()
     return affected > 0
-
-
-
-
-def create_pet_trade(from_user: int, to_user: int, from_pet: int) -> tuple:
-    if from_user == to_user:
-        return False, "Нельзя обмениваться с самим собой."
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM pets WHERE id = ? AND user_id = ?", (from_pet, from_user))
-    if not cur.fetchone():
-        conn.close()
-        return False, "Этого питомца у тебя нет."
-    cur.execute("SELECT id FROM pets WHERE user_id = ? ORDER BY id", (to_user,))
-    target_pets = [int(row[0]) for row in cur.fetchall()]
-    if not target_pets:
-        conn.close()
-        return False, "У игрока нет питомца для обмена."
-    # Choose the first pet and include its ID in the offer; recipient can decline if unsuitable.
-    to_pet = target_pets[0]
-    cur.execute(
-        "INSERT INTO pet_trades (from_user, to_user, from_pet, to_pet, status) VALUES (?, ?, ?, ?, 'pending')",
-        (from_user, to_user, from_pet, to_pet),
-    )
-    trade_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return True, {"trade_id": trade_id, "to_pet": to_pet}
-
-
-def resolve_pet_trade(trade_id: int, user_id: int, accept: bool) -> tuple:
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT from_user, to_user, from_pet, to_pet, status FROM pet_trades WHERE id = ?", (trade_id,))
-    row = cur.fetchone()
-    if not row or row[4] != "pending":
-        conn.close()
-        return False, "Предложение уже недоступно."
-    from_user, to_user, from_pet, to_pet, status = row
-    if user_id != to_user:
-        conn.close()
-        return False, "Это предложение не для тебя."
-    if not accept:
-        cur.execute("UPDATE pet_trades SET status = 'declined', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'", (trade_id,))
-        conn.commit()
-        conn.close()
-        return True, "Обмен отклонён."
-    cur.execute("SELECT id FROM pets WHERE id = ? AND user_id = ?", (from_pet, from_user))
-    sender_pet_exists = cur.fetchone() is not None
-    cur.execute("SELECT id FROM pets WHERE id = ? AND user_id = ?", (to_pet, to_user))
-    receiver_pet_exists = cur.fetchone() is not None
-    if not sender_pet_exists or not receiver_pet_exists:
-        conn.rollback()
-        conn.close()
-        return False, "Один из питомцев уже передан или продан."
-    cur.execute("UPDATE pets SET user_id = ?, is_active = 0 WHERE id = ? AND user_id = ?", (to_user, from_pet, from_user))
-    if cur.rowcount != 1:
-        conn.rollback()
-        conn.close()
-        return False, "Не удалось передать первого питомца."
-    cur.execute("UPDATE pets SET user_id = ?, is_active = 0 WHERE id = ? AND user_id = ?", (from_user, to_pet, to_user))
-    if cur.rowcount != 1:
-        conn.rollback()
-        conn.close()
-        return False, "Не удалось передать второго питомца."
-    cur.execute("UPDATE pet_trades SET status = 'accepted', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'", (trade_id,))
-    if cur.rowcount != 1:
-        conn.rollback()
-        conn.close()
-        return False, "Предложение уже обработано."
-    conn.commit()
-    conn.close()
-    return True, "Обмен завершён! Оба питомца сохранены в коллекциях неактивными."
 
 
 def get_pet_care(pet_id: int, user_id: int) -> Optional[dict]:
@@ -2224,6 +2294,7 @@ def care_for_pet(user_id: int, pet_id: int, action: str) -> tuple:
     )
     conn.commit()
     conn.close()
+    _record_season_activity(user_id, "pet", 1)
     return True, msg
 
 
@@ -2236,6 +2307,11 @@ def sell_pet_to_system(user_id: int, pet_id: int) -> tuple:
     if not pet:
         conn.close()
         return False, "Питомец не найден."
+    cur.execute("SELECT 1 FROM pet_expeditions WHERE pet_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
+                (pet_id, user_id))
+    if cur.fetchone():
+        conn.close()
+        return False, "Нельзя продать питомца, пока он находится в экспедиции."
     price = max(100, int(pet[0]) * 10)
     cur.execute("DELETE FROM pets WHERE id = ? AND user_id = ?", (pet_id, user_id))
     if cur.rowcount != 1:
@@ -2281,7 +2357,6 @@ def deactivate_cursed_egg():
 
 PROFESSIONS = {
     "artist": {"name": "🎨 Художник", "salary": 500, "cooldown_hours": 2, "admin_only": False},
-    "musician": {"name": "🎸 Музыкант", "salary": 500, "cooldown_hours": 2, "admin_only": False},
     "photographer": {"name": "📸 Фотограф", "salary": 1000, "cooldown_hours": 3, "admin_only": False},
     "gardener": {"name": "🌿 Садовник", "salary": 1000, "cooldown_hours": 3, "admin_only": False},
     "cook": {"name": "🍳 Повар", "salary": 1000, "cooldown_hours": 3, "admin_only": False},
@@ -2297,8 +2372,9 @@ PROFESSIONS = {
     "ruler": {"name": "👑 Правитель Lavender Dream", "salary": 10000, "cooldown_hours": 12, "admin_only": True},
 }
 
-HIRE_COST = 1000
-FIRE_EXTRA_COST = 1000
+# Трудоустройство и смена профессии бесплатны.
+HIRE_COST = 0
+FIRE_EXTRA_COST = 0
 
 
 def get_profession(user_id: int) -> Optional[dict]:
@@ -2327,14 +2403,6 @@ def hire_profession(user_id: int, profession: str) -> Tuple[bool, str]:
     if profession not in PROFESSIONS:
         return False, "Неизвестная профессия"
     current = get_profession(user_id)
-    cost = HIRE_COST
-    if current and current["profession"]:
-        cost += FIRE_EXTRA_COST * (current["total_changes"] + 1)
-    if get_balance(user_id) < cost:
-        return False, f"Недостаточно монет. Нужно: {cost} 🪙"
-    if not update_balance(user_id, -cost):
-        return False, "Ошибка списания"
-
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
 
@@ -2386,8 +2454,7 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
             return False, f"Отдых ещё не закончен. Осталось: {remaining // 3600} ч {(remaining % 3600) // 60} мин"
     base_salary = get_profession_salary(prof["profession"], prof["level"])
     friend_bonus = friend_income_bonus(user_id)
-    clan_bonus = clan_income_bonus(user_id)
-    total_bonus = friend_bonus + clan_bonus
+    total_bonus = friend_bonus
     salary = base_salary + (base_salary * total_bonus // 100)
     update_balance(user_id, salary)
     reduction = consume_user_boost(user_id, "work")
@@ -2412,9 +2479,9 @@ def work_profession(user_id: int) -> Tuple[bool, str]:
     """, (now.isoformat(), new_days, new_level, today, user_id))
     conn.commit()
     conn.close()
+    _record_season_activity(user_id, "work", 1)
     bonus_parts = []
     if friend_bonus > 0: bonus_parts.append(f"+{friend_bonus}% друзья")
-    if clan_bonus > 0: bonus_parts.append(f"+{clan_bonus}% клан")
     bonus_text = f" ({', '.join(bonus_parts)})" if bonus_parts else ""
     boost_text = f" Буст сократил следующий отдых на {reduction}%." if reduction else ""
     return True, f"Вы заработали {salary} 🪙{bonus_text}! (уровень {new_level}, дней: {new_days}/7){boost_text}"
@@ -2427,7 +2494,6 @@ DAILY_TASKS = {
     "resident": {"name": "🌴 Житель Lavender Dream", "target": 50, "reward": 150, "type": "messages", "desc": "Отправь 50 сообщений в чат"},
     "friendly": {"name": "🤍 Дружелюбный", "target": 5, "reward": 200, "type": "replies", "desc": "Ответь на 5 разных сообщений"},
     "photographer": {"name": "📸 Фотограф", "target": 1, "reward": 50, "type": "photo", "desc": "Отправь фото в чат"},
-    "musician": {"name": "🎵 Музыкант", "target": 1, "reward": 50, "type": "audio", "desc": "Отправь музыку или голосовое в чат"},
     "night_owl": {"name": "🌙 Ночной житель", "target": 1, "reward": 250, "type": "night_message", "desc": "Напиши сообщение после 20:00"},
     "early_bird": {"name": "🌅 Ранняя пташка", "target": 1, "reward": 150, "type": "morning_message", "desc": "Напиши сообщение до 09:00"},
     "storyteller": {"name": "📖 Рассказчик", "target": 10, "reward": 120, "type": "long_messages", "desc": "Отправь 10 сообщений длиной от 50 символов"},
@@ -2436,9 +2502,22 @@ DAILY_TASKS = {
     "game_player": {"name": "🎮 Игрок", "target": 3, "reward": 200, "type": "games", "desc": "Сыграй 3 игры"},
     "helper": {"name": "🤝 Помощник", "target": 10, "reward": 150, "type": "replies", "desc": "Ответь на 10 сообщений других участников"},
     "social_butterfly": {"name": "🦋 Душа компании", "target": 3, "reward": 150, "type": "active_hours", "desc": "Напиши в чате в течение 3 разных часов"},
-    "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых или музыкальных сообщений"},
+    "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых сообщения"},
     "link_sharer": {"name": "🔗 Делится полезным", "target": 3, "reward": 100, "type": "links", "desc": "Отправь 3 сообщения со ссылками"},
     "weekend_vibes": {"name": "🎉 Выходной вайб", "target": 25, "reward": 150, "type": "weekend_messages", "desc": "Напиши 25 сообщений в выходной"},
+    "conversation_king": {"name": "🗣️ Душа чата", "target": 100, "reward": 250, "type": "messages", "desc": "Отправь 100 сообщений в чат"},
+    "reply_master": {"name": "💌 Мастер ответов", "target": 15, "reward": 220, "type": "replies", "desc": "Ответь на 15 сообщений участников"},
+    "photo_album": {"name": "📸 Фотоальбом", "target": 3, "reward": 120, "type": "photo", "desc": "Отправь 3 фотографии в чат"},
+    "night_shift": {"name": "🌃 Ночная смена", "target": 5, "reward": 300, "type": "night_message", "desc": "Напиши 5 сообщений после 20:00"},
+    "sunrise": {"name": "🌄 Встречая рассвет", "target": 3, "reward": 250, "type": "morning_message", "desc": "Напиши 3 сообщения до 09:00"},
+    "long_story": {"name": "📚 Большой рассказ", "target": 15, "reward": 200, "type": "long_messages", "desc": "Отправь 15 длинных сообщений"},
+    "emoji_festival": {"name": "🎊 Фестиваль эмодзи", "target": 25, "reward": 180, "type": "emoji_messages", "desc": "Отправь 25 сообщений с эмодзи"},
+    "question_master": {"name": "🧠 Почемучка", "target": 20, "reward": 180, "type": "question_messages", "desc": "Отправь 20 сообщений с вопросом"},
+    "gamer_marathon": {"name": "🎮 Игровой марафон", "target": 10, "reward": 300, "type": "games", "desc": "Сыграй 10 игр"},
+    "voice_lover": {"name": "🎙️ Голосовой марафон", "target": 5, "reward": 150, "type": "audio", "desc": "Отправь 5 голосовых сообщений"},
+    "link_guide": {"name": "🧭 Навигатор", "target": 5, "reward": 150, "type": "links", "desc": "Отправь 5 сообщений со ссылками"},
+    "weekend_grinder": {"name": "🔥 Выходной марафон", "target": 40, "reward": 250, "type": "weekend_messages", "desc": "Отправь 40 сообщений в выходной"},
+    "social_hours_pro": {"name": "🦋 Всегда на связи", "target": 5, "reward": 250, "type": "active_hours", "desc": "Будь активен в чате в течение 5 разных часов"},
 }
 
 
@@ -2465,8 +2544,12 @@ def assign_daily_tasks(user_id: int):
     existing = get_user_tasks(user_id, date)
     if existing:
         return
-    task_keys = list(DAILY_TASKS.keys())
-    chosen = random.sample(task_keys, 3)
+    tasks_by_type = {}
+    for task_key, task_info in DAILY_TASKS.items():
+        tasks_by_type.setdefault(task_info.get("type", task_key), []).append(task_key)
+    available_types = list(tasks_by_type)
+    chosen_types = random.sample(available_types, min(3, len(available_types)))
+    chosen = [random.choice(tasks_by_type[task_type]) for task_type in chosen_types]
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     for key in chosen:
@@ -2517,7 +2600,7 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
             completed.append(task_id)
             completed_reward += int(reward or task_info.get("reward", 0) or 0)
             completed_names.append(task_info.get("name", task_key))
-            if task_key in {"game_player", "storyteller", "weekend_vibes"}:
+            if task_key in {"game_player", "storyteller", "weekend_vibes", "gamer_marathon"}:
                 ticket_rewards += 1
     conn.commit()
     conn.close()
@@ -2525,6 +2608,13 @@ def update_task_progress(user_id: int, task_type: str, amount: int = 1):
         update_balance(user_id, completed_reward)
     if ticket_rewards:
         change_wheel_tickets(user_id, ticket_rewards)
+    if completed:
+        _record_season_activity(user_id, "daily_task", len(completed))
+        try:
+            from world_events import add_season_xp
+            add_season_xp(user_id, 50 * len(completed))
+        except Exception:
+            logger.exception("Не удалось начислить сезонный опыт за ежедневные задания")
     if not completed:
         return None
     return {"task_type": task_type, "names": completed_names,
@@ -3659,7 +3749,9 @@ FRAMES = {
     "spiral":   {"name": "🌀", "price": 30000, "rarity": "base", "display": "🌀 {name} 🌀"},
     "diamond":  {"name": "💎", "price": 100000, "rarity": "rare", "display": "💎 {name} 💎"},
     "crown":    {"name": "👑", "price": 250000, "rarity": "rare", "display": "👑 {name} 👑"},
-    "rainbow":  {"name": "🌈", "price": 500000, "rarity": "rare", "display": "🌈 {name} 🌈"}, 
+    "rainbow":  {"name": "🌈", "price": 500000, "rarity": "rare", "display": "🌈 {name} 🌈"},
+    "season_lavender_frame": {"name": "💜 Сезонная лаванда", "price": 0, "rarity": "season", "display": "💜 {name} 💜"},
+    "seasonal_glow": {"name": "✨ Лавандовое сияние", "price": 0, "rarity": "season", "display": "✨ {name} ✨"},
 }
 
 # Статусы
@@ -3788,6 +3880,10 @@ def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
             set_cosmetics(user_id, theme=item_key)
         return True, "✅ Применено (уже куплено)"
 
+    # Seasonal cosmetics are unlocked only by the season reward track.
+    if item_type == "frame" and FRAMES[item_key].get("rarity") == "season":
+        return False, "Эта рамка открывается только как сезонная награда."
+
     # Бесплатное
     if price == 0:
         mark_owned(user_id, item_type, item_key)
@@ -3799,6 +3895,7 @@ def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
             set_cosmetics(user_id, status=item_key)
         elif item_type == "theme":
             set_cosmetics(user_id, theme=item_key)
+        _record_season_activity(user_id, "collect", 1)
         return True, "✅ Применено бесплатно"
 
     if get_balance(user_id) < price:
@@ -3819,6 +3916,7 @@ def purchase_cosmetics(user_id: int, item_type: str, item_key: str) -> tuple:
     elif item_type == "theme":
         set_cosmetics(user_id, theme=item_key)
 
+    _record_season_activity(user_id, "collect", 1)
     return True, f"Куплено! Списано {price:,} 🪙"
 
 
@@ -4076,327 +4174,6 @@ def islands_income_tick():
 
     return to_credit
 
-# ==================== КЛАНЫ ====================
-
-CLAN_CREATE_COST = 10000       # стоимость создания клана
-CLAN_MAX_MEMBERS = 20           # максимум участников
-CLAN_BONUS_PER_MEMBER = 1       # +1% к зарплате за каждого участника
-CLAN_BONUS_MAX = 10             # максимум +10%
-
-
-def clan_create(user_id: int, name: str, emoji: str, description: str = "") -> tuple:
-    """Создаёт клан. Возвращает (ok, message)."""
-    name = name.strip()
-    if len(name) < 3 or len(name) > 20:
-        return False, "Название должно быть 3–20 символов"
-    if not emoji:
-        emoji = "🏛️"
-
-    # Уже в клане?
-    if clan_get_user_clan(user_id):
-        return False, "Ты уже в клане"
-
-    if get_balance(user_id) < CLAN_CREATE_COST:
-        return False, f"Недостаточно монет. Нужно: {CLAN_CREATE_COST:,} 🪙"
-
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM clans WHERE LOWER(name) = ?", (name.lower(),))
-    if cur.fetchone():
-        conn.close()
-        return False, "Такое название уже занято"
-
-    if not update_balance(user_id, -CLAN_CREATE_COST):
-        conn.close()
-        return False, "Ошибка списания"
-
-    cur.execute("""
-        INSERT INTO clans (name, emoji, leader_id, description)
-        VALUES (?, ?, ?, ?)
-    """, (name, emoji, user_id, description))
-    clan_id = cur.lastrowid
-
-    cur.execute("""
-        INSERT INTO clan_members (user_id, clan_id, role)
-        VALUES (?, ?, 'leader')
-    """, (user_id, clan_id))
-    conn.commit()
-    conn.close()
-    return True, f"Клан {emoji} {name} создан!"
-
-
-def clan_get_user_clan(user_id: int) -> Optional[dict]:
-    """Возвращает клан пользователя или None."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT c.id, c.name, c.emoji, c.leader_id, c.description, c.bank, cm.role
-        FROM clans c
-        JOIN clan_members cm ON cm.clan_id = c.id
-        WHERE cm.user_id = ?
-    """, (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "id": row[0], "name": row[1], "emoji": row[2],
-        "leader_id": row[3], "description": row[4],
-        "bank": row[5], "role": row[6],
-    }
-
-
-def clan_get(clan_id: int) -> Optional[dict]:
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, name, emoji, leader_id, description, bank, created_at
-        FROM clans WHERE id = ?
-    """, (clan_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "id": row[0], "name": row[1], "emoji": row[2],
-        "leader_id": row[3], "description": row[4],
-        "bank": row[5], "created_at": row[6],
-    }
-
-
-def clan_get_members(clan_id: int) -> list:
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT cm.user_id, cm.role, u.username, u.balance
-        FROM clan_members cm
-        JOIN users u ON u.user_id = cm.user_id
-        WHERE cm.clan_id = ?
-        ORDER BY
-            CASE cm.role WHEN 'leader' THEN 1 WHEN 'deputy' THEN 2 ELSE 3 END,
-            cm.joined_at
-    """, (clan_id,))
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"user_id": r[0], "role": r[1], "username": r[2], "balance": r[3]}
-        for r in rows
-    ]
-
-
-def clan_member_count(clan_id: int) -> int:
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM clan_members WHERE clan_id = ?", (clan_id,))
-    count = cur.fetchone()[0]
-    conn.close()
-    return count
-
-
-def clan_send_request(clan_id: int, user_id: int) -> tuple:
-    if clan_get_user_clan(user_id):
-        return False, "Ты уже в клане"
-    if clan_member_count(clan_id) >= CLAN_MAX_MEMBERS:
-        return False, "В клане нет мест"
-
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM clan_requests WHERE clan_id = ? AND user_id = ? AND status = 'pending'",
-                (clan_id, user_id))
-    if cur.fetchone():
-        conn.close()
-        return False, "Заявка уже отправлена"
-
-    cur.execute("""
-        INSERT INTO clan_requests (clan_id, user_id) VALUES (?, ?)
-        ON CONFLICT(clan_id, user_id) DO UPDATE SET status = 'pending'
-    """, (clan_id, user_id))
-    conn.commit()
-    conn.close()
-    return True, "Заявка отправлена"
-
-
-def clan_get_pending_requests(clan_id: int) -> list:
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT cr.id, cr.user_id, u.username
-        FROM clan_requests cr
-        JOIN users u ON u.user_id = cr.user_id
-        WHERE cr.clan_id = ? AND cr.status = 'pending'
-    """, (clan_id,))
-    rows = cur.fetchall()
-    conn.close()
-    return [{"request_id": r[0], "user_id": r[1], "username": r[2]} for r in rows]
-
-
-def clan_accept_request(request_id: int, reviewer_id: int) -> tuple:
-    """Принимает заявку. reviewer_id — тот, кто принимает (лидер/заместитель)."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT clan_id, user_id, status FROM clan_requests WHERE id = ?", (request_id,))
-    row = cur.fetchone()
-    if not row or row[2] != "pending":
-        conn.close()
-        return False, "Заявка не найдена"
-
-    clan_id, target_user, _ = row
-
-    # Проверяем, что reviewer — лидер или заместитель этого клана
-    cur.execute("SELECT role FROM clan_members WHERE user_id = ? AND clan_id = ?",
-                (reviewer_id, clan_id))
-    reviewer_row = cur.fetchone()
-    if not reviewer_row or reviewer_row[0] not in ("leader", "deputy"):
-        conn.close()
-        return False, "Нет прав"
-
-    if clan_member_count(clan_id) >= CLAN_MAX_MEMBERS:
-        conn.close()
-        return False, "В клане нет мест"
-
-    if clan_get_user_clan(target_user):
-        cur.execute("UPDATE clan_requests SET status = 'rejected' WHERE id = ?", (request_id,))
-        conn.commit()
-        conn.close()
-        return False, "Пользователь уже в клане"
-
-    cur.execute("UPDATE clan_requests SET status = 'accepted' WHERE id = ?", (request_id,))
-    cur.execute("INSERT INTO clan_members (user_id, clan_id, role) VALUES (?, ?, 'member')",
-                (target_user, clan_id))
-    conn.commit()
-    conn.close()
-    return True, "Принят в клан"
-
-
-def clan_decline_request(request_id: int, reviewer_id: int) -> bool:
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT clan_id FROM clan_requests WHERE id = ? AND status = 'pending'", (request_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return False
-    clan_id = row[0]
-
-    cur.execute("SELECT role FROM clan_members WHERE user_id = ? AND clan_id = ?",
-                (reviewer_id, clan_id))
-    reviewer_row = cur.fetchone()
-    if not reviewer_row or reviewer_row[0] not in ("leader", "deputy"):
-        conn.close()
-        return False
-
-    cur.execute("UPDATE clan_requests SET status = 'rejected' WHERE id = ?", (request_id,))
-    conn.commit()
-    conn.close()
-    return True
-
-
-def clan_leave(user_id: int) -> tuple:
-    clan = clan_get_user_clan(user_id)
-    if not clan:
-        return False, "Ты не в клане"
-    if clan["role"] == "leader":
-        return False, "Лидер не может выйти. Передай лидерство или распусти клан."
-
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM clan_members WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-    return True, "Ты вышел из клана"
-
-
-def clan_kick(leader_id: int, target_user_id: int) -> tuple:
-    clan = clan_get_user_clan(leader_id)
-    if not clan:
-        return False, "Ты не в клане"
-    if clan["role"] not in ("leader", "deputy"):
-        return False, "Нет прав"
-
-    target_clan = clan_get_user_clan(target_user_id)
-    if not target_clan or target_clan["id"] != clan["id"]:
-        return False, "Игрок не из твоего клана"
-    if target_user_id == clan["leader_id"]:
-        return False, "Нельзя кикнуть лидера"
-    if target_clan["role"] == "deputy" and clan["role"] != "leader":
-        return False, "Зам не может кикнуть зама"
-
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM clan_members WHERE user_id = ?", (target_user_id,))
-    conn.commit()
-    conn.close()
-    return True, "Игрок кикнут"
-
-
-def clan_deposit(user_id: int, amount: int) -> tuple:
-    clan = clan_get_user_clan(user_id)
-    if not clan:
-        return False, "Ты не в клане"
-    if amount <= 0:
-        return False, "Сумма должна быть больше 0"
-    if get_balance(user_id) < amount:
-        return False, f"Недостаточно монет. У тебя: {get_balance(user_id):,}"
-
-    if not update_balance(user_id, -amount):
-        return False, "Ошибка списания"
-
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("UPDATE clans SET bank = bank + ? WHERE id = ?", (amount, clan["id"]))
-    conn.commit()
-    conn.close()
-    return True, f"Внесено {amount:,} 🪙 в казну клана"
-
-
-def clan_disband(leader_id: int) -> tuple:
-    clan = clan_get_user_clan(leader_id)
-    if not clan:
-        return False, "Ты не в клане"
-    if clan["role"] != "leader":
-        return False, "Только лидер может распустить клан"
-
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    # Остаток казны отдаём лидеру
-    if clan["bank"] > 0:
-        update_balance(leader_id, clan["bank"])
-    cur.execute("DELETE FROM clan_members WHERE clan_id = ?", (clan["id"],))
-    cur.execute("DELETE FROM clan_requests WHERE clan_id = ?", (clan["id"],))
-    cur.execute("DELETE FROM clans WHERE id = ?", (clan["id"],))
-    conn.commit()
-    conn.close()
-    return True, f"Клан распущен. Казна ({clan['bank']:,} 🪙) возвращена лидеру."
-
-
-def clan_top(limit: int = 10) -> list:
-    """Топ кланов по казне."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT c.id, c.name, c.emoji, c.bank,
-               (SELECT COUNT(*) FROM clan_members WHERE clan_id = c.id) AS members
-        FROM clans c
-        ORDER BY c.bank DESC
-        LIMIT ?
-    """, (limit,))
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"id": r[0], "name": r[1], "emoji": r[2], "bank": r[3], "members": r[4]}
-        for r in rows
-    ]
-
-
-def clan_income_bonus(user_id: int) -> int:
-    """Возвращает % бонуса к зарплате от клана."""
-    clan = clan_get_user_clan(user_id)
-    if not clan:
-        return 0
-    members = clan_member_count(clan["id"])
-    bonus = members * CLAN_BONUS_PER_MEMBER
-    return min(bonus, CLAN_BONUS_MAX)
-
 def track_message_tasks(user_id: int, is_reply: bool = False,
                         is_photo: bool = False, is_audio: bool = False,
                         is_night: bool = False):
@@ -4408,229 +4185,18 @@ def track_message_tasks(user_id: int, is_reply: bool = False,
         if result:
             completed.append(result)
 
-    # Активист / Житель — каждое сообщение
-    track("activist")
-    track("resident")
-
+    # Track by activity category so every variant of a category works.
+    track("messages")
     if is_reply:
-        track("friendly")
+        track("replies")
     if is_photo:
-        track("photographer")
+        track("photo")
     if is_audio:
-        track("musician")
+        track("audio")
     if is_night:
-        track("night_owl")
+        track("night_message")
 
     return completed
-
-# ==================== МУЗЫКА ====================
-
-MUSIC_PERSONAL_BASE = 15       # базовые слоты личного плейлиста
-MUSIC_SHARED_MAX = 100         # максимум треков в общем
-MUSIC_SLOT_PRICE = 2000        # цена одного слота
-
-
-def music_personal_limit(user_id: int) -> int:
-    """Лимит личного плейлиста с учётом купленных слотов."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT extra_slots FROM music_slots WHERE user_id = ?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    extra = row[0] if row else 0
-    return MUSIC_PERSONAL_BASE + extra
-
-
-def music_buy_slot(user_id: int) -> tuple:
-    """Покупает +1 слот для личного плейлиста."""
-    if get_balance(user_id) < MUSIC_SLOT_PRICE:
-        return False, f"Недостаточно монет. Нужно: {MUSIC_SLOT_PRICE:,} 🪙"
-
-    if not update_balance(user_id, -MUSIC_SLOT_PRICE):
-        return False, "Ошибка списания"
-
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO music_slots (user_id, extra_slots) VALUES (?, 1)
-        ON CONFLICT(user_id) DO UPDATE SET extra_slots = music_slots.extra_slots + 1
-    """, (user_id,))
-    conn.commit()
-    conn.close()
-    return True, f"Куплен 1 слот за {MUSIC_SLOT_PRICE:,} 🪙"
-
-
-def music_personal_add(user_id: int, url: str, title: str, author: str, platform: str) -> tuple:
-    """Добавляет трек в личный плейлист."""
-    limit = music_personal_limit(user_id)
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM music_personal WHERE user_id = ?", (user_id,))
-    count = cur.fetchone()[0]
-    if count >= limit:
-        conn.close()
-        return False, f"Плейлист полон ({count}/{limit}). Купи слот."
-
-    cur.execute("""
-        INSERT INTO music_personal (user_id, url, title, author, platform)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, url, title, author, platform))
-    conn.commit()
-    conn.close()
-    return True, "Трек добавлен в личный плейлист"
-
-
-def music_personal_list(user_id: int) -> list:
-    """Возвращает личный плейлист."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, url, title, author, platform, added_at
-        FROM music_personal WHERE user_id = ?
-        ORDER BY added_at DESC
-    """, (user_id,))
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"id": r[0], "url": r[1], "title": r[2], "author": r[3],
-         "platform": r[4], "added_at": r[5]}
-        for r in rows
-    ]
-
-
-def music_personal_delete(user_id: int, track_id: int) -> bool:
-    """Удаляет трек из личного плейлиста (только свой)."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM music_personal WHERE id = ? AND user_id = ?", (track_id, user_id))
-    affected = cur.rowcount
-    conn.commit()
-    conn.close()
-    return affected > 0
-
-
-def music_shared_add(user_id: int, url: str, title: str, author: str, platform: str) -> tuple:
-    """Добавляет трек в общий плейлист (на модерацию)."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM music_shared WHERE status = 'approved'")
-    count = cur.fetchone()[0]
-    if count >= MUSIC_SHARED_MAX:
-        conn.close()
-        return False, f"Общий плейлист полон ({count}/{MUSIC_SHARED_MAX})"
-
-    cur.execute("""
-        INSERT INTO music_shared (user_id, url, title, author, platform, status)
-        VALUES (?, ?, ?, ?, ?, 'pending')
-    """, (user_id, url, title, author, platform))
-    conn.commit()
-    conn.close()
-    return True, "Трек отправлен на модерацию"
-
-
-def music_shared_list() -> list:
-    """Возвращает только одобренные треки."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at, u.username
-        FROM music_shared ms
-        LEFT JOIN users u ON u.user_id = ms.user_id
-        WHERE ms.status = 'approved'
-        ORDER BY ms.reviewed_at DESC
-    """, ())
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"id": r[0], "url": r[1], "title": r[2], "author": r[3],
-         "platform": r[4], "added_at": r[5], "added_by": r[6]}
-        for r in rows
-    ]
-
-
-def music_shared_pending() -> list:
-    """Возвращает треки на модерации (для админов)."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT ms.id, ms.url, ms.title, ms.author, ms.platform, ms.added_at, u.username, ms.user_id
-        FROM music_shared ms
-        LEFT JOIN users u ON u.user_id = ms.user_id
-        WHERE ms.status = 'pending'
-        ORDER BY ms.added_at ASC
-    """, ())
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"id": r[0], "url": r[1], "title": r[2], "author": r[3],
-         "platform": r[4], "added_at": r[5], "added_by": r[6], "user_id": r[7]}
-        for r in rows
-    ]
-
-
-def music_shared_review(track_id: int, reviewer_id: int, approve: bool) -> tuple:
-    """Одобряет или отклоняет трек. Проверяет, что reviewer не автор."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM music_shared WHERE id = ? AND status = 'pending'", (track_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return False, "Трек не найден или уже рассмотрен"
-
-    if row[0] == reviewer_id:
-        conn.close()
-        return False, "Нельзя одобрить свой же трек"
-
-    new_status = "approved" if approve else "rejected"
-    cur.execute("""
-        UPDATE music_shared SET status = ?, reviewed_by = ?, reviewed_at = ?
-        WHERE id = ?
-    """, (new_status, reviewer_id, datetime.now().isoformat(), track_id))
-    conn.commit()
-    conn.close()
-    return True, "Трек одобрен" if approve else "Трек отклонён"
-
-
-def music_shared_delete(track_id: int) -> bool:
-    """Удаляет трек из общего плейлиста (для админов)."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM music_shared WHERE id = ?", (track_id,))
-    affected = cur.rowcount
-    conn.commit()
-    conn.close()
-    return affected > 0
-
-
-def music_get_info(url: str) -> Optional[dict]:
-    """Получает информацию о треке через oEmbed. Возвращает dict или None."""
-    import httpx
-    url_lower = url.lower()
-
-    try:
-        if "youtube.com" in url_lower or "youtu.be" in url_lower:
-            oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
-            platform = "youtube"
-        elif "soundcloud.com" in url_lower:
-            oembed_url = f"https://soundcloud.com/oembed?url={url}&format=json"
-            platform = "soundcloud"
-        else:
-            return None
-
-        with httpx.Client(timeout=5) as client:
-            r = client.get(oembed_url)
-            if r.status_code != 200:
-                return None
-            data = r.json()
-            return {
-                "title": data.get("title", "Без названия"),
-                "author": data.get("author_name", "Неизвестен"),
-                "platform": platform,
-            }
-    except Exception:
-        return None
-
 
 # ==================== RCC (ReefCriptoCoin) ====================
 
@@ -4832,8 +4398,6 @@ def _delete_user_full(cur, user_id: int):
         ("pet_care", "pet_id IN (SELECT id FROM pets WHERE user_id = ?)", (user_id,)),
         ("ttt_games", "(player_x = ? OR player_o = ?)", (user_id, user_id)),
         ("ttt_invites", "(from_user = ? OR to_user = ?)", (user_id, user_id)),
-        ("web_trades", "(from_user = ? OR to_user = ?)", (user_id, user_id)),
-        ("pet_trades", "(from_user = ? OR to_user = ?)", (user_id, user_id)),
         ("gifts", "(from_user = ? OR to_user = ?)", (user_id, user_id)),
     ]
     for table, condition, params in related_deletes:
@@ -4843,28 +4407,22 @@ def _delete_user_full(cur, user_id: int):
         "purchases", "warns", "game_stats", "new_members",
         "pets", "professions", "profession_progress", "daily_tasks", "promo_activations",
         "user_cosmetics", "user_badges", "user_cosmetics_owned", "user_settings", "islands",
-        "friends", "friend_requests", "clan_members", "clan_requests",
-        "music_personal", "music_shared", "music_slots",
+        "friends", "friend_requests",
         "rcc_balance", "rcc_transactions", "rcc_progress", "rcc_game_sessions",
         "wheel_tickets", "wheel_ticket_weekly_purchases", "game_play_limits",
         "daily_transfer_usage", "inventory_items", "minesweeper_games", "battleship_games",
+        "pet_expeditions",
+        "season_progress", "season_task_progress", "season_level_claims",
+        "achievement_progress", "user_titles", "user_collection_items",
+        "world_event_claims", "world_event_participants",
     ]
     for table in tables_with_user_id:
         _safe_cleanup_query(
             cur, f"DELETE FROM {table} WHERE user_id = ?", (user_id,), context=table
         )
 
-    # Remove clan memberships and dissolve clans led by this user.
     _safe_cleanup_query(cur, "DELETE FROM friends WHERE friend_id = ?", (user_id,), context="friends.friend_id")
     _safe_cleanup_query(cur, "DELETE FROM friend_requests WHERE to_user = ?", (user_id,), context="friend_requests.to_user")
-    clan_rows = _safe_cleanup_query(
-        cur, "SELECT id FROM clans WHERE leader_id = ?", (user_id,), fetch=True, context="clans.leader_id"
-    ) or []
-    for row in clan_rows:
-        clan_id = row[0]
-        for table in ("clan_members", "clan_requests"):
-            _safe_cleanup_query(cur, f"DELETE FROM {table} WHERE clan_id = ?", (clan_id,), context=f"{table}.clan_id")
-        _safe_cleanup_query(cur, "DELETE FROM clans WHERE id = ?", (clan_id,), context="clans.id")
 
     _safe_cleanup_query(cur, "DELETE FROM users WHERE user_id = ?", (user_id,), context="users")
 
@@ -4980,9 +4538,6 @@ LOG_TYPES = {
     "wheel":         "🎡 Колесо",
     "egg":           "🥚 Яйцо",
     "promo":         "🎟️ Промокод",
-    "clan_create":   "🏛️ Создание клана",
-    "clan_deposit":  "💰 Взнос в казну",
-    "clan_wipe":     "💥 Роспуск клана",
     "island_buy":    "🏝️ Покупка острова",
     "island_income": "💰 Доход острова",
     "admin_give":    "➕ Выдача монет",
@@ -5258,69 +4813,3 @@ def admin_wipe_island(user_id: int, item: str = None) -> bool:
     except Exception:
         conn.close()
         return False
-
-
-def admin_wipe_clan(clan_id: int, give_bank_to_leader: bool = True) -> bool:
-    """Распустить клан. Если give_bank_to_leader — вернуть казну лидеру."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT leader_id, bank, name FROM clans WHERE id = ?", (clan_id,))
-        row = cur.fetchone()
-        if not row:
-            conn.close()
-            return False
-
-        leader_id, bank, name = row
-
-        if give_bank_to_leader and bank > 0:
-            update_balance(leader_id, bank)
-
-        cur.execute("DELETE FROM clan_members WHERE clan_id = ?", (clan_id,))
-        cur.execute("DELETE FROM clan_requests WHERE clan_id = ?", (clan_id,))
-        cur.execute("DELETE FROM clans WHERE id = ?", (clan_id,))
-        conn.commit()
-        conn.close()
-
-        log_action(leader_id, "tech_action",
-                   f"Клан «{name}» распущен тех.админом, казна {bank} → лидеру: {give_bank_to_leader}")
-        return True
-    except Exception:
-        conn.close()
-        return False
-
-
-def admin_take_clan_bank(clan_id: int) -> bool:
-    """Забрать казну клана (обнулить)."""
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT bank, name FROM clans WHERE id = ?", (clan_id,))
-        row = cur.fetchone()
-        if not row:
-            conn.close()
-            return False
-
-        bank, name = row
-        cur.execute("UPDATE clans SET bank = 0 WHERE id = ?", (clan_id,))
-        conn.commit()
-        conn.close()
-
-        log_action(0, "tech_action", f"Забрана казна клана «{name}»: {bank}")
-        return True
-    except Exception:
-        conn.close()
-        return False
-
-
-# ==================== ПАТЧ update_balance ДЛЯ ТЕСТ-РЕЖИМА ====================
-
-def update_balance_test_aware(user_id: int, amount: int) -> bool:
-    """Обёртка над update_balance с учётом тест-режима.
-    Если у юзера включён тест-режим и amount < 0 — списание игнорируется."""
-    if amount < 0 and is_test_mode(user_id):
-        return True
-    return update_balance(user_id, amount)
-
-# Инициализация при импорте
-init_db()

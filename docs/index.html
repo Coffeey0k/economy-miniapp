@@ -904,6 +904,16 @@
       <p class="label" id="halloween-event-description"></p>
       <button class="btn" id="halloween-event-claim" onclick="claimHalloweenReward()">Забрать награду</button>
     </div>
+    <div class="card" id="world-event-card" style="display:none;">
+      <h2 id="world-event-title">🌍 Глобальное событие</h2>
+      <p class="label" id="world-event-description"></p>
+      <div class="stat-row"><span>Осталось</span><span id="world-event-timer">—</span></div>
+      <div class="stat-row"><span>Награда</span><span id="world-event-reward">—</span></div>
+      <div class="stat-row"><span>Прогресс</span><span id="world-event-progress">—</span></div>
+      <button class="btn" id="world-event-claim" onclick="claimWorldEvent()">🎁 Забрать награду</button>
+      <p class="label" id="world-event-message"></p>
+    </div>
+
     <div class="card">
       <div class="profile-header">
         <div id="p-avatar-wrapper">
@@ -1118,6 +1128,36 @@
         <span>📡 Пинг бота</span>
         <button class="btn btn-small" onclick="adminPing()">Проверить</button>
       </div>
+      <div class="card" style="margin-top:12px;">
+        <h3>🌍 Глобальные события</h3>
+        <p class="label" id="admin-event-status">Загрузка статуса…</p>
+        <label class="label" for="admin-event-type">Тип события</label>
+        <select id="admin-event-type" style="width:100%;margin:6px 0;">
+          <option value="treasure_hunt">💎 Охота за сокровищами</option>
+          <option value="luck_hour">🍀 Час удачи</option>
+          <option value="lavender_bloom">💜 Цветение лаванды</option>
+          <option value="traveling_merchant">🛒 Странствующий торговец</option>
+          <option value="rift">🌀 Разлом измерений</option>
+          <option value="community_goal">🌍 Общее достижение</option>
+          <option value="daily_mystery">🔮 Тайна дня</option>
+          <option value="magical_storm">⚡ Магическая буря</option>
+        </select>
+        <div class="form-row">
+          <input id="admin-event-duration" type="number" min="5" max="240" value="60" placeholder="Минуты">
+          <input id="admin-event-reward" type="number" min="0" max="50000" value="500" placeholder="Награда LDC">
+        </div>
+        <input id="admin-event-xp" type="number" min="0" max="5000" value="100" placeholder="Сезонный опыт" style="width:100%;margin:6px 0;">
+        <button class="btn" onclick="adminStartWorldEvent()">▶️ Запустить сейчас</button>
+        <button class="btn btn-small" onclick="adminEndWorldEvent()">⏹ Завершить событие</button>
+        <hr>
+        <label class="label"><input type="checkbox" id="admin-event-random" checked> Разрешить случайные события</label>
+        <button class="btn btn-small" onclick="adminSaveEventSettings()">Сохранить настройки</button>
+        <h4>📅 Запланировать событие (время UTC)</h4>
+        <input id="admin-event-scheduled-at" type="datetime-local" style="width:100%;margin:6px 0;">
+        <button class="btn btn-small" onclick="adminScheduleWorldEvent()">Запланировать</button>
+        <div id="admin-event-schedules"></div>
+        <p class="label" id="admin-event-result"></p>
+      </div>
       <div id="admin-result"></div>
     </div>
   </div>
@@ -1143,334 +1183,6 @@
     </div>
   </div>
 
-  <!-- КЛАНЫ -->
-  <div class="tab" id="tab-clans">
-    <div id="clans-msg"></div>
-
-    <!-- Если не в клане -->
-    <div id="clans-empty" style="display:none;">
-      <div class="card">
-        <h2>🏛️ Кланы</h2>
-        <p class="label">Создай свой клан или вступи в существующий</p>
-        <div class="label" style="margin-top:8px;">💰 Баланс: <span id="clans-balance">0</span> 🪙</div>
-        <button class="btn" style="margin-top:10px;width:100%;" onclick="clanCreateStart()">
-          🏛️ Создать клан — <span id="clan-create-cost">0</span> 🪙
-        </button>
-      </div>
-      <div class="tabs-sub">
-        <button class="active" onclick="clanShowList(event)">📋 Все кланы</button>
-        <button onclick="clanShowTop(event)">🏆 Топ</button>
-      </div>
-      <div class="card" id="clans-list-container">
-        <div id="clans-list"></div>
-      </div>
-    </div>
-
-    <!-- Если в клане -->
-    <div id="clans-my" style="display:none;">
-      <div class="card">
-        <h2 id="clan-title">—</h2>
-        <div class="label" id="clan-role-line"></div>
-        <div class="label">💰 Казна: <span id="clan-bank">0</span> 🪙</div>
-        <div class="label">👥 Участников: <span id="clan-members-count">0</span></div>
-      </div>
-
-      <div class="card">
-        <h2>💰 Внести в казну</h2>
-        <input type="number" id="clan-deposit-amount" placeholder="Сумма" min="1">
-        <button class="btn" onclick="clanDeposit()">Внести</button>
-      </div>
-
-      <div class="card" id="clan-pending-card" style="display:none;">
-        <h2>📩 Входящие заявки</h2>
-        <div id="clan-pending-list"></div>
-      </div>
-
-      <div class="card">
-        <h2>👥 Участники</h2>
-        <div id="clan-members-list"></div>
-      </div>
-
-      <div class="card">
-        <h2>⚙️ Управление</h2>
-        <div id="clan-actions"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- АДМИН: ПОЛЬЗОВАТЕЛИ -->
-  <div class="tab" id="tab-users">
-    <div id="users-msg"></div>
-
-    <div class="tabs-sub">
-      <button class="users-tab active" onclick="usersFilter('all', event)">Все</button>
-      <button class="users-tab" onclick="usersFilter('active', event)">✅ Активные</button>
-      <button class="users-tab" onclick="usersFilter('banned', event)">🚫 Забаненные</button>
-      <button class="users-tab" onclick="usersFilter('blocked_bot', event)">📵 Заблокировали бота</button>
-    </div>
-
-    <div class="card">
-      <h2>👥 Список игроков</h2>
-      <div class="label" id="users-count">Загрузка…</div>
-      <div class="item-row" id="users-clear-btn" style="display:none;">
-        <span>🧹 Очистить забаненных</span>
-        <button class="btn btn-small" style="background:#ef4444;" onclick="usersClearBanned()">Удалить</button>
-      </div>
-      <div class="item-row" id="users-clear-blocked-btn" style="display:none;">
-        <span>🧹 Очистить заблокировавших бота</span>
-        <button class="btn btn-small" style="background:#ef4444;" onclick="usersClearBlocked()">Удалить</button>
-      </div>
-    </div>
-
-    <div class="card" id="users-list-card">
-      <div id="users-list"></div>
-    </div>
-
-    <div style="text-align:center;margin-top:12px;">
-      <button class="btn" onclick="switchTab('settings')">🔙 В настройки</button>
-    </div>
-  </div>
-
-  <!-- ТЕХ.АДМИН -->
-  <div class="tab" id="tab-tech-admin">
-    <div id="tech-msg"></div>
-
-    <div class="tabs-sub">
-      <button class="tech-tab active" onclick="techShowTab('main', event)">🧪 Главная</button>
-      <button class="tech-tab" onclick="techShowTab('logs', event)">📜 Логи</button>
-      <button class="tech-tab" onclick="techShowTab('user', event)">🔍 Игрок</button>
-    </div>
-
-    <!-- ГЛАВНАЯ -->
-    <div id="tech-main-block">
-      <div class="card">
-        <h2>🧪 Тест-режим</h2>
-        <p class="label">Монеты не списываются при покупках, игр и т.д.</p>
-        <button class="btn" id="tech-test-mode-btn" style="width:100%;" onclick="techToggleTest()">Загрузка…</button>
-      </div>
-    </div>
-
-    <!-- ЛОГИ -->
-    <div id="tech-logs-block" style="display:none;">
-      <div class="card">
-        <h2>📜 Логи действий</h2>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="btn btn-small" onclick="techLoadLogs('all')">Все</button>
-          <button class="btn btn-small" onclick="techLoadLogs('purchase')">🛍️</button>
-          <button class="btn btn-small" onclick="techLoadLogs('transfer')">💸</button>
-          <button class="btn btn-small" onclick="techLoadLogs('work')">💼</button>
-          <button class="btn btn-small" onclick="techLoadLogs('bonus')">🎁</button>
-          <button class="btn btn-small" onclick="techLoadLogs('wheel')">🎡</button>
-          <button class="btn btn-small" onclick="techLoadLogs('egg')">🥚</button>
-          <button class="btn btn-small" onclick="techLoadLogs('promo')">🎟️</button>
-          <button class="btn btn-small" onclick="techLoadLogs('security')">🚨 Нарушения</button>
-          <button class="btn btn-small" onclick="techLoadLogs('feedback')">✉️ Обращения</button>
-        </div>
-      </div>
-      <div class="card">
-        <div id="tech-logs-list">Загрузка…</div>
-      </div>
-    </div>
-
-    <!-- ПОИСК ИГРОКА -->
-    <div id="tech-user-block" style="display:none;">
-      <div class="card">
-        <h2>🔍 Найти игрока</h2>
-        <input type="text" id="tech-find-input" placeholder="username или ID">
-        <button class="btn" style="width:100%;" onclick="techFindUser()">Найти</button>
-      </div>
-      <div id="tech-user-result"></div>
-    </div>
-  </div>
-  
-  <!-- ПОДАРКИ -->
-  <div class="tab" id="tab-gifts">
-    <div id="gifts-msg"></div>
-
-    <div class="tabs-sub">
-      <button class="gifts-tab active" onclick="giftsShowTab('incoming', event)">📥 Входящие</button>
-      <button class="gifts-tab" onclick="giftsShowTab('send', event)">🎁 Отправить</button>
-      <button class="gifts-tab" onclick="giftsShowTab('outgoing', event)">📤 Исходящие</button>
-    </div>
-
-    <!-- ВХОДЯЩИЕ -->
-    <div id="gifts-incoming-block">
-      <div class="card">
-        <h2>📥 Входящие подарки</h2>
-        <div class="label">Неоткрытые подарки. Сгорают через 5 дней.</div>
-      </div>
-      <div id="gifts-incoming-list"></div>
-    </div>
-
-    <!-- ОТПРАВИТЬ -->
-    <div id="gifts-send-block" style="display:none;">
-      <div class="card">
-        <h2>🎁 Отправить подарок</h2>
-        <input type="text" id="gift-username" placeholder="Username получателя (без @)">
-        <select id="gift-type" onchange="renderGiftFields()" style="width:100%;padding:10px;border-radius:10px;background:var(--input-bg);color:var(--text);border:1px solid var(--card-border);margin-bottom:10px;">
-          <option value="money">💰 Монеты (LDC — Lavender Dream Coin)</option>
-          <option value="rcc">💎 LCC</option>
-          <option value="pet">🐾 Питомец</option>
-          <option value="cosmetic">🎨 Косметика</option>
-        </select>
-        <div id="gift-fields"></div>
-        <button class="btn" style="width:100%;" onclick="sendGift()">🎁 Отправить</button>
-      </div>
-    </div>
-
-    <!-- ИСХОДЯЩИЕ -->
-    <div id="gifts-outgoing-block" style="display:none;">
-      <div class="card">
-        <h2>📤 Исходящие подарки</h2>
-      </div>
-      <div id="gifts-outgoing-list"></div>
-    </div>
-  </div>
-  
-  <!-- LCC -->
-  <div class="tab" id="tab-rcc">
-    <div id="rcc-msg"></div>
-
-    <div class="tabs-sub">
-      <button class="rcc-tab active" onclick="rccShowTab('main', event)">💰 LCC</button>
-      <button class="rcc-tab" onclick="rccShowTab('game', event)">🎮 Мини-игра</button>
-    </div>
-
-    <!-- ГЛАВНАЯ LCC -->
-    <div id="rcc-main-block">
-      <div class="card">
-        <h2>💎 Lavender Crypto Coin (LCC)</h2>
-        <div class="label">Баланс LCC: <b id="rcc-balance">0.00</b> LCC</div>
-        <div class="label">Всего кликов: <span id="rcc-total-clicks">0</span></div>
-        <div class="label">Курс: 1 LCC = <span id="rcc-rate">50,500</span> 🪙</div>
-      </div>
-
-      <div class="card">
-        <h2>🖱️ Кликер</h2>
-        <p class="label">Кликай и трать энергию. Она восстанавливается автоматически: 1 единица в минуту.</p>
-        <div class="label" style="margin:8px 0;">⚡ Энергия: <b id="rcc-energy">100 / 100</b> <span id="rcc-energy-recovery"></span></div>
-        <div id="rcc-click-area" onclick="rccClick()" style="cursor:pointer;user-select:none;text-align:center;padding:30px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:20px;margin:12px 0;transition:transform 0.1s;">
-          <div style="font-size:60px;line-height:1;">💎</div>
-          <div id="rcc-click-reward" style="font-size:20px;font-weight:700;color:#fff;margin-top:8px;">+0.00001 LCC</div>
-        </div>
-        <div class="label" style="text-align:center;">Тапни по монете</div>
-      </div>
-      <div class="card">
-        <h2>⚙️ Улучшения LCC</h2>
-        <p class="label">Улучшения оплачиваются основной валютой LDC.</p>
-        <div class="item-row"><span>🖱️ Сила клика · ур. <b id="rcc-click-level">0</b>/10</span><button class="btn btn-small" id="rcc-upgrade-click" onclick="buyRccUpgrade('click')">Купить</button></div>
-        <div class="item-row"><span>⏱️ Время раунда · ур. <b id="rcc-timer-level">0</b>/5</span><button class="btn btn-small" id="rcc-upgrade-timer" onclick="buyRccUpgrade('timer')">Купить</button></div>
-        <div class="item-row"><span>❄️ Заморозка · ур. <b id="rcc-freeze-level">0</b>/5</span><button class="btn btn-small" id="rcc-upgrade-freeze" onclick="buyRccUpgrade('freeze')">Купить</button></div>
-        <div class="item-row"><span>🪙 Награды · ур. <b id="rcc-reward-level">0</b>/5</span><button class="btn btn-small" id="rcc-upgrade-reward" onclick="buyRccUpgrade('reward')">Купить</button></div>
-      </div>
-
-      <div class="card">
-        <h2>💱 Обмен LCC → Lavender Dream Coin</h2>
-        <input type="number" id="rcc-exchange-amount" placeholder="Количество LCC" min="0.00002" step="0.00001">
-        <button class="btn" style="width:100%;" onclick="rccExchange()">Обменять</button>
-        <p class="label" style="margin-top:8px;">Твой LDC-баланс: <span id="rcc-pc-balance">0</span> 🪙</p>
-      </div>
-    </div>
-
-    <!-- МИНИ-ИГРА -->
-    <div id="rcc-game-block" style="display:none;">
-      <div class="card">
-        <h2>🎮 Ловля монет</h2>
-        <p class="label">Падающие монеты дают 0.00035–0.00080 LCC до бонуса улучшений.</p>
-        <p class="label">❄️ Лёд замораживает на 5–7 сек. плюс уровень заморозки. 💣 Бомба — минус 0.00050 LCC.</p>
-        <p class="label">Раунд от 25 секунд (+5 секунд за уровень таймера), кулдаун 2 часа.</p>
-        <div id="rcc-game-status" class="label" style="text-align:center;margin:10px 0;">Загрузка…</div>
-        <button class="btn" id="rcc-game-btn" style="width:100%;" onclick="rccStartGame()">▶️ Начать</button>
-      </div>
-      <div class="card" id="rcc-game-canvas-card" style="display:none;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-          <span>⏱️ <b id="rcc-game-timer">25</b> сек</span>
-          <span>💰 <b id="rcc-game-score">0.00</b> LCC</span>
-        </div>
-        <div id="rcc-game-canvas" style="position:relative;width:100%;height:400px;background:var(--bg);border:2px solid var(--accent);border-radius:12px;overflow:hidden;"></div>
-      </div>
-    </div>
-  </div>
-  
-  <!-- МУЗЫКА -->
-  <div class="tab" id="tab-music">
-    <div id="music-msg"></div>
-
-    <div class="tabs-sub">
-      <button class="music-tab active" onclick="musicShowTab('personal', event)">🎧 Мой плейлист</button>
-      <button class="music-tab" onclick="musicShowTab('shared', event)">🎵 Общий плейлист</button>
-      <button class="music-tab" onclick="musicShowTab('pending', event)" id="music-pending-tab" style="display:none;">📥 На модерации</button>
-    </div>
-
-    <!-- МОЙ ПЛЕЙЛИСТ -->
-    <div id="music-personal-block">
-      <div class="card">
-        <h2>🎧 Мой плейлист</h2>
-        <p class="label">Лимит: <span id="music-personal-limit">15</span>, занято: <span id="music-personal-used">0</span></p>
-        <div class="label">💰 Баланс: <span id="music-personal-balance">0</span> 🪙</div>
-        <input type="text" id="music-personal-url" placeholder="Ссылка на YouTube или SoundCloud">
-        <button class="btn" style="width:100%;margin-bottom:8px;" onclick="musicAddPersonal()">➕ Добавить в мой плейлист</button>
-        <button class="btn btn-small" style="width:100%;" onclick="musicBuySlot()">🛒 Купить слот — <span id="music-slot-price">2000</span> 🪙</button>
-      </div>
-      <div class="card" id="music-personal-list-card">
-        <div id="music-personal-list"></div>
-      </div>
-    </div>
-
-    <!-- ОБЩИЙ ПЛЕЙЛИСТ -->
-    <div id="music-shared-block" style="display:none;">
-      <div class="card">
-        <h2>🎵 Общий плейлист</h2>
-        <p class="label">Максимум: <span id="music-shared-max">100</span> треков</p>
-        <input type="text" id="music-shared-url" placeholder="Ссылка на YouTube или SoundCloud">
-        <button class="btn" style="width:100%;" onclick="musicAddShared()">➕ Предложить трек на модерацию</button>
-        <p class="label" style="margin-top:8px;">⚠️ Трек появится в общем плейлисте после одобрения администрацией.</p>
-      </div>
-      <div class="card">
-        <div id="music-shared-list"></div>
-      </div>
-    </div>
-
-    <!-- НА МОДЕРАЦИИ (только админы) -->
-    <div id="music-pending-block" style="display:none;">
-      <div class="card">
-        <h2>📥 Треки на модерации</h2>
-        <div id="music-pending-list"></div>
-      </div>
-    </div>
-  </div>
-  
-  <!-- ОСТРОВ -->
-  <div class="tab" id="tab-island">
-    <div id="island-msg"></div>
-    <div class="card" id="island-empty" style="display:none;">
-      <h2>🏝️ У тебя нет острова</h2>
-      <p class="label">Купи остров, чтобы строить постройки и получать пассивный доход</p>
-      <button class="btn" onclick="buyIslandItem('island')">🏝️ Купить остров — 50 000 🪙</button>
-    </div>
-    <div class="card" id="island-content" style="display:none;">
-      <div id="island-visual"></div>
-      <div id="island-buildings" style="margin-top:12px;"></div>
-    </div>
-    <div class="card" id="island-visit-card" style="margin-top:14px;">
-      <h2>👥 Посетить остров</h2>
-      <p class="label">Посмотри, как развиваются острова других игроков. Баланс и личные ресурсы не показываются.</p>
-      <div class="item-row" style="gap:8px;flex-wrap:wrap;">
-        <input id="island-visit-username" type="text" placeholder="Telegram username" maxlength="33" style="flex:1;min-width:160px;">
-        <button class="btn btn-small" onclick="visitIsland()">Посетить</button>
-      </div>
-      <div id="island-visit-result"></div>
-    </div>
-  </div>
-  
-  <!-- ТРЕЙДЫ временно отключены; сохранённые данные не удаляем -->
-  <div class="tab" id="tab-trades">
-    <div class="card">
-      <h2>🔁 Трейды временно отключены</h2>
-      <p class="label">Обмены отключены. История и данные сохранены до завершения проверки зависимостей.</p>
-    </div>
-  </div>
-
   <!-- ЕЩЁ -->
   <div class="tab" id="tab-more">
     <div id="more-msg"></div>
@@ -1482,12 +1194,55 @@
         <button class="tile" onclick="switchTab('pets')"><span class="ic">🐾</span>Питомцы</button>
         <button class="tile" onclick="switchTab('wheel')"><span class="ic">🎡</span>Колесо</button>
         <button class="tile" onclick="switchTab('island')"><span class="ic">🏝️</span>Остров</button>
-        <button class="tile" onclick="switchTab('clans')"><span class="ic">🏛️</span>Кланы</button>
-        <button class="tile" onclick="switchTab('music')"><span class="ic">🎵</span>Музыка</button>
         <button class="tile" onclick="switchTab('rcc')"><span class="ic">💰</span>LCC</button>
         <button class="tile" onclick="switchTab('gifts')"><span class="ic">🎁</span>Подарки</button>
-        <button class="tile" disabled title="Временно отключено"><span class="ic">🔁</span>Трейды (отключены)</button>
       </div>
+    </div>
+    <div class="card" id="season-card">
+      <h2>🌸 Сезон Lavender Dream</h2>
+      <p class="label" id="season-title">Загрузка сезона…</p>
+      <div class="stat-row"><span>Уровень</span><span id="season-level">0</span></div>
+      <div class="stat-row"><span>Сезонный опыт</span><span id="season-xp">0 XP</span></div>
+      <div class="stat-row"><span>До конца</span><span id="season-time-left">—</span></div>
+      <div id="season-tasks"></div>
+      <h3>🎁 Награды уровней</h3>
+      <div id="season-level-rewards"></div>
+      <h3>🏆 Топ сезона</h3>
+      <div id="season-leaderboard"></div>
+    </div>
+    <div class="card" id="achievements-card">
+      <h2>🏆 Достижения и титулы</h2>
+      <div id="achievements-list"><p class="label">Загрузка достижений…</p></div>
+      <h3>🏷️ Мои титулы</h3>
+      <div id="achievement-titles"></div>
+    </div>
+    <div class="card" id="system-market-card">
+      <h2>🏪 Системный магазин</h2>
+      <p class="label">Покупай припасы для острова и экспедиций. Ненужные ресурсы можно продать системе за LDC. Предметы между игроками не передаются.</p>
+      <h3>🛒 Предложения NPC</h3>
+      <div id="system-market-offers"></div>
+      <h3>📦 Твои ресурсы</h3>
+      <div id="system-market-inventory"></div>
+    </div>
+    <div class="card" id="pet-expeditions-card">
+      <h2>🧭 Экспедиции питомцев</h2>
+      <p class="label">Отправь питомца за LDC и редкими коллекционными находками. Пока он в экспедиции, забрать награду можно после возвращения.</p>
+      <label class="label" for="pet-expedition-pet">Питомец</label>
+      <select id="pet-expedition-pet" style="width:100%;margin:6px 0;"></select>
+      <label class="label" for="pet-expedition-destination">Маршрут</label>
+      <select id="pet-expedition-destination" style="width:100%;margin:6px 0;"></select>
+      <button class="btn" onclick="startPetExpedition()">🚀 Отправить в экспедицию</button>
+      <div id="pet-expeditions-list"></div>
+    </div>
+    <div class="card" id="collection-card">
+      <h2>📚 Коллекция и бестиарий</h2>
+      <div id="collection-summary"></div>
+      <h3>📖 Бестиарий</h3>
+      <div id="collection-bestiary"></div>
+      <h3>🐾 Мои питомцы</h3>
+      <div id="collection-pets"></div>
+      <h3>🎒 Коллекционные предметы</h3>
+      <div id="collection-items"></div>
     </div>
     <div class="card">
       <h2>📂 Дополнительно</h2>
@@ -1639,23 +1394,304 @@
     if (name === "pets") loadPets();
     if (name === "work") loadWork();
     if (name === "wheel") loadWheel();
-    if (name === "more") loadMore();
+    if (name === "more") { loadMore(); loadSeason(); loadAchievements(); loadCollection(); loadPetExpeditions(); loadSystemMarket(); }
     if (name === "games") loadGames();
     if (name === "cosmetics") loadCosmetics();
     if (name === "settings") loadSettings();
     if (name === "friends") loadFriends();
     if (name === "island") loadIsland();
-    if (name === "clans") loadClans();
-    if (name === "music") loadMusic();
     if (name === "rcc") loadRcc();
     if (name === "users") loadUsers();
     if (name === "gifts") loadGifts();
-    if (name === "trades") loadTrades();
     if (name === "tech-admin") techInit();
+  }
+
+  function formatEventRemaining(seconds) {
+    const s = Math.max(0, Number(seconds) || 0);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h ? `${h} ч ${m} мин` : `${m} мин`;
+  }
+  async function loadWorldEvent() {
+    const card = document.getElementById("world-event-card");
+    if (!card) return;
+    try {
+      const data = await apiGet("/api/world-events/current");
+      if (!data.active || !data.event) { card.style.display = "none"; return; }
+      const e = data.event;
+      if (window._lastWorldEventId && Number(window._lastWorldEventId) !== Number(e.id)) {
+        toast("🌍 Началось глобальное событие: " + (e.title || "Событие"));
+      }
+      window._lastWorldEventId = Number(e.id);
+      card.style.display = "block";
+      document.getElementById("world-event-title").textContent = e.title || "🌍 Глобальное событие";
+      document.getElementById("world-event-description").textContent = e.description || "";
+      document.getElementById("world-event-timer").textContent = formatEventRemaining(e.remaining_seconds);
+      document.getElementById("world-event-reward").textContent = `${Number(e.reward_ldc || 0).toLocaleString()} LDC + ${Number(e.reward_xp || 0)} XP`;
+      const btn = document.getElementById("world-event-claim");
+      const progress = document.getElementById("world-event-progress");
+      const globalProgress = e.event_type === "community_goal" ? ` · общее ${Number(e.progress || 0)}/${Number(e.goal || 1)}` : "";
+      if (progress) progress.textContent = `Твой вклад: ${Number(data.user_progress || 0)}/${Number(data.user_goal || 1)}${globalProgress}`;
+      btn.disabled = !!data.claimed || !data.can_claim;
+      btn.textContent = data.claimed ? "✅ Награда получена" : data.can_claim ? "🎁 Забрать награду" : "Выполни действия события";
+      window._worldEventRemaining = Number(e.remaining_seconds || 0);
+    } catch (e) {
+      card.style.display = "none";
+      console.warn("World event status unavailable", e);
+    }
+  }
+  if (!window._worldEventPollingStarted) {
+    window._worldEventPollingStarted = true;
+    setInterval(() => { loadWorldEvent(); }, 30000);
+  }
+  async function claimWorldEvent() {
+    try {
+      const result = await apiPost("/api/world-events/claim", {});
+      showMsg("world-event-message", `Получено: +${Number(result.reward_ldc || 0).toLocaleString()} LDC и +${Number(result.reward_xp || 0)} сезонного XP`, true);
+      await loadWorldEvent(); await loadSeason(); await loadProfile();
+    } catch (e) { showMsg("world-event-message", e.message, false); }
+  }
+  async function loadSeason() {
+    const tasksEl = document.getElementById("season-tasks");
+    if (!tasksEl) return;
+    try {
+      const data = await apiGet("/api/seasons/current");
+      const s = data.season || {}, p = data.progress || {};
+      document.getElementById("season-title").textContent = s.title || "Текущий сезон";
+      document.getElementById("season-level").textContent = Number(p.level || 0);
+      document.getElementById("season-xp").textContent = `${Number(p.xp || 0).toLocaleString()} XP`;
+      const ends = s.ends_at ? new Date(s.ends_at).getTime() : 0;
+      document.getElementById("season-time-left").textContent = ends > Date.now()
+        ? formatEventRemaining(Math.floor((ends - Date.now()) / 1000)) : "Завершён";
+      const rewardsEl = document.getElementById("season-level-rewards");
+      if (rewardsEl) rewardsEl.innerHTML = (data.level_rewards || []).map(r => {
+        const unlocked = Number(p.level || 0) >= Number(r.level || 0);
+        return `<div class="item-row"><span><b>Уровень ${Number(r.level)}</b><br><span class="label">${escapeHtml(r.description)}</span></span>
+          <button class="btn btn-small" ${!unlocked || r.claimed ? "disabled" : ""} onclick="claimSeasonLevel(${Number(r.level)})">${r.claimed ? "Получено" : unlocked ? "Забрать" : "Закрыто"}</button></div>`;
+      }).join("") || '<p class="label">Награды сезона скоро появятся.</p>';
+      tasksEl.innerHTML = (data.tasks || []).map(t => `
+        <div class="item-row">
+          <span>${escapeHtml(t.title)}<br><span class="label">${escapeHtml(t.description)} · ${Number(t.progress || 0)}/${Number(t.target || 0)}</span></span>
+          <button class="btn btn-small" ${!t.completed || t.claimed ? "disabled" : ""} onclick="claimSeasonTask('${String(t.task_key).replace(/'/g, "\\'")}')">${t.claimed ? "Получено" : "Забрать"}</button>
+        </div>`).join("") || '<p class="label">Задания скоро появятся.</p>';
+      document.getElementById("season-leaderboard").innerHTML = (data.leaderboard || []).map((r,i) =>
+        `<div class="stat-row"><span>${i+1}. ${escapeHtml(r.username || ("ID " + r.user_id))}</span><span>${Number(r.xp || 0).toLocaleString()} XP</span></div>`
+      ).join("") || '<p class="label">Рейтинг пока пуст.</p>';
+    } catch (e) { tasksEl.innerHTML = '<p class="label">Не удалось загрузить сезон.</p>'; }
+  }
+  async function claimSeasonLevel(level) {
+    try {
+      const result = await apiPost("/api/seasons/claim-level", {level});
+      showMsg("season-level-rewards", `Получена награда: ${escapeHtml(result.reward || ((result.amount || 0) + " LDC"))}`, true);
+      await loadSeason(); await loadCollection(); await loadAchievements();
+    } catch (e) { showMsg("season-level-rewards", e.message, false); }
+  }
+  async function claimSeasonTask(taskKey) {
+    try {
+      const result = await apiPost("/api/seasons/claim-task", {task_key: taskKey});
+      showMsg("season-tasks", `Награда: +${Number(result.reward_ldc || 0).toLocaleString()} LDC, +${Number(result.reward_xp || 0)} XP`, true);
+      await loadSeason();
+    } catch (e) { showMsg("season-tasks", e.message, false); }
+  }
+  async function loadSystemMarket() {
+    const offersEl = document.getElementById("system-market-offers");
+    if (!offersEl) return;
+    try {
+      const data = await apiGet("/api/system-market/current");
+      offersEl.innerHTML = (data.offers || []).map(o =>
+        `<div class="item-row"><span><b>${escapeHtml(o.name)}</b><br><span class="label">${(o.items || []).map(i => escapeHtml(i.name) + " ×" + Number(i.quantity)).join(", ")}</span></span>
+        <button class="btn btn-small" onclick="buySystemMarketOffer('${o.key}')">${Number(o.price).toLocaleString()} LDC${o.discount_percent ? " (−" + Number(o.discount_percent) + "%)" : ""}</button></div>`
+      ).join("") || '<p class="label">Предложений нет.</p>';
+      document.getElementById("system-market-inventory").innerHTML = (data.inventory || []).map(i =>
+        `<div class="item-row"><span>${escapeHtml(i.name)} ×${Number(i.quantity)}<br><span class="label">Цена: ${Number(i.sell_price).toLocaleString()} LDC за штуку</span></span>
+        <div><button class="btn btn-small" onclick="sellSystemMarketItem('${i.key}',1)">Продать 1</button>
+        ${Number(i.quantity) >= 5 ? `<button class="btn btn-small" onclick="sellSystemMarketItem('${i.key}',5)">Продать 5</button>` : ""}</div></div>`
+      ).join("") || '<p class="label">У тебя пока нет ресурсов для продажи.</p>';
+    } catch (e) { offersEl.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+  async function buySystemMarketOffer(offerKey) {
+    try {
+      const result = await apiPost("/api/system-market/buy", {offer_key: offerKey});
+      toast(`Покупка: ${result.offer}, списано ${Number(result.price).toLocaleString()} LDC`);
+      await loadSystemMarket(); await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function sellSystemMarketItem(itemKey, amount) {
+    try {
+      const result = await apiPost("/api/system-market/sell", {item_key: itemKey, amount});
+      toast(`Продано ${result.amount} · +${Number(result.reward_ldc).toLocaleString()} LDC`);
+      await loadSystemMarket(); await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function loadPetExpeditions() {
+    const list = document.getElementById("pet-expeditions-list");
+    if (!list) return;
+    try {
+      const data = await apiGet("/api/pets/expeditions/current");
+      const petSelect = document.getElementById("pet-expedition-pet");
+      const destinationSelect = document.getElementById("pet-expedition-destination");
+      const selectedPet = petSelect.value;
+      petSelect.innerHTML = (data.pets || []).map(p =>
+        `<option value="${Number(p.id)}">${escapeHtml(p.pet_emoji || "🐾")} ${escapeHtml(p.pet_name)} · ${escapeHtml(p.rarity || "обычный")}</option>`
+      ).join("");
+      if (selectedPet && [...petSelect.options].some(o => o.value === selectedPet)) petSelect.value = selectedPet;
+      destinationSelect.innerHTML = (data.destinations || []).map(d =>
+        `<option value="${escapeHtml(d.key)}">${escapeHtml(d.name)} · ${Number(d.minutes)} мин. · ${Number(d.min_ldc).toLocaleString()}–${Number(d.max_ldc).toLocaleString()} LDC</option>`
+      ).join("");
+      const active = (data.expeditions || []).filter(e => e.status === "active");
+      document.getElementById("pet-expeditions-card").querySelector("button.btn").disabled = !data.pets?.length || active.length > 0;
+      list.innerHTML = (data.expeditions || []).map(e => `
+        <div class="item-row">
+          <span><b>${escapeHtml(e.pet_emoji || "🐾")} ${escapeHtml(e.pet_name)}</b><br>
+          <span class="label">${escapeHtml(e.destination)} · ${e.can_claim ? "Вернулся!" : e.status === "claimed" ? "Завершено" : formatEventRemaining(e.remaining_seconds)}</span></span>
+          ${e.can_claim ? `<button class="btn btn-small" onclick="claimPetExpedition(${Number(e.id)})">Забрать</button>` : ""}
+        </div>`).join("") || '<p class="label">Питомцы ещё не отправлялись в экспедиции.</p>';
+    } catch (e) { list.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+  async function startPetExpedition() {
+    try {
+      const petId = Number(document.getElementById("pet-expedition-pet").value);
+      const destination = document.getElementById("pet-expedition-destination").value;
+      if (!petId || !destination) throw new Error("Сначала выбери питомца и маршрут.");
+      const result = await apiPost("/api/pets/expeditions/start", {pet_id: petId, destination});
+      toast(`${result.pet_name} отправился в экспедицию: ${result.destination}`);
+      await loadPetExpeditions();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function claimPetExpedition(expeditionId) {
+    try {
+      const result = await apiPost("/api/pets/expeditions/claim", {expedition_id: expeditionId});
+      toast(`Экспедиция завершена: +${Number(result.reward_ldc || 0).toLocaleString()} LDC${result.reward_item ? " · " + result.reward_item : ""}`);
+      await loadPetExpeditions(); await loadCollection(); await loadSeason(); await loadAchievements(); await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function loadAchievements() {
+    const el = document.getElementById("achievements-list");
+    if (!el) return;
+    try {
+      const data = await apiGet("/api/achievements/current");
+      el.innerHTML = (data.achievements || []).map(a => `
+        <div class="item-row">
+          <span><b>${escapeHtml(a.title)}</b><br><span class="label">${escapeHtml(a.description)} · ${Number(a.progress || 0)}/${Number(a.target || 0)}</span></span>
+          <button class="btn btn-small" ${!a.completed || a.claimed ? "disabled" : ""} onclick="claimAchievement('${a.key}')">${a.claimed ? "Получено" : a.completed ? "+" + Number(a.reward_ldc || 0).toLocaleString() + " LDC" : "В процессе"}</button>
+        </div>`).join("") || '<p class="label">Достижений пока нет.</p>';
+      document.getElementById("achievement-titles").innerHTML = (data.titles || []).map(t => `
+        <div class="stat-row"><span>${t.is_active ? "⭐ " : ""}${escapeHtml(t.title_name)}</span>
+        ${t.is_active ? '<span class="label">Активен</span>' : `<button class="btn btn-small" onclick="equipTitle('${t.title_key}')">Выбрать</button>`}</div>`).join("") || '<p class="label">Титулы открываются за достижения и сезоны.</p>';
+    } catch (e) { el.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+  async function claimAchievement(key) {
+    try {
+      const result = await apiPost("/api/achievements/claim", {achievement_key: key});
+      toast(`Награда достижения: +${Number(result.reward_ldc || 0).toLocaleString()} LDC`);
+      await loadAchievements(); await loadCollection(); await loadProfile();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function equipTitle(key) {
+    try {
+      const result = await apiPost("/api/achievements/title", {title_key: key});
+      toast("Активный титул: " + result.title_name);
+      await loadAchievements(); await loadCollection();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function loadCollection() {
+    const summary = document.getElementById("collection-summary");
+    if (!summary) return;
+    try {
+      const data = await apiGet("/api/collection/current");
+      const s = data.summary || {};
+      summary.innerHTML = `<div class="stat-row"><span>Питомцы</span><b>${Number(s.pets || 0)}</b></div>
+        <div class="stat-row"><span>Открытые виды</span><b>${Number(s.species_discovered || 0)}/${Number(s.species_total || 0)}</b></div>
+        <div class="stat-row"><span>Предметы</span><b>${Number(s.items || 0)}</b></div>
+        <div class="stat-row"><span>Титулы</span><b>${Number(s.titles || 0)}</b></div>`;
+      document.getElementById("collection-bestiary").innerHTML = (data.bestiary || []).map(p =>
+        `<div class="stat-row"><span>${p.discovered ? "🐾" : "🔒"} ${p.discovered ? escapeHtml(p.name) : "Неизвестное существо"}</span><span class="label">${p.discovered ? escapeHtml(p.rarity) : "Не найдено"}</span></div>`
+      ).join("") || '<p class="label">Бестиарий пуст.</p>';
+      document.getElementById("collection-pets").innerHTML = (data.pets || []).map(p =>
+        `<div class="stat-row"><span>${escapeHtml(p.name)}</span><span class="label">${escapeHtml(p.rarity)}</span></div>`
+      ).join("") || '<p class="label">Питомцы пока не собраны.</p>';
+      document.getElementById("collection-items").innerHTML = (data.items || []).map(i =>
+        `<div class="stat-row"><span>${escapeHtml(i.item_name)}</span><span class="label">${escapeHtml(i.item_type)}</span></div>`
+      ).join("") || '<p class="label">Сезонные предметы появятся в коллекции после получения наград.</p>';
+    } catch (e) { summary.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
+  }
+
+  async function loadAdminWorldEvents() {
+    try {
+      const data = await apiGet("/api/admin/world-events");
+      const e = data.active;
+      document.getElementById("admin-event-status").textContent = e
+        ? `Активно: ${e.title} · ${formatEventRemaining(e.remaining_seconds)}`
+        : "Активного события нет";
+      document.getElementById("admin-event-random").checked = !!(data.settings && data.settings.random_enabled);
+      if (data.settings && data.settings.default_duration_minutes)
+        document.getElementById("admin-event-duration").value = data.settings.default_duration_minutes;
+      const schedules = document.getElementById("admin-event-schedules");
+      if (schedules) schedules.innerHTML = (data.schedules || []).filter(s => s.status === "pending").map(s =>
+        `<div class="stat-row"><span>${escapeHtml(s.title || s.event_type)}<br><span class="label">${escapeHtml(String(s.scheduled_at))} UTC</span></span>
+        <button class="btn btn-small" onclick="adminCancelWorldEventSchedule(${Number(s.id)})">Отменить</button></div>`
+      ).join("") || '<p class="label">Нет запланированных событий.</p>';
+    } catch (_) { /* hidden for non-admins */ }
+  }
+  async function adminStartWorldEvent() {
+    try {
+      const result = await apiPost("/api/admin/world-events/start", {
+        event_type: document.getElementById("admin-event-type").value,
+        duration_minutes: Number(document.getElementById("admin-event-duration").value || 60),
+        reward_ldc: Number(document.getElementById("admin-event-reward").value || 0),
+        reward_xp: Number(document.getElementById("admin-event-xp").value || 0)
+      });
+      document.getElementById("admin-event-result").textContent = "Событие запущено.";
+      await loadAdminWorldEvents(); await loadWorldEvent();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+  async function adminEndWorldEvent() {
+    try {
+      await apiPost("/api/admin/world-events/end", {});
+      document.getElementById("admin-event-result").textContent = "Событие завершено; действует пауза.";
+      await loadAdminWorldEvents(); await loadWorldEvent();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+  async function adminSaveEventSettings() {
+    try {
+      await apiPost("/api/admin/world-events/settings", {
+        random_enabled: document.getElementById("admin-event-random").checked,
+        min_gap_minutes: 60,
+        default_duration_minutes: Number(document.getElementById("admin-event-duration").value || 60)
+      });
+      document.getElementById("admin-event-result").textContent = "Настройки сохранены.";
+      await loadAdminWorldEvents();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+  async function adminCancelWorldEventSchedule(scheduleId) {
+    try {
+      await apiPost("/api/admin/world-events/schedule/cancel", {schedule_id: scheduleId});
+      document.getElementById("admin-event-result").textContent = "Запланированное событие отменено.";
+      await loadAdminWorldEvents();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
+  }
+  async function adminScheduleWorldEvent() {
+    try {
+      const localValue = document.getElementById("admin-event-scheduled-at").value;
+      if (!localValue) throw new Error("Укажи дату и время (UTC).");
+      const scheduledAt = new Date(localValue + "Z").toISOString();
+      await apiPost("/api/admin/world-events/schedule", {
+        event_type: document.getElementById("admin-event-type").value,
+        scheduled_at: scheduledAt,
+        duration_minutes: Number(document.getElementById("admin-event-duration").value || 60),
+        reward_ldc: Number(document.getElementById("admin-event-reward").value || 500),
+        reward_xp: Number(document.getElementById("admin-event-xp").value || 100)
+      });
+      document.getElementById("admin-event-result").textContent = "Событие запланировано.";
+      await loadAdminWorldEvents();
+    } catch (e) { document.getElementById("admin-event-result").textContent = e.message; }
   }
 
   async function loadProfile() {
     const data = await apiGet("/api/profile");
+    loadWorldEvent();
+    loadAdminWorldEvents();
     let displayName = data.username ? "@" + data.username : "ID " + data.user_id;
     if (data.cosmetics) {
       if (data.cosmetics.frame && cosData && cosData.frames[data.cosmetics.frame]) {
@@ -1666,7 +1702,7 @@
         document.getElementById("p-username").style.color = hex;
       }
     }
-    document.getElementById("p-username").textContent = displayName;
+    document.getElementById("p-username").textContent = displayName + (data.active_title ? " · " + data.active_title : "");
     document.getElementById("p-balance").textContent = data.balance + " 🪙";
     document.getElementById("p-rank").textContent = data.rank;
     document.getElementById("p-warns").textContent = data.warns;
@@ -1854,7 +1890,7 @@
       document.getElementById("work-list").innerHTML = data.all.map(p => `
         <div class="item-row">
           <span>${p.name}<br><span class="label">${p.salary} 🪙 / ${p.cooldown_hours}ч</span></span>
-          <button class="btn btn-small" onclick="hireProfession('${p.key}')">Устроиться (${data.hire_cost}🪙+)</button>
+          <button class="btn btn-small" onclick="hireProfession('${p.key}')">Устроиться бесплатно</button>
         </div>`).join("");
       const tasks = await apiGet("/api/tasks");
       document.getElementById("work-tasks").innerHTML = tasks.tasks.length
@@ -1901,80 +1937,6 @@
       loaded.wheel = false; loadWheel();
       loaded.profile = false; loadProfile();
     } catch (e) { showMsg("wheel-msg", e.message, false); }
-  }
-
-  function tradeItemLabel(item) {
-    const names = { color: "🎨 Цвет", frame: "🖼️ Рамка", status: "💬 Статус", theme: "🌈 Тема" };
-    return `${names[item.item_type] || item.item_type}: ${item.item_key}`;
-  }
-
-  async function loadTargetTradeInventory() {
-    const target = document.getElementById("trade-target").value.trim();
-    const select = document.getElementById("trade-request");
-    if (!target) { select.innerHTML = '<option value="">Введи username игрока</option>'; return; }
-    try {
-      const data = await apiGet("/api/trades/target-inventory?username=" + encodeURIComponent(target));
-      const items = data.items || [];
-      select.innerHTML = items.length ? items.map((item, i) =>
-        `<option value="${i}">${escapeHtml(tradeItemLabel(item))}</option>`
-      ).join("") : '<option value="">У игрока нет предметов для обмена</option>';
-      window._targetTradeInventory = items;
-    } catch (e) {
-      select.innerHTML = `<option value="">${escapeHtml(e.message)}</option>`;
-      window._targetTradeInventory = [];
-    }
-  }
-
-  async function loadTrades() {
-    const list = document.getElementById("trade-list");
-    if (!list) return;
-    try {
-      const [inventoryData, tradeData] = await Promise.all([apiGet("/api/trades/inventory"), apiGet("/api/trades")]);
-      const inventory = inventoryData.items || [];
-      const options = inventory.map((item, i) => `<option value="${i}">${escapeHtml(tradeItemLabel(item))}</option>`).join("");
-      const offerSelect = document.getElementById("trade-offer");
-      if (offerSelect) offerSelect.innerHTML = options || '<option value="">Нет предметов для обмена</option>';
-      window._tradeInventory = inventory;
-      if (!inventory.length) {
-        const offerSelect = document.getElementById("trade-offer");
-        if (offerSelect) offerSelect.innerHTML = '<option value="">Нет предметов для обмена</option>';
-      }
-      const trades = tradeData.trades || [];
-      list.innerHTML = trades.length ? trades.map(t => {
-        const incoming = Number(t.to_user) === Number(window._telegramUserId);
-        const other = incoming ? (t.from_username || t.from_user) : (t.to_username || t.to_user);
-        const offered = tradeItemLabel({item_type:t.offer_type,item_key:t.offer_key});
-        const requested = tradeItemLabel({item_type:t.request_type,item_key:t.request_key});
-        const actions = incoming
-          ? `<button class="btn btn-small" onclick="resolveWebTrade(${Number(t.id)},'accept')">Принять</button> <button class="btn btn-small" onclick="resolveWebTrade(${Number(t.id)},'decline')">Отклонить</button>`
-          : `<button class="btn btn-small" onclick="resolveWebTrade(${Number(t.id)},'cancel')">Отменить</button>`;
-        return `<div class="item-row"><div><b>${escapeHtml(other)}</b><p class="label">${escapeHtml(offered)} ⇄ ${escapeHtml(requested)}</p></div><div>${actions}</div></div>`;
-      }).join("") : '<p class="label">Активных предложений нет.</p>';
-    } catch (e) { list.innerHTML = `<p class="label">${escapeHtml(e.message)}</p>`; }
-  }
-
-  async function createWebTrade() {
-    const inventory = window._tradeInventory || [];
-    const offer = inventory[Number(document.getElementById("trade-offer").value)];
-    const targetInventory = window._targetTradeInventory || [];
-    const request = targetInventory[Number(document.getElementById("trade-request").value)];
-    const target = document.getElementById("trade-target").value.trim();
-    if (!target || !offer || !request) return toast("Укажи игрока и выбери предметы.", true);
-    if (offer.item_type === request.item_type && offer.item_key === request.item_key) return toast("Выбери разные предметы.", true);
-    try {
-      const result = await apiPost("/api/trades/create", {target_username:target, offer_type:offer.item_type, offer_key:offer.item_key, request_type:request.item_type, request_key:request.item_key});
-      toast(result.message || "Предложение создано.");
-      await loadTrades();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function resolveWebTrade(tradeId, action) {
-    try {
-      const result = await apiPost("/api/trades/resolve", {trade_id:tradeId, action});
-      toast(result.message || "Готово.");
-      await loadTrades();
-      if (typeof loadCosmetics === "function") loadCosmetics();
-    } catch (e) { toast(e.message, true); }
   }
 
   async function loadMore() {
@@ -2671,10 +2633,11 @@
         const isCurrent = current.frame === key;
         const isOwned = owned.frame.includes(key);
         const badge = isCurrent ? " ✅" : (isOwned ? " 🔓" : "");
-        const priceText = isOwned ? "Применить" : `${info.price.toLocaleString()} 🪙`;
+        const seasonOnly = info.rarity === "season" && !isOwned;
+        const priceText = isOwned ? "Применить" : seasonOnly ? "Награда сезона" : `${info.price.toLocaleString()} 🪙`;
         html += `<div class="item-row">
           <span>${info.display.replace('{name}', '@you')}${badge}</span>
-          <button class="btn btn-small" onclick="buyCos('frame','${key}')">${priceText}</button>
+          <button class="btn btn-small" ${seasonOnly ? "disabled" : ""} onclick="buyCos('frame','${key}')">${priceText}</button>
         </div>`;
       }
       el.innerHTML = html;
@@ -2770,7 +2733,7 @@
   }
 
   async function usersDelete(userId) {
-    if (!confirm(`Удалить пользователя ID ${userId} ПОЛНОСТЬЮ из БД?\n\nБудут удалены: баланс, питомцы, клан, остров, косметика, LCC, музыка и всё остальное.`)) return;
+    if (!confirm(`Удалить пользователя ID ${userId} ПОЛНОСТЬЮ из БД?\n\nБудут удалены все игровые данные пользователя.`)) return;
     try {
       const res = await apiPost("/api/admin/users/delete", { user_id: userId });
       toast(res.message, false);
@@ -2788,7 +2751,7 @@
   }
 
   async function usersClearBlocked() {
-    if (!confirm("Удалить ВСЕХ игроков, заблокировавших бота, ПОЛНОСТЬЮ из БД?\n\nБудут удалены их игровые данные, баланс, питомцы, кланы и прочие данные. Действие необратимо.")) return;
+    if (!confirm("Удалить ВСЕХ игроков, заблокировавших бота, ПОЛНОСТЬЮ из БД?\n\nБудут удалены их игровые данные и баланс. Действие необратимо.")) return;
     try {
       const res = await apiPost("/api/admin/users/clear_blocked", {});
       toast(res.message, false);
@@ -2874,7 +2837,6 @@
         <h2>👤 ${u.username ? "@"+u.username : "ID "+u.user_id}</h2>
         <div class="label">💰 Баланс: ${u.balance.toLocaleString()} 🪙</div>
         <div class="label">🐾 Питомцев: ${u.pets_count}</div>
-        ${u.clan ? `<div class="label">🏛️ Клан: ${escapeHtml(u.clan.name)}</div>` : ""}
         ${u.island && u.island.has_island ? `<div class="label">🏝️ Остров есть</div>` : ""}
       </div>`;
 
@@ -3440,380 +3402,6 @@
     setTimeout(() => loadRcc(), 2000);
   }
   
-  // ===== МУЗЫКА =====
-  let musicTab = "personal";
-  let musicPersonal = null;
-  let musicShared = null;
-
-  async function loadMusic() {
-    try {
-      // Личный плейлист
-      musicPersonal = await apiGet("/api/music/personal");
-      // Общий + pending (если админ)
-      musicShared = await apiGet("/api/music/shared");
-      renderMusic();
-    } catch (e) { showMsg("music-msg", e.message, false); }
-  }
-
-  function musicShowTab(tab, ev) {
-    musicTab = tab;
-    document.querySelectorAll(".music-tab").forEach(b => b.classList.remove("active"));
-    if (ev) ev.target.classList.add("active");
-
-    document.getElementById("music-personal-block").style.display = tab === "personal" ? "block" : "none";
-    document.getElementById("music-shared-block").style.display = tab === "shared" ? "block" : "none";
-    document.getElementById("music-pending-block").style.display = tab === "pending" ? "block" : "none";
-
-    renderMusic();
-  }
-
-  function renderMusic() {
-    // === Personal ===
-    if (musicPersonal) {
-      document.getElementById("music-personal-limit").textContent = musicPersonal.limit;
-      document.getElementById("music-personal-used").textContent = musicPersonal.slots_used;
-      document.getElementById("music-personal-balance").textContent = musicPersonal.balance.toLocaleString();
-      document.getElementById("music-slot-price").textContent = musicPersonal.slot_price.toLocaleString();
-
-      if (musicPersonal.tracks.length === 0) {
-        document.getElementById("music-personal-list").innerHTML = `<div class="label">У тебя пока нет треков. Добавь первый!</div>`;
-      } else {
-        document.getElementById("music-personal-list").innerHTML = musicPersonal.tracks.map(t => `
-          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
-            <div class="item-row" style="border-bottom:none;padding:0 0 8px 0;">
-              <span>🎵 <b>${escapeHtml(t.title)}</b><br><span class="label">${escapeHtml(t.author)}</span></span>
-              <button class="btn btn-small" onclick="musicDeletePersonal(${t.id})">❌</button>
-            </div>
-            ${musicEmbed(t)}
-          </div>
-        `).join("");
-      }
-    }
-
-    // === Shared ===
-    if (musicShared) {
-      document.getElementById("music-shared-max").textContent = musicShared.max_tracks;
-
-      if (musicShared.tracks.length === 0) {
-        document.getElementById("music-shared-list").innerHTML = `<div class="label">Пока треков нет. Предложи первый!</div>`;
-      } else {
-        document.getElementById("music-shared-list").innerHTML = musicShared.tracks.map(t => `
-          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
-            <div class="item-row" style="border-bottom:none;padding:0 0 8px 0;">
-              <span>🎵 <b>${escapeHtml(t.title)}</b><br><span class="label">${escapeHtml(t.author)} • от @${escapeHtml(t.added_by || "—")}</span></span>
-              ${musicShared.is_admin ? `<button class="btn btn-small" onclick="musicDeleteShared(${t.id})">❌</button>` : ""}
-            </div>
-            ${musicEmbed(t)}
-          </div>
-        `).join("");
-      }
-
-      // === Pending (админы) ===
-      const pendingTab = document.getElementById("music-pending-tab");
-      if (musicShared.is_admin && musicShared.pending && musicShared.pending.length > 0) {
-        pendingTab.style.display = "inline-block";
-        pendingTab.textContent = `📥 На модерации (${musicShared.pending.length})`;
-      } else {
-        pendingTab.style.display = "none";
-      }
-
-      if (musicShared.pending && musicShared.pending.length > 0) {
-        document.getElementById("music-pending-list").innerHTML = musicShared.pending.map(t => `
-          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--card-border);">
-            <span>🎵 <b>${escapeHtml(t.title)}</b><br><span class="label">${escapeHtml(t.author)} • от @${escapeHtml(t.added_by || "—")}</span></span>
-            ${musicEmbed(t)}
-            <div style="margin-top:8px;display:flex;gap:8px;">
-              <button class="btn btn-small" style="flex:1;" onclick="musicReview(${t.id}, true)">✅ Одобрить</button>
-              <button class="btn btn-small" style="flex:1;background:#ef4444;" onclick="musicReview(${t.id}, false)">❌ Отклонить</button>
-            </div>
-          </div>
-        `).join("");
-      } else if (musicShared.is_admin) {
-        document.getElementById("music-pending-list").innerHTML = `<div class="label">Нет треков на модерации</div>`;
-      }
-    }
-  }
-
-  function musicEmbed(t) {
-    // Простая вставка iframe
-    if (t.platform === "youtube") {
-      const vid = extractYoutubeId(t.url);
-      if (vid) {
-        return `<iframe width="100%" height="200" style="border-radius:8px;border:none;"
-                  src="https://www.youtube.com/embed/${vid}"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowfullscreen></iframe>`;
-      }
-    }
-    if (t.platform === "soundcloud") {
-      const scUrl = encodeURIComponent(t.url);
-      return `<iframe width="100%" height="120" style="border-radius:8px;border:none;"
-                src="https://w.soundcloud.com/player/?url=${scUrl}&color=%230088cc&auto_play=false&hide_related=true"
-                allow="autoplay"></iframe>`;
-    }
-    return `<a href="${escapeHtml(t.url)}" target="_blank" style="color:var(--link);">${escapeHtml(t.url)}</a>`;
-  }
-
-  function extractYoutubeId(url) {
-    const patterns = [
-      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?]+)/,
-    ];
-    for (const p of patterns) {
-      const m = url.match(p);
-      if (m) return m[1];
-    }
-    return null;
-  }
-
-  async function musicAddPersonal() {
-    const url = document.getElementById("music-personal-url").value.trim();
-    if (!url) { toast("Вставь ссылку", true); return; }
-    try {
-      const res = await apiPost("/api/music/add_personal", { url });
-      toast(res.message, false);
-      document.getElementById("music-personal-url").value = "";
-      musicPersonal = await apiGet("/api/music/personal");
-      renderMusic();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function musicAddShared() {
-    const url = document.getElementById("music-shared-url").value.trim();
-    if (!url) { toast("Вставь ссылку", true); return; }
-    try {
-      const res = await apiPost("/api/music/add_shared", { url });
-      toast(res.message, false);
-      document.getElementById("music-shared-url").value = "";
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function musicDeletePersonal(trackId) {
-    if (!confirm("Удалить трек из плейлиста?")) return;
-    try {
-      await apiPost("/api/music/delete_personal", { track_id: trackId });
-      musicPersonal = await apiGet("/api/music/personal");
-      renderMusic();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function musicDeleteShared(trackId) {
-    if (!confirm("Удалить трек из общего плейлиста?")) return;
-    try {
-      await apiPost("/api/music/delete_shared", { track_id: trackId });
-      musicShared = await apiGet("/api/music/shared");
-      renderMusic();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function musicReview(trackId, approve) {
-    try {
-      const res = await apiPost("/api/music/review", { track_id: trackId, approve });
-      toast(res.message, false);
-      musicShared = await apiGet("/api/music/shared");
-      renderMusic();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function musicBuySlot() {
-    if (!confirm(`Купить 1 слот за ${musicPersonal.slot_price.toLocaleString()} 🪙?`)) return;
-    try {
-      const res = await apiPost("/api/music/buy_slot", {});
-      toast(res.message, false);
-      musicPersonal = await apiGet("/api/music/personal");
-      renderMusic();
-      loaded.profile = false; loadProfile();
-    } catch (e) { toast(e.message, true); }
-  }
-  
-  // ===== КЛАНЫ =====
-  let clanData = null;
-
-  async function loadClans() {
-    try {
-      clanData = await apiGet("/api/clans");
-      renderClans();
-    } catch (e) { showMsg("clans-msg", e.message, false); }
-  }
-
-  function renderClans() {
-    if (!clanData) return;
-    const { my_clan, top, all_clans, balance, create_cost, max_members } = clanData;
-
-    document.getElementById("clans-balance").textContent = balance.toLocaleString();
-    document.getElementById("clan-create-cost").textContent = create_cost.toLocaleString();
-
-    if (!my_clan) {
-      document.getElementById("clans-empty").style.display = "block";
-      document.getElementById("clans-my").style.display = "none";
-      renderClansList(all_clans);
-      return;
-    }
-
-    document.getElementById("clans-empty").style.display = "none";
-    document.getElementById("clans-my").style.display = "block";
-
-    // Заголовок
-    document.getElementById("clan-title").textContent = `${my_clan.emoji} ${my_clan.name}`;
-    const roleNames = {leader: "👑 Лидер", deputy: "⭐ Зам", member: "👤 Участник"};
-    document.getElementById("clan-role-line").textContent = roleNames[my_clan.role] || my_clan.role;
-    document.getElementById("clan-bank").textContent = my_clan.bank.toLocaleString();
-    document.getElementById("clan-members-count").textContent = `${my_clan.members.length}/${max_members}`;
-
-    // Заявки (лидер/зам)
-    const pendingCard = document.getElementById("clan-pending-card");
-    if (my_clan.role === "leader" || my_clan.role === "deputy") {
-      if (my_clan.pending.length > 0) {
-        pendingCard.style.display = "block";
-        document.getElementById("clan-pending-list").innerHTML = my_clan.pending.map(p => `
-          <div class="item-row">
-            <span>@${p.username || p.user_id}</span>
-            <span>
-              <button class="btn btn-small" onclick="clanAccept(${p.request_id})">✅</button>
-              <button class="btn btn-small" onclick="clanDecline(${p.request_id})">❌</button>
-            </span>
-          </div>
-        `).join("");
-      } else {
-        pendingCard.style.display = "none";
-      }
-    } else {
-      pendingCard.style.display = "none";
-    }
-
-    // Участники
-    const roleIcons = {leader: "👑", deputy: "⭐", member: "👤"};
-    document.getElementById("clan-members-list").innerHTML = my_clan.members.map(m => `
-      <div class="item-row">
-        <span>${roleIcons[m.role] || "👤"} @${m.username || m.user_id}</span>
-        <span>${m.balance.toLocaleString()} 🪙</span>
-      </div>
-    `).join("");
-
-    // Действия
-    let actions = "";
-    if (my_clan.role === "leader") {
-      actions = `
-        <button class="btn btn-small" onclick="clanKickPrompt()">🥾 Кикнуть игрока</button>
-        <button class="btn btn-small" onclick="clanDisband()" style="background:#ef4444;">💥 Распустить</button>
-      `;
-    } else if (my_clan.role === "deputy") {
-      actions = `<button class="btn btn-small" onclick="clanKickPrompt()">🥾 Кикнуть игрока</button>`;
-    } else {
-      actions = `<button class="btn btn-small" onclick="clanLeave()">🚪 Выйти из клана</button>`;
-    }
-    document.getElementById("clan-actions").innerHTML = actions;
-  }
-
-  function renderClansList(list) {
-    if (!list || list.length === 0) {
-      document.getElementById("clans-list").innerHTML = `<div class="label">Пока нет ни одного клана</div>`;
-      return;
-    }
-    document.getElementById("clans-list").innerHTML = list.map(c => `
-      <div class="item-row">
-        <span>${escapeHtml(c.emoji)} <b>${escapeHtml(c.name)}</b><br><span class="label">${c.members} чел. • ${c.bank.toLocaleString()} 🪙</span></span>
-        <button class="btn btn-small" onclick="clanJoin(${c.id})">Вступить</button>
-      </div>
-    `).join("");
-  }
-
-  function clanShowList(ev) {
-    document.querySelectorAll("#tab-clans .tabs-sub button").forEach(b => b.classList.remove("active"));
-    if (ev) ev.target.classList.add("active");
-    renderClansList(clanData.all_clans);
-  }
-
-  function clanShowTop(ev) {
-    document.querySelectorAll("#tab-clans .tabs-sub button").forEach(b => b.classList.remove("active"));
-    if (ev) ev.target.classList.add("active");
-    const medals = ["🥇", "🥈", "🥉"];
-    document.getElementById("clans-list").innerHTML = clanData.top.map((c, i) => `
-      <div class="item-row">
-        <span>${medals[i] || (i+1)+"."} ${escapeHtml(c.emoji)} <b>${escapeHtml(c.name)}</b><br><span class="label">${c.members} чел.</span></span>
-        <span>${c.bank.toLocaleString()} 🪙</span>
-      </div>
-    `).join("") || `<div class="label">Нет кланов</div>`;
-  }
-
-  async function clanCreateStart() {
-    const name = prompt("Название клана (3–20 символов):");
-    if (!name) return;
-    if (name.length < 3 || name.length > 20) { toast("Название 3–20 символов", true); return; }
-    const emoji = prompt("Эмодзи клана (например: 🏛️):") || "🏛️";
-    const description = prompt("Описание (необязательно):") || "";
-    try {
-      const res = await apiPost("/api/clans/create", { name, emoji, description });
-      toast(res.message, false);
-      await loadClans();
-      loaded.profile = false; loadProfile();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function clanJoin(clanId) {
-    if (!confirm("Отправить заявку в клан?")) return;
-    try {
-      const res = await apiPost("/api/clans/join", { clan_id: clanId });
-      toast(res.message, false);
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function clanAccept(requestId) {
-    try {
-      const res = await apiPost("/api/clans/accept", { request_id: requestId });
-      toast(res.message, false);
-      await loadClans();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function clanDecline(requestId) {
-    try {
-      await apiPost("/api/clans/decline", { request_id: requestId });
-      toast("Заявка отклонена", false);
-      await loadClans();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function clanDeposit() {
-    const amount = parseInt(document.getElementById("clan-deposit-amount").value, 10);
-    if (!amount || amount <= 0) { toast("Введи сумму", true); return; }
-    try {
-      const res = await apiPost("/api/clans/deposit", { amount });
-      toast(res.message, false);
-      document.getElementById("clan-deposit-amount").value = "";
-      await loadClans();
-      loaded.profile = false; loadProfile();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function clanLeave() {
-    if (!confirm("Выйти из клана?")) return;
-    try {
-      const res = await apiPost("/api/clans/leave", {});
-      toast(res.message, false);
-      await loadClans();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function clanDisband() {
-    if (!confirm("⚠️ РАСПУСТИТЬ КЛАН?\n\nКазна вернётся тебе, все участники будут исключены.")) return;
-    try {
-      const res = await apiPost("/api/clans/disband", {});
-      toast(res.message, false);
-      await loadClans();
-      loaded.profile = false; loadProfile();
-    } catch (e) { toast(e.message, true); }
-  }
-
-  async function clanKickPrompt() {
-    const username = prompt("Username игрока для кика (без @):");
-    if (!username) return;
-    try {
-      const res = await apiPost("/api/clans/kick", { username });
-      toast(res.message, false);
-      await loadClans();
-    } catch (e) { toast(e.message, true); }
-  }
-  
   // ===== ОСТРОВ =====
   let islandData = null;
 
@@ -3893,7 +3481,7 @@
       </div>`;
     });
     html += `</div><h2 style="margin-top:20px">🧑‍🌾 Работа по профессии</h2>`;
-    const supported = new Set(["artist","musician","photographer","gardener","cook","vet","programmer","farmer","fisher","miner","blacksmith","engineer","explorer","merchant"]);
+    const supported = new Set(["artist","photographer","gardener","cook","vet","programmer","farmer","fisher","miner","blacksmith","engineer","explorer","merchant"]);
     const prof = islandData.profession;
     const remaining = Math.max(0, Number(progress.action_remaining_seconds || 0));
     const fmtTime = (s) => `${Math.floor(s/3600)} ч ${Math.floor((s%3600)/60)} мин`;

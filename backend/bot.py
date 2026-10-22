@@ -12,7 +12,6 @@ from tictactoe import router as ttt_router
 from minesweeper import router as ms_router
 from friends import router as friends_router
 from cosmetics import router as cos_router
-from clans import router as clans_router
 from tech_admin import router as tech_admin_router
 
 from aiogram import Bot, Dispatcher, F
@@ -28,6 +27,7 @@ from aiogram.types import FSInputFile
 
 import config
 import database as db
+import world_events as world_events
 from keyboards import (
     main_menu, home_menu, games_menu, catalog_menu,
     transfer_menu, admin_menu, admin_catalog_menu,
@@ -81,7 +81,6 @@ dp.include_router(ttt_router)
 dp.include_router(ms_router)
 dp.include_router(friends_router)
 dp.include_router(cos_router)
-dp.include_router(clans_router)
 dp.include_router(tech_admin_router)
 
 class TransferStates(StatesGroup):
@@ -108,10 +107,6 @@ class PromoStates(StatesGroup):
 
 
 class GiftPetStates(StatesGroup):
-    waiting_recipient = State()
-
-
-class PetTradeStates(StatesGroup):
     waiting_recipient = State()
 
 
@@ -1102,103 +1097,6 @@ async def pet_sell_handler(callback: CallbackQuery):
     await callback.answer("Продано!")
 
 
-@dp.callback_query(F.data.startswith("pet_trade_"))
-async def pet_trade_disabled_callback(callback: CallbackQuery):
-    """Disable pet trades safely while retaining old trade records."""
-    await callback.answer("🔁 Обмены временно отключены. Данные и история сохранены.", show_alert=True)
-
-
-@dp.callback_query(F.data.startswith("pet_trade_start_"))
-async def pet_trade_start(callback: CallbackQuery, state: FSMContext):
-    try:
-        pet_id = int(callback.data.rsplit("_", 1)[1])
-    except ValueError:
-        await callback.answer("Некорректный питомец.", show_alert=True)
-        return
-    pet = db.get_pet_by_id(pet_id, callback.from_user.id)
-    if not pet:
-        await callback.answer("Этот питомец тебе не принадлежит.", show_alert=True)
-        return
-    await state.update_data(pet_id=pet_id)
-    await state.set_state(PetTradeStates.waiting_recipient)
-    await callback.message.answer("🔁 Напиши username игрока, с которым хочешь обменяться питомцами (без @).", reply_markup=cancel_button())
-    await callback.answer()
-
-
-@dp.message(PetTradeStates.waiting_recipient)
-async def pet_trade_disabled_message(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("🔁 Обмены временно отключены. Данные и история сохранены.")
-
-
-@dp.message(PetTradeStates.waiting_recipient)
-async def pet_trade_send(message: Message, state: FSMContext):
-    target_name = message.text.strip().lstrip("@")
-    conn = sqlite3.connect(db.DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id, username FROM users WHERE LOWER(REPLACE(TRIM(username), '@', '')) = LOWER(?) LIMIT 1", (target_name,))
-    target = cur.fetchone()
-    conn.close()
-    if not target:
-        await message.answer("❌ Игрок не найден. Проверь username.")
-        return
-    target_id, target_username = int(target[0]), target[1]
-    pet_id = (await state.get_data()).get("pet_id")
-    ok, result = db.create_pet_trade(message.from_user.id, target_id, pet_id)
-    if not ok:
-        await message.answer(f"❌ {result}")
-        await state.clear()
-        return
-    trade_id = result["trade_id"]
-    target_pet = db.get_pet_by_id(result["to_pet"], target_id)
-    own_pet = db.get_pet_by_id(pet_id, message.from_user.id)
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Принять обмен", callback_data=f"pet_trade_accept_{trade_id}"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"pet_trade_decline_{trade_id}"),
-    )
-    await message.answer(
-        f"🔁 Обмен питомцами: @{target_username or target_id}\n"
-        f"Предложение от @{message.from_user.username or message.from_user.id}\n"
-        f"Отдаёт: {own_pet['name'] if own_pet else 'питомец'}\n"
-        f"Получает: {target_pet['name'] if target_pet else 'твой питомец'}\n"
-        f"При принятии оба питомца перейдут новым владельцам неактивными.",
-        reply_markup=builder.as_markup(),
-    )
-    await message.answer("📨 Предложение опубликовано. Игрок должен принять его кнопкой в этом чате.")
-    await state.clear()
-
-
-@dp.callback_query(F.data.startswith("pet_trade_accept_"))
-async def pet_trade_accept_handler(callback: CallbackQuery):
-    try:
-        trade_id = int(callback.data.rsplit("_", 1)[1])
-    except ValueError:
-        await callback.answer("Некорректный обмен.", show_alert=True)
-        return
-    ok, message_text = db.resolve_pet_trade(trade_id, callback.from_user.id, True)
-    if not ok:
-        await callback.answer(message_text, show_alert=True)
-        return
-    await callback.message.edit_text(f"✅ {message_text}")
-    await callback.answer("Обмен завершён!")
-
-
-@dp.callback_query(F.data.startswith("pet_trade_decline_"))
-async def pet_trade_decline_handler(callback: CallbackQuery):
-    try:
-        trade_id = int(callback.data.rsplit("_", 1)[1])
-    except ValueError:
-        await callback.answer("Некорректный обмен.", show_alert=True)
-        return
-    ok, message_text = db.resolve_pet_trade(trade_id, callback.from_user.id, False)
-    if not ok:
-        await callback.answer(message_text, show_alert=True)
-        return
-    await callback.message.edit_text(f"❌ {message_text}")
-    await callback.answer()
-
-
 @dp.callback_query(F.data.startswith("pet_gift_"))
 async def pet_gift_start(callback: CallbackQuery, state: FSMContext):
     pet_id = int(callback.data.split("_")[2])
@@ -1310,6 +1208,334 @@ async def transfer_word_trigger(message: Message, state: FSMContext):
     await state.set_state(TransferStates.waiting_recipient)
 
 
+@dp.message(Command("market"))
+@dp.message(F.text.lower().strip().in_({"рынок ресурсов", "системный магазин", "магазин ресурсов"}))
+async def system_market_word_trigger(message: Message):
+    try:
+        data = world_events.get_system_market(message.from_user.id)
+        lines = ["🏪 Системный магазин Lavender Dream", "", "🛒 Припасы NPC:"]
+        builder = InlineKeyboardBuilder()
+        for offer in data.get("offers", []):
+            contents = ", ".join(f"{item['name']} ×{item['quantity']}" for item in offer["items"])
+            lines.append(f"• {offer['name']} — {int(offer['price']):,} LDC ({contents})")
+            builder.row(InlineKeyboardButton(
+                text=f"Купить: {offer['name'][:24]} · {int(offer['price']):,} LDC",
+                callback_data=f"market_buy_{offer['key']}",
+            ))
+        lines.extend(["", "📦 Твои ресурсы для продажи:"])
+        inventory = data.get("inventory", [])
+        for item in inventory:
+            lines.append(f"• {item['name']} ×{item['quantity']} — {int(item['sell_price']):,} LDC/шт.")
+            builder.row(InlineKeyboardButton(
+                text=f"Продать 1: {item['name'][:24]}",
+                callback_data=f"market_sell_{item['key']}",
+            ))
+            if int(item["quantity"]) >= 5:
+                builder.row(InlineKeyboardButton(
+                    text=f"Продать 5: {item['name'][:24]}",
+                    callback_data=f"market_sell5_{item['key']}",
+                ))
+        if not inventory:
+            lines.append("Пока нет ресурсов для продажи.")
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if data.get("offers") or inventory else None)
+    except Exception:
+        logger.exception("Не удалось открыть системный магазин")
+        await message.answer("Не удалось загрузить системный магазин. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("market_buy_"))
+async def system_market_buy_callback(callback: CallbackQuery):
+    offer_key = callback.data[len("market_buy_"):]
+    try:
+        result = world_events.buy_system_market_offer(callback.from_user.id, offer_key)
+        await callback.answer("Покупка успешна!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"🏪 Куплено: {result['offer']}. Списано {int(result['price']):,} LDC.")
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось купить предложение системного магазина")
+        await callback.answer("Не удалось совершить покупку. Попробуй позже.", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("market_sell5_"))
+async def system_market_sell5_callback(callback: CallbackQuery):
+    item_key = callback.data[len("market_sell5_"):]
+    try:
+        result = world_events.sell_system_market_item(callback.from_user.id, item_key, 5)
+        await callback.answer(f"+{int(result['reward_ldc']):,} LDC", show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"📦 Продано {result['amount']} × {result['item']}. Получено {int(result['reward_ldc']):,} LDC.")
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось продать ресурсы системному магазину")
+        await callback.answer("Не удалось продать предметы. Попробуй позже.", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("market_sell_"))
+async def system_market_sell_callback(callback: CallbackQuery):
+    item_key = callback.data[len("market_sell_"):]
+    try:
+        result = world_events.sell_system_market_item(callback.from_user.id, item_key, 1)
+        await callback.answer(f"+{int(result['reward_ldc']):,} LDC", show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"📦 Продано: {result['item']}. Получено {int(result['reward_ldc']):,} LDC.")
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось продать ресурс системному магазину")
+        await callback.answer("Не удалось продать предмет. Попробуй позже.", show_alert=True)
+
+
+@dp.message(Command("expeditions"))
+@dp.message(F.text.lower().strip().in_({"экспедиции питомцев", "экспедиция питомца", "экспедиции"}))
+async def pet_expeditions_word_trigger(message: Message):
+    try:
+        data = world_events.list_pet_expeditions(message.from_user.id)
+        lines = ["🧭 Экспедиции питомцев", ""]
+        builder = InlineKeyboardBuilder()
+        active = [e for e in data.get("expeditions", []) if e.get("status") == "active"]
+        if active:
+            for expedition in active:
+                lines.append(
+                    f"🐾 {expedition.get('pet_name', 'Питомец')} — {expedition.get('destination', '')}"
+                )
+                if expedition.get("can_claim"):
+                    builder.row(InlineKeyboardButton(
+                        text=f"🎁 Забрать награду #{expedition['id']}",
+                        callback_data=f"petexp_claim_{expedition['id']}",
+                    ))
+                else:
+                    lines.append(f"⏳ Осталось: {max(0, int(expedition.get('remaining_seconds') or 0)) // 60} мин.")
+            lines.extend(["", "Сначала забери награду, затем можно отправить питомца снова."])
+        else:
+            pets = data.get("pets", [])
+            if not pets:
+                lines.append("У тебя пока нет доступных питомцев для экспедиции.")
+            else:
+                lines.append("Выбери питомца и маршрут:")
+                for pet in pets[:4]:
+                    for destination in data.get("destinations", []):
+                        builder.row(InlineKeyboardButton(
+                            text=f"{pet.get('pet_emoji', '🐾')} {pet.get('pet_name', 'Питомец')[:12]} · {destination['name'][:18]}",
+                            callback_data=f"petexp_start_{pet['id']}_{destination['key']}",
+                        ))
+                lines.extend(["", "🌲 Лес — 30 мин. · 💎 Пещера — 60 мин. · 🏝️ Остров — 120 мин."])
+        has_buttons = any(e.get("can_claim") for e in active) if active else bool(data.get("pets"))
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if has_buttons else None)
+    except Exception:
+        logger.exception("Не удалось открыть экспедиции питомцев")
+        await message.answer("Не удалось загрузить экспедиции. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("petexp_start_"))
+async def pet_expedition_start_callback(callback: CallbackQuery):
+    try:
+        _, _, pet_id, destination = callback.data.split("_", 3)
+        result = world_events.start_pet_expedition(callback.from_user.id, pet_id, destination)
+        await callback.answer("Питомец отправился!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"🧭 {result['pet_name']} отправился по маршруту {result['destination']}. "
+                f"Вернётся примерно через {result['duration_minutes']} минут."
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось начать экспедицию питомца")
+        await callback.answer("Не удалось начать экспедицию. Попробуй позже.", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("petexp_claim_"))
+async def pet_expedition_claim_callback(callback: CallbackQuery):
+    try:
+        expedition_id = int(callback.data[len("petexp_claim_"):])
+        result = world_events.claim_pet_expedition(callback.from_user.id, expedition_id)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            item = f" и предмет «{result['reward_item']}»" if result.get("reward_item") else ""
+            await callback.message.answer(
+                f"🎁 Экспедиция завершена: +{int(result['reward_ldc']):,} LDC{item}\n{result.get('outcome', '')}"
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось забрать награду экспедиции")
+        await callback.answer("Не удалось забрать награду. Попробуй позже.", show_alert=True)
+
+
+@dp.message(Command("achievements"))
+@dp.message(F.text.lower().strip().in_({"достижения", "ачивки"}))
+async def achievements_word_trigger(message: Message):
+    try:
+        data = world_events.get_achievements(message.from_user.id)
+        lines = ["🏆 Достижения Lavender Dream", ""]
+        builder = InlineKeyboardBuilder()
+        buttons = 0
+        for item in data.get("achievements", []):
+            done = item.get("completed")
+            claimed = item.get("claimed")
+            lines.append(f"{'🎁' if done and not claimed else '✅' if claimed else '▫️'} {item['title']} — {int(item.get('progress') or 0)}/{int(item['target'])}")
+            if done and not claimed and buttons < 6:
+                builder.row(InlineKeyboardButton(
+                    text=f"🎁 {item['title'][:28]}",
+                    callback_data=f"achievement_claim_{item['key']}",
+                ))
+                buttons += 1
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if buttons else None)
+    except Exception:
+        logger.exception("Не удалось открыть достижения")
+        await message.answer("Не удалось загрузить достижения. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("achievement_claim_"))
+async def achievement_claim_callback(callback: CallbackQuery):
+    key = callback.data[len("achievement_claim_"):]
+    try:
+        result = world_events.claim_achievement(callback.from_user.id, key)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"🏆 Достижение получено: +{int(result['reward_ldc']):,} LDC. "
+                f"Открыт титул: {result.get('title') or '—'}."
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось получить награду достижения")
+        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
+
+
+@dp.message(Command("collection"))
+@dp.message(F.text.lower().strip().in_({"коллекция", "моя коллекция", "бестиарий"}))
+async def collection_word_trigger(message: Message):
+    try:
+        data = world_events.get_collection(message.from_user.id)
+        summary = data.get("summary", {})
+        lines = [
+            "📚 Коллекция Lavender Dream",
+            f"🐾 Питомцев: {summary.get('pets', 0)}",
+            f"🎒 Коллекционных предметов: {summary.get('items', 0)}",
+            f"🏷️ Титулов: {summary.get('titles', 0)}",
+        ]
+        items = data.get("items", [])
+        if items:
+            lines.extend(["", "Предметы:"])
+            lines.extend(f"• {item['item_name']}" for item in items[:10])
+        titles = data.get("titles", [])
+        builder = InlineKeyboardBuilder()
+        title_buttons = 0
+        if titles:
+            lines.extend(["", "Титулы:"])
+            for title in titles[:8]:
+                lines.append(f"{'⭐ ' if title.get('is_active') else '• '}{title['title_name']}")
+                if not title.get("is_active"):
+                    builder.row(InlineKeyboardButton(
+                        text=f"Выбрать: {title['title_name'][:24]}",
+                        callback_data=f"title_equip_{title['title_key']}",
+                    ))
+                    title_buttons += 1
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if title_buttons else None)
+    except Exception:
+        logger.exception("Не удалось открыть коллекцию")
+        await message.answer("Не удалось загрузить коллекцию. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("title_equip_"))
+async def title_equip_callback(callback: CallbackQuery):
+    key = callback.data[len("title_equip_"):]
+    try:
+        result = world_events.set_active_title(callback.from_user.id, key)
+        await callback.answer("Титул выбран!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"🏷️ Активный титул: {result['title_name']}")
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось выбрать титул")
+        await callback.answer("Не удалось выбрать титул. Попробуй позже.", show_alert=True)
+
+
+@dp.message(Command("season"))
+@dp.message(F.text.lower().strip().in_({"сезон", "сезоны"}))
+async def season_word_trigger(message: Message):
+    try:
+        status = world_events.get_season_status(message.from_user.id)
+        season = status.get("season") or {}
+        progress = status.get("progress") or {}
+        ends = season.get("ends_at")
+        if isinstance(ends, str):
+            ends = datetime.fromisoformat(ends.replace("Z", "+00:00")).replace(tzinfo=None)
+        remaining = max(0, int((ends - datetime.utcnow()).total_seconds())) if ends else 0
+        lines = [
+            f"🌸 {season.get('title', 'Сезон Lavender Dream')}",
+            f"⏳ До конца: {remaining // 86400} дн. {(remaining % 86400) // 3600} ч.",
+            f"🏅 Уровень: {int(progress.get('level') or 0)}",
+            f"✨ Опыт: {int(progress.get('xp') or 0):,} XP",
+            "",
+            "📋 Сезонные задания:",
+        ]
+        builder = InlineKeyboardBuilder()
+        reward_button_count = 0
+        for task in status.get("tasks", []):
+            mark = "✅" if task.get("claimed") else "🎁" if task.get("completed") else "▫️"
+            lines.append(
+                f"{mark} {task['title']} — {int(task.get('progress') or 0)}/{int(task.get('target') or 0)}"
+            )
+            if task.get("completed") and not task.get("claimed") and reward_button_count < 5:
+                builder.row(InlineKeyboardButton(
+                    text=f"🎁 {task['title'][:28]}",
+                    callback_data=f"season_claim_{task['task_key']}",
+                ))
+                reward_button_count += 1
+        for reward in status.get("level_rewards", []):
+            if int(progress.get("level") or 0) >= int(reward.get("level") or 0) and not reward.get("claimed") and reward_button_count < 8:
+                builder.row(InlineKeyboardButton(
+                    text=f"🎁 Уровень {reward['level']}: {reward['description'][:22]}",
+                    callback_data=f"season_level_claim_{reward['level']}",
+                ))
+                reward_button_count += 1
+        lines.extend(["", "Награды за задания дают сезонный опыт и LDC."])
+        await message.answer("\\n".join(lines), reply_markup=builder.as_markup() if reward_button_count else None)
+    except Exception:
+        logger.exception("Не удалось открыть сезон")
+        await message.answer("Не удалось загрузить сезон. Попробуй позже.")
+
+
+@dp.callback_query(F.data.startswith("season_level_claim_"))
+async def season_level_claim_callback(callback: CallbackQuery):
+    try:
+        level = int(callback.data[len("season_level_claim_"):])
+        result = world_events.claim_season_level(callback.from_user.id, level)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            reward_text = f"+{int(result.get('amount') or 0):,} LDC" if result.get("reward_type") == "ldc" else result.get("reward", "Награда получена")
+            await callback.message.answer(f"🌸 Награда уровня {level}: {reward_text}")
+    except (ValueError, TypeError) as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось получить награду уровня сезона")
+        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("season_claim_"))
+async def season_claim_callback(callback: CallbackQuery):
+    task_key = callback.data[len("season_claim_"):]
+    try:
+        result = world_events.claim_season_task(callback.from_user.id, task_key)
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"🌸 Сезонная награда: +{int(result['reward_ldc']):,} LDC и +{int(result['reward_xp'])} XP."
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось получить сезонную награду")
+        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
+
+
 @dp.message(F.text.lower().strip().in_({"задания", "задание"}))
 async def tasks_word_trigger(message: Message):
     db.assign_daily_tasks(message.from_user.id)
@@ -1343,14 +1569,6 @@ async def balance_top_word_trigger(message: Message):
         medal = medals[i - 1] if i <= 3 else f"{i}."
         text += f"{medal} {db.get_display_name(uid)} — {balance:,} 🪙\n"
     await message.answer(text)
-
-
-@dp.message(F.text.lower().strip().in_({"трейд", "трейды", "обмен предметами"}))
-async def web_trade_word_trigger(message: Message):
-    await message.answer(
-        "🔁 Трейды временно отключены. История и данные обменов сохранены; "
-        "сейчас проверяются зависимости перед окончательным удалением."
-    )
 
 
 @dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "курс"))
@@ -1571,7 +1789,7 @@ async def work_now(callback: CallbackQuery):
         await callback.answer(msg, show_alert=True)
         return
 
-    # Логируем фактически начисленную сумму, включая бонусы друзей/клана.
+    # Логируем фактически начисленную сумму, включая бонусы друзей.
     try:
         earned = db.get_balance(user_id) - balance_before
         db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
@@ -1590,7 +1808,7 @@ async def fire_profession(callback: CallbackQuery):
     conn.close()
     await callback.answer("✅ Вы уволены", show_alert=True)
     await callback.message.edit_text(
-        "Вы уволились. Следующее трудоустройство будет дороже на 1000 🪙.",
+        "Вы уволились. Можешь устроиться на любую доступную профессию бесплатно.",
         reply_markup=professions_menu()
     )
 
@@ -2623,6 +2841,119 @@ async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
         except Exception:
             logger.exception("Не удалось выполнить необязательную операцию")
 
+
+
+@dp.callback_query(F.data == "world_event_claim")
+async def world_event_claim_callback(callback: CallbackQuery):
+    try:
+        result = world_events.claim_event(callback.from_user.id)
+        try:
+            world_events.record_season_activity(callback.from_user.id, "event", 1)
+        except Exception:
+            logger.exception("Награда события выдана, но сезонный прогресс не обновлён")
+        await callback.answer("Награда получена!", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"🎁 Получено: +{int(result['reward_ldc']):,} LDC и +{int(result['reward_xp'])} сезонного опыта."
+            )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("Не удалось выдать награду глобального события")
+        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
+
+
+async def announce_world_event(event: dict):
+    message = (
+        f"🌍 ГЛОБАЛЬНОЕ СОБЫТИЕ: {event.get('title', 'Событие')}\\n\\n"
+        f"{event.get('description', '')}\\n\\n"
+        f"⏳ Длительность: {max(1, int(event.get('remaining_seconds', 3600)) // 60)} мин.\\n"
+        f"🎁 Награда за участие: {int(event.get('reward_ldc', 0)):,} LDC и "
+        f"{int(event.get('reward_xp', 0))} сезонного опыта.\\n\\n"
+        "Выполняй действия в Lavender Dream и нажми кнопку, чтобы забрать награду."
+    )
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🎁 Забрать награду", callback_data="world_event_claim"))
+    for user in db.get_all_users():
+        uid = user.get("user_id")
+        if not uid or user.get("is_banned"):
+            continue
+        try:
+            await bot.send_message(int(uid), message, reply_markup=builder.as_markup())
+        except Exception:
+            # Пользователь мог заблокировать бота или запретить сообщения.
+            logger.debug("Не удалось отправить уведомление о событии user_id=%s", uid)
+        await asyncio.sleep(0.05)
+
+
+def _event_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+
+
+async def world_event_scheduler():
+    """Database-backed scheduler: one global event at a time, with a 60-minute gap."""
+    while True:
+        await asyncio.sleep(30)
+        try:
+            if world_events.get_current_event():
+                continue
+            settings = world_events.get_settings()
+            now = datetime.utcnow()
+            next_allowed = _event_datetime(settings.get("next_allowed_at"))
+            if next_allowed and now < next_allowed:
+                continue
+
+            scheduled = world_events.get_due_schedule()
+            if scheduled:
+                try:
+                    event = world_events.start_event(
+                        scheduled["event_type"],
+                        duration_minutes=scheduled.get("duration_minutes") or 60,
+                        reward_ldc=scheduled.get("reward_ldc") or 500,
+                        reward_xp=scheduled.get("reward_xp") or 100,
+                        title=scheduled.get("title"), description=scheduled.get("description"),
+                        source="scheduled", created_by=scheduled.get("created_by"),
+                        scheduled_id=scheduled["id"],
+                    )
+                    await announce_world_event(event)
+                except RuntimeError:
+                    # Another process may have started an event; re-check next cycle.
+                    pass
+                continue
+
+            if not settings.get("random_enabled"):
+                continue
+            next_random = _event_datetime(settings.get("next_random_at"))
+            if not next_random:
+                conn = sqlite3.connect(os.environ.get("DB_PATH", db.DB_NAME))
+                cur = conn.cursor()
+                first_random = now + timedelta(minutes=random.randint(60, 240))
+                cur.execute("UPDATE world_event_settings SET next_random_at = ? WHERE id = 1",
+                            (first_random.isoformat(),))
+                conn.commit()
+                conn.close()
+                continue
+            if now >= next_random:
+                event_type = random.choice(list(world_events.EVENT_TYPES.keys()))
+                try:
+                    event = world_events.start_event(
+                        event_type,
+                        duration_minutes=settings.get("default_duration_minutes") or 60,
+                        reward_ldc=random.randint(300, 1500),
+                        reward_xp=random.randint(75, 250),
+                        source="random",
+                    )
+                    await announce_world_event(event)
+                except RuntimeError:
+                    pass
+        except Exception:
+            logger.exception("Ошибка планировщика глобальных событий")
+
+
 # ==================== MAIN ====================
 
 async def gifts_cleanup_loop():
@@ -2689,6 +3020,11 @@ async def main():
         {"command": "help", "description": "ℹ️ Помощь"},
         {"command": "rules", "description": "📜 Правила Lavender Dream"},
         {"command": "feedback", "description": "✉️ Обратная связь"},
+        {"command": "season", "description": "🌸 Сезон Lavender Dream"},
+        {"command": "expeditions", "description": "🧭 Экспедиции питомцев"},
+        {"command": "market", "description": "🏪 Системный магазин"},
+        {"command": "achievements", "description": "🏆 Достижения"},
+        {"command": "collection", "description": "📚 Коллекция и бестиарий"},
         {"command": "admin", "description": "👑 Админ-панель"},
     ])
     asyncio.create_task(weekly_clean_reminder())
@@ -2701,6 +3037,7 @@ async def main():
     asyncio.create_task(islands_income_loop())
     asyncio.create_task(gifts_cleanup_loop())
     asyncio.create_task(halloween_event_scheduler())
+    asyncio.create_task(world_event_scheduler())
     await dp.start_polling(bot)
 
 
