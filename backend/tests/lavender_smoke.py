@@ -78,6 +78,31 @@ def main():
     conn.commit()
     conn.close()
 
+    # Pet food inventory increments must work on PostgreSQL and feeding must cap
+    # stats with LEAST(), not SQLite's scalar MIN(x, y).
+    assert database.add_inventory_item(user_id, "universal_pet_food", 2), "Adding pet food failed"
+    ok, message = database.use_pet_food(user_id, pet_id)
+    assert ok, f"Feeding pet with purchased food failed: {message}"
+    inventory = {item["item_key"]: item["quantity"] for item in database.get_inventory(user_id)}
+    assert inventory.get("universal_pet_food") == 1, "Feeding did not consume exactly one portion"
+
+    # The cleanup helper must use PostgreSQL-compatible date arithmetic.
+    conn = database.sqlite3.connect(database.DB_NAME)
+    cur = conn.cursor()
+    old_joined_at = (datetime.now() - timedelta(days=14)).isoformat(sep=" ")
+    cur.execute(
+        "INSERT INTO new_members (user_id, username, joined_at) VALUES (?, ?, ?)",
+        (user_id + 1, "old-smoke-member", old_joined_at),
+    )
+    conn.commit()
+    conn.close()
+    database.clear_old_new_members(days=7)
+    conn = database.sqlite3.connect(database.DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM new_members WHERE user_id = ?", (user_id + 1,))
+    assert cur.fetchone() is None, "Old new-member record was not removed"
+    conn.close()
+
     # Hiring is free and large Telegram IDs survive all legacy table migrations.
     balance_before = 100_000
     ok, _ = database.hire_profession(user_id, "artist")
@@ -87,6 +112,12 @@ def main():
     cur.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
     assert int(cur.fetchone()["balance"]) == balance_before, "Hiring unexpectedly charged LDC"
     conn.close()
+
+    # Switching professions must preserve the old profession without relying on
+    # unsupported SQLite-only INSERT OR REPLACE syntax.
+    next_profession = next(key for key in database.PROFESSIONS if key != "artist")
+    ok, message = database.hire_profession(user_id, next_profession)
+    assert ok, f"Switching profession failed: {message}"
 
     world_events.ensure_current_season()
     world_events.record_season_activity(user_id, "game", 3)
