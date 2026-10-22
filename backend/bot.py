@@ -28,6 +28,7 @@ from aiogram.types import FSInputFile
 
 import config
 import database as db
+import world_events as world_events
 from keyboards import (
     main_menu, home_menu, games_menu, catalog_menu,
     transfer_menu, admin_menu, admin_catalog_menu,
@@ -2623,6 +2624,96 @@ async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
         except Exception:
             logger.exception("Не удалось выполнить необязательную операцию")
 
+
+async def announce_world_event(event: dict):
+    message = (
+        f"🌍 ГЛОБАЛЬНОЕ СОБЫТИЕ: {event.get('title', 'Событие')}\\n\\n"
+        f"{event.get('description', '')}\\n\\n"
+        f"⏳ Длительность: {max(1, int(event.get('remaining_seconds', 3600)) // 60)} мин.\\n"
+        f"🎁 Награда за участие: {int(event.get('reward_ldc', 0)):,} LDC и "
+        f"{int(event.get('reward_xp', 0))} сезонного опыта.\\n\\n"
+        "Открой Lavender Dream в боте или веб-приложении, чтобы участвовать."
+    )
+    for user in db.get_all_users():
+        uid = user.get("user_id")
+        if not uid or user.get("is_banned"):
+            continue
+        try:
+            await bot.send_message(int(uid), message)
+        except Exception:
+            # Пользователь мог заблокировать бота или запретить сообщения.
+            logger.debug("Не удалось отправить уведомление о событии user_id=%s", uid)
+        await asyncio.sleep(0.05)
+
+
+def _event_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+
+
+async def world_event_scheduler():
+    """Database-backed scheduler: one global event at a time, with a 60-minute gap."""
+    while True:
+        await asyncio.sleep(30)
+        try:
+            if world_events.get_current_event():
+                continue
+            settings = world_events.get_settings()
+            now = datetime.utcnow()
+            next_allowed = _event_datetime(settings.get("next_allowed_at"))
+            if next_allowed and now < next_allowed:
+                continue
+
+            scheduled = world_events.get_due_schedule()
+            if scheduled:
+                try:
+                    event = world_events.start_event(
+                        scheduled["event_type"],
+                        duration_minutes=scheduled.get("duration_minutes") or 60,
+                        reward_ldc=scheduled.get("reward_ldc") or 500,
+                        reward_xp=scheduled.get("reward_xp") or 100,
+                        title=scheduled.get("title"), description=scheduled.get("description"),
+                        source="scheduled", created_by=scheduled.get("created_by"),
+                        scheduled_id=scheduled["id"],
+                    )
+                    await announce_world_event(event)
+                except RuntimeError:
+                    # Another process may have started an event; re-check next cycle.
+                    pass
+                continue
+
+            if not settings.get("random_enabled"):
+                continue
+            next_random = _event_datetime(settings.get("next_random_at"))
+            if not next_random:
+                conn = sqlite3.connect(os.environ.get("DB_PATH", db.DB_NAME))
+                cur = conn.cursor()
+                first_random = now + timedelta(minutes=random.randint(60, 240))
+                cur.execute("UPDATE world_event_settings SET next_random_at = ? WHERE id = 1",
+                            (first_random.isoformat(),))
+                conn.commit()
+                conn.close()
+                continue
+            if now >= next_random:
+                event_type = random.choice(list(world_events.EVENT_TYPES.keys()))
+                try:
+                    event = world_events.start_event(
+                        event_type,
+                        duration_minutes=settings.get("default_duration_minutes") or 60,
+                        reward_ldc=random.randint(300, 1500),
+                        reward_xp=random.randint(75, 250),
+                        source="random",
+                    )
+                    await announce_world_event(event)
+                except RuntimeError:
+                    pass
+        except Exception:
+            logger.exception("Ошибка планировщика глобальных событий")
+
+
 # ==================== MAIN ====================
 
 async def gifts_cleanup_loop():
@@ -2701,6 +2792,7 @@ async def main():
     asyncio.create_task(islands_income_loop())
     asyncio.create_task(gifts_cleanup_loop())
     asyncio.create_task(halloween_event_scheduler())
+    asyncio.create_task(world_event_scheduler())
     await dp.start_polling(bot)
 
 
