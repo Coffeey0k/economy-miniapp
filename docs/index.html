@@ -2025,7 +2025,7 @@
       document.getElementById("work-list").innerHTML = data.all.map(p => `
         <div class="item-row">
           <span>${p.name}<br><span class="label">${p.salary} 🪙 / ${p.cooldown_hours}ч</span></span>
-          <button class="btn btn-small" onclick="hireProfession('${p.key}')">Устроиться (${data.hire_cost}🪙+)</button>
+          <button class="btn btn-small" onclick="hireProfession('${p.key}')">Устроиться бесплатно</button>
         </div>`).join("");
       const tasks = await apiGet("/api/tasks");
       document.getElementById("work-tasks").innerHTML = tasks.tasks.length
