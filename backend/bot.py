@@ -1268,46 +1268,70 @@ async def system_market_word_trigger(message: Message):
 async def system_market_buy_callback(callback: CallbackQuery):
     offer_key = callback.data[len("market_buy_"):]
     try:
-        result = world_events.buy_system_market_offer(callback.from_user.id, offer_key)
-        await callback.answer("Покупка успешна!", show_alert=True)
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback системного магазина уже истёк", exc_info=True)
+    try:
+        result = await asyncio.to_thread(
+            world_events.buy_system_market_offer, callback.from_user.id, offer_key
+        )
         if callback.message:
-            await callback.message.answer(f"🏪 Куплено: {result['offer']}. Списано {int(result['price']):,} LDC.")
+            await callback.message.answer(
+                f"🏪 Куплено: {result['offer']}. Списано {int(result['price']):,} LDC."
+            )
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось купить предложение системного магазина")
-        await callback.answer("Не удалось совершить покупку. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось совершить покупку. Попробуй позже.")
 
 @dp.callback_query(F.data.startswith("market_sell5_"))
 async def system_market_sell5_callback(callback: CallbackQuery):
     item_key = callback.data[len("market_sell5_"):]
     try:
-        result = world_events.sell_system_market_item(callback.from_user.id, item_key, 5)
-        await callback.answer(f"+{int(result['reward_ldc']):,} LDC", show_alert=True)
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback продажи ресурсов уже истёк", exc_info=True)
+    try:
+        result = await asyncio.to_thread(
+            world_events.sell_system_market_item, callback.from_user.id, item_key, 5
+        )
         if callback.message:
-            await callback.message.answer(f"📦 Продано {result['amount']} × {result['item']}. Получено {int(result['reward_ldc']):,} LDC.")
+            await callback.message.answer(
+                f"📦 Продано {result['amount']} × {result['item']}. Получено {int(result['reward_ldc']):,} LDC."
+            )
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось продать ресурсы системному магазину")
-        await callback.answer("Не удалось продать предметы. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось продать предметы. Попробуй позже.")
 
 @dp.callback_query(F.data.startswith("market_sell_"))
 async def system_market_sell_callback(callback: CallbackQuery):
     item_key = callback.data[len("market_sell_"):]
     try:
-        result = world_events.sell_system_market_item(callback.from_user.id, item_key, 1)
-        await callback.answer(f"+{int(result['reward_ldc']):,} LDC", show_alert=True)
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback продажи ресурса уже истёк", exc_info=True)
+    try:
+        result = await asyncio.to_thread(
+            world_events.sell_system_market_item, callback.from_user.id, item_key, 1
+        )
         if callback.message:
-            await callback.message.answer(f"📦 Продано: {result['item']}. Получено {int(result['reward_ldc']):,} LDC.")
+            await callback.message.answer(
+                f"📦 Продано: {result['item']}. Получено {int(result['reward_ldc']):,} LDC."
+            )
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось продать ресурс системному магазину")
-        await callback.answer("Не удалось продать предмет. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось продать предмет. Попробуй позже.")
 
 @dp.message(Command("expeditions"))
 @dp.message(F.text.lower().strip().in_({"экспедиции питомцев", "экспедиция питомца", "экспедиции"}))
@@ -1353,38 +1377,50 @@ async def pet_expeditions_word_trigger(message: Message):
 @dp.callback_query(F.data.startswith("petexp_start_"))
 async def pet_expedition_start_callback(callback: CallbackQuery):
     try:
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback запуска экспедиции уже истёк", exc_info=True)
+    try:
         _, _, pet_id, destination = callback.data.split("_", 3)
-        result = world_events.start_pet_expedition(callback.from_user.id, pet_id, destination)
-        await callback.answer("Питомец отправился!", show_alert=True)
+        result = await asyncio.to_thread(
+            world_events.start_pet_expedition, callback.from_user.id, pet_id, destination
+        )
         if callback.message:
             await callback.message.answer(
                 f"🧭 {result['pet_name']} отправился по маршруту {result['destination']}. "
                 f"Вернётся примерно через {result['duration_minutes']} минут."
             )
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось начать экспедицию питомца")
-        await callback.answer("Не удалось начать экспедицию. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось начать экспедицию. Попробуй позже.")
 
 @dp.callback_query(F.data.startswith("petexp_claim_"))
 async def pet_expedition_claim_callback(callback: CallbackQuery):
     try:
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback награды экспедиции уже истёк", exc_info=True)
+    try:
         expedition_id = int(callback.data[len("petexp_claim_"):])
-        result = world_events.claim_pet_expedition(callback.from_user.id, expedition_id)
-        await callback.answer("Награда получена!", show_alert=True)
+        result = await asyncio.to_thread(
+            world_events.claim_pet_expedition, callback.from_user.id, expedition_id
+        )
         if callback.message:
             item = f" и предмет «{result['reward_item']}»" if result.get("reward_item") else ""
             await callback.message.answer(
                 f"🎁 Экспедиция завершена: +{int(result['reward_ldc']):,} LDC{item}\n{result.get('outcome', '')}"
             )
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось забрать награду экспедиции")
-        await callback.answer("Не удалось забрать награду. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось забрать награду. Попробуй позже.")
 
 @dp.message(Command("achievements"))
 @dp.message(F.text.lower().strip().in_({"достижения", "ачивки"}))
@@ -1414,19 +1450,23 @@ async def achievements_word_trigger(message: Message):
 async def achievement_claim_callback(callback: CallbackQuery):
     key = callback.data[len("achievement_claim_"):]
     try:
-        result = world_events.claim_achievement(callback.from_user.id, key)
-        await callback.answer("Награда получена!", show_alert=True)
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback награды достижения уже истёк", exc_info=True)
+    try:
+        result = await asyncio.to_thread(world_events.claim_achievement, callback.from_user.id, key)
         if callback.message:
             await callback.message.answer(
                 f"🏆 Достижение получено: +{int(result['reward_ldc']):,} LDC. "
                 f"Открыт титул: {result.get('title') or '—'}."
             )
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось получить награду достижения")
-        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось получить награду. Попробуй позже.")
 
 @dp.message(Command("collection"))
 @dp.message(F.text.lower().strip().in_({"коллекция", "моя коллекция", "бестиарий"}))
@@ -1467,16 +1507,20 @@ async def collection_word_trigger(message: Message):
 async def title_equip_callback(callback: CallbackQuery):
     key = callback.data[len("title_equip_"):]
     try:
-        result = world_events.set_active_title(callback.from_user.id, key)
-        await callback.answer("Титул выбран!", show_alert=True)
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback выбора титула уже истёк", exc_info=True)
+    try:
+        result = await asyncio.to_thread(world_events.set_active_title, callback.from_user.id, key)
         if callback.message:
             await callback.message.answer(f"🏷️ Активный титул: {result['title_name']}")
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось выбрать титул")
-        await callback.answer("Не удалось выбрать титул. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось выбрать титул. Попробуй позже.")
 
 @dp.message(Command("season"))
 @dp.message(F.text.lower().strip().in_({"сезон", "сезоны"}))
@@ -1527,35 +1571,43 @@ async def season_word_trigger(message: Message):
 @dp.callback_query(F.data.startswith("season_level_claim_"))
 async def season_level_claim_callback(callback: CallbackQuery):
     try:
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback сезонной награды уровня уже истёк", exc_info=True)
+    try:
         level = int(callback.data[len("season_level_claim_"):])
-        result = world_events.claim_season_level(callback.from_user.id, level)
-        await callback.answer("Награда получена!", show_alert=True)
+        result = await asyncio.to_thread(world_events.claim_season_level, callback.from_user.id, level)
         if callback.message:
             reward_text = f"+{int(result.get('amount') or 0):,} LDC" if result.get("reward_type") == "ldc" else result.get("reward", "Награда получена")
             await callback.message.answer(f"🌸 Награда уровня {level}: {reward_text}")
     except (ValueError, TypeError) as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось получить награду уровня сезона")
-        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось получить награду. Попробуй позже.")
 
 @dp.callback_query(F.data.startswith("season_claim_"))
 async def season_claim_callback(callback: CallbackQuery):
     task_key = callback.data[len("season_claim_"):]
     try:
-        result = world_events.claim_season_task(callback.from_user.id, task_key)
-        await callback.answer("Награда получена!", show_alert=True)
+        await callback.answer()
+    except Exception:
+        logger.debug("Callback сезонного задания уже истёк", exc_info=True)
+    try:
+        result = await asyncio.to_thread(world_events.claim_season_task, callback.from_user.id, task_key)
         if callback.message:
             await callback.message.answer(
                 f"🌸 Сезонная награда: +{int(result['reward_ldc']):,} LDC и +{int(result['reward_xp'])} XP."
             )
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось получить сезонную награду")
-        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
-
+        if callback.message:
+            await callback.message.answer("Не удалось получить награду. Попробуй позже.")
 
 @dp.message(F.text.lower().strip().in_({"задания", "задание"}))
 async def tasks_word_trigger(message: Message):
