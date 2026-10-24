@@ -3040,15 +3040,13 @@ async def halloween_event_scheduler():
         await asyncio.sleep(30)
 
 async def main():
+    # Подготавливаем схему один раз на запуск. Повторный вызов init_db()
+    # выполнял те же миграции дважды и увеличивал время старта.
     from db_compat import init_db
     init_db()
-    print_banner()
-        # Создаём таблицы (и через db_compat, и через database)
-    from db_compat import init_db as init_db_compat
-    init_db_compat()
-
     import database as db_module
-    db_module.init_db()   # <-- это тоже создаст таблицы, если их нет
+    db_module.init_db()
+    print_banner()
     logger.info("🚀 Lavender Dream Coin запускается...")
     db.remove_bot_from_new_members(bot.id)
     await bot.set_my_commands([
