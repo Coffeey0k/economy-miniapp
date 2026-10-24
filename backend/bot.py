@@ -2362,6 +2362,9 @@ async def island_word(message: Message):
                 callback_data="island_buy_ship"
             ))
 
+        if message.from_user and not message.from_user.is_bot:
+            mention = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
+            caption = f"{mention}\n{caption}"
         await message.answer_photo(photo, caption=caption,
                                    reply_markup=builder.as_markup() if builder._markup else None)
 
