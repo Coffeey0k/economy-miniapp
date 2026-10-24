@@ -133,35 +133,43 @@ class OwnerCheckMiddleware(BaseMiddleware):
 dp.callback_query.middleware(OwnerCheckMiddleware())
 
 
+def _apply_daily_task_progress(user_id: int, task_types: list[str]) -> None:
+    """Apply a batch of daily-task updates off the asyncio event loop."""
+    db.assign_daily_tasks(user_id)
+    for task_type in task_types:
+        db.update_task_progress(user_id, task_type, 1)
+
+
 class DailyTaskProgressMiddleware(BaseMiddleware):
-    """Tracks daily-task progress from real incoming chat messages."""
+    """Tracks daily-task progress without blocking other bot updates on DB I/O."""
     async def __call__(self, handler, event, data):
         if isinstance(event, Message) and event.from_user and not event.from_user.is_bot:
             try:
                 uid = event.from_user.id
-                db.assign_daily_tasks(uid)
                 text_value = event.text or event.caption or ""
                 now = datetime.now(ZoneInfo("Europe/Moscow"))
+                task_types = []
                 if event.chat.type in {"group", "supergroup"}:
                     # Basic message/reply/photo/audio/night tasks are handled by
-                    # track_daily_tasks below. This middleware handles the newer
+                    # track_daily_tasks below. This middleware handles newer
                     # task types only, avoiding double progress on the same message.
                     if len(text_value) >= 50:
-                        db.update_task_progress(uid, "long_messages", 1)
+                        task_types.append("long_messages")
                     if "?" in text_value or "？" in text_value:
-                        db.update_task_progress(uid, "question_messages", 1)
+                        task_types.append("question_messages")
                     if re.search(r"https?://|t\.me/", text_value, re.I):
-                        db.update_task_progress(uid, "links", 1)
+                        task_types.append("links")
                     if re.search(r"[😀-🙏🌀-🗿]", text_value):
-                        db.update_task_progress(uid, "emoji_messages", 1)
+                        task_types.append("emoji_messages")
                     if now.hour < 9:
-                        db.update_task_progress(uid, "morning_message", 1)
+                        task_types.append("morning_message")
                     if now.weekday() >= 5:
-                        db.update_task_progress(uid, "weekend_messages", 1)
+                        task_types.append("weekend_messages")
+
                     hour_key = (uid, db.daily_task_date(), now.hour)
                     if hour_key not in _task_active_hour_seen:
                         _task_active_hour_seen.add(hour_key)
-                        db.update_task_progress(uid, "active_hours", 1)
+                        task_types.append("active_hours")
                     if len(_task_active_hour_seen) > 50000:
                         # Drop expired hour keys only; never clear current-hour
                         # keys or active users could earn the same task repeatedly.
@@ -171,6 +179,7 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                             if key[1] == current_date and key[2] == now.hour
                         }
                         _task_active_hour_seen.intersection_update(current_hour_keys)
+                await asyncio.to_thread(_apply_daily_task_progress, uid, task_types)
             except Exception:
                 logger.exception("Не удалось обновить прогресс ежедневного задания")
         return await handler(event, data)
