@@ -198,7 +198,13 @@ class Cursor:
 
 class Connection:
     def __init__(self, dsn):
-        self._conn = psycopg2.connect(dsn)
+        # Fail quickly when PostgreSQL is unreachable instead of blocking an
+        # aiogram handler for the driver's long default connection timeout.
+        try:
+            connect_timeout = max(2, min(15, int(os.environ.get("DB_CONNECT_TIMEOUT", "5"))))
+        except (TypeError, ValueError):
+            connect_timeout = 5
+        self._conn = psycopg2.connect(dsn, connect_timeout=connect_timeout)
         self.row_factory = None  # для совместимости с "conn.row_factory = sqlite3.Row" (не используется)
 
     def cursor(self):
