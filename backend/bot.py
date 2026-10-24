@@ -2091,6 +2091,15 @@ async def promo_activate(message: Message, state: FSMContext):
     await state.clear()
 
 
+async def _word_trigger_answer(message: Message, text: str, **kwargs):
+    """Reply to a word trigger and identify the user who invoked it."""
+    user = message.from_user
+    if user and not user.is_bot:
+        mention = f"@{user.username}" if user.username else user.full_name
+        text = f"{mention}\n{text}"
+    return await message.answer(text, **kwargs)
+
+
 # ==================== ВОРД-ТРИГГЕРЫ ====================
 
 @dp.message(F.text.lower() == "банк")
@@ -2100,19 +2109,19 @@ async def bank_word(message: Message):
     if can:
         bonus = db.claim_bonus(uid)
         next_cooldown = db.get_user_cooldown_seconds(uid, "bonus", 10800)
-        await message.answer(
+        await _word_trigger_answer(message, 
             f"🏦 Вы получили бонус {bonus} 🪙!\n"
             f"💰 Баланс: {db.get_balance(uid)} 🪙\n"
             f"Следующий бонус через {format_time(next_cooldown)}."
         )
     else:
-        await message.answer(f"⏳ Бонус ещё не доступен. Осталось: {format_time(remaining)}.")
+        await _word_trigger_answer(message, f"⏳ Бонус ещё не доступен. Осталось: {format_time(remaining)}.")
 
 
 @dp.message(F.text.lower() == "баланс")
 async def balance_word(message: Message):
     uid = message.from_user.id
-    await message.answer(
+    await _word_trigger_answer(message, 
         f"💰 Ваш баланс: {db.get_balance(uid):,} Lavender Dream Coin\n"
         f"🏆 Место: #{db.get_user_rank(uid)}"
     )
@@ -2121,49 +2130,49 @@ async def balance_word(message: Message):
 @dp.message(F.text.lower() == "чистка окончена")
 async def clean_finished(message: Message):
     if message.from_user.id not in config.ADMIN_IDS:
-        await message.answer("❌ Нет прав")
+        await _word_trigger_answer(message, "❌ Нет прав")
         return
     count = db.clear_all_immunities()
-    await message.answer(f"🧹 Чистка окончена! Аннулировано иммунитетов: {count}")
+    await _word_trigger_answer(message, f"🧹 Чистка окончена! Аннулировано иммунитетов: {count}")
 
 
 @dp.message(F.text.lower() == "топ нью")
 async def top_new(message: Message):
     users = db.get_today_new_members(exclude_user_id=bot.id)
     if not users:
-        await message.answer("📊 Топ Нью за сегодня: пусто")
+        await _word_trigger_answer(message, "📊 Топ Нью за сегодня: пусто")
         return
     text = "📊 Топ Нью за сегодня:\n\n"
     for i, (uid, uname, _) in enumerate(users, 1):
         text += f"{i}. @{uname or uid}\n"
-    await message.answer(text)
+    await _word_trigger_answer(message, text)
 
 
 @dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "кто нью"))
 async def who_new(message: Message):
     users = db.get_new_members(4, exclude_user_id=bot.id)
     if not users:
-        await message.answer("📊 Кто Нью (4 дня): пусто")
+        await _word_trigger_answer(message, "📊 Кто Нью (4 дня): пусто")
         return
     text = "📊 Кто Нью (4 дня):\n\n"
     for i, (uid, uname, joined) in enumerate(users, 1):
         joined_text = joined.strftime("%Y-%m-%d %H:%M") if hasattr(joined, "strftime") else str(joined or "")[:16]
         text += f"{i}. @{uname or uid} — {joined_text}\n"
-    await message.answer(text)
+    await _word_trigger_answer(message, text)
 
 
 @dp.message(F.text.lower() == "калл нью")
 async def call_new(message: Message):
     if message.from_user.id not in config.ADMIN_IDS:
-        await message.answer("❌ Только админы")
+        await _word_trigger_answer(message, "❌ Только админы")
         return
     users = db.get_new_members(1, exclude_user_id=bot.id)
     if not users:
-        await message.answer("📢 Нет новых")
+        await _word_trigger_answer(message, "📢 Нет новых")
         return
     uid, uname, joined = users[0]
     joined_text = joined.strftime("%Y-%m-%d %H:%M") if hasattr(joined, "strftime") else str(joined)[:16]
-    await message.answer(f"📢 Нью в чате: @{uname or uid} ({joined_text})")
+    await _word_trigger_answer(message, f"📢 Нью в чате: @{uname or uid} ({joined_text})")
 
 @dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "работать"))
 async def work_word_handler(message: Message):
@@ -2176,12 +2185,12 @@ async def work_word_handler(message: Message):
 
     user = db.get_user(user_id)
     if user and user["is_banned"]:
-        await message.answer("🚫 Вы заблокированы.")
+        await _word_trigger_answer(message, "🚫 Вы заблокированы.")
         return
 
     prof = db.get_profession(user_id)
     if not prof or not prof["profession"]:
-        await message.answer(
+        await _word_trigger_answer(message, 
             "💼 У вас нет профессии.\n"
             "Зайдите в раздел «💼 Профессии» в боте и устройтесь на работу."
         )
@@ -2205,13 +2214,13 @@ async def work_word_handler(message: Message):
             db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
         except Exception:
             logger.exception("Не удалось записать лог работы user_id=%s", user_id)
-        await message.answer(
+        await _word_trigger_answer(message, 
             f"💼 {msg}\n"
             f"📊 Прогресс: {bar}\n"
             f"💰 Баланс: {db.get_balance(user_id)} 🪙"
         )
     else:
-        await message.answer(f"⏳ {msg}")
+        await _word_trigger_answer(message, f"⏳ {msg}")
 
 @dp.message(F.text.lower().startswith("профиль"))
 async def profile_word_handler(message: Message):
@@ -2240,13 +2249,13 @@ async def profile_word_handler(message: Message):
             row = cur.fetchone()
             conn.close()
             if not row:
-                await message.answer(f"❌ Пользователь @{arg} не найден.")
+                await _word_trigger_answer(message, f"❌ Пользователь @{arg} не найден.")
                 return
             target_id, target_name = row[0], row[1]
 
     user = db.get_user(target_id)
     if not user:
-        await message.answer("❌ Профиль не найден.")
+        await _word_trigger_answer(message, "❌ Профиль не найден.")
         return
 
     db.check_badges(target_id)
@@ -2277,7 +2286,7 @@ async def profile_word_handler(message: Message):
         builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh_profile"))
         builder.row(InlineKeyboardButton(text="🔙 Главное меню", callback_data="back_to_main"))
         markup = builder.as_markup()
-    await message.answer("\n".join(lines), reply_markup=markup)
+    await _word_trigger_answer(message, "\n".join(lines), reply_markup=markup)
 
 
 @dp.message(F.text.lower() == "банк пинг")
@@ -2298,11 +2307,11 @@ async def bank_ping_handler(message: Message):
         else:
             status = "🔴 Плохо"
 
-        await message.answer(
+        await _word_trigger_answer(message, 
             f"📡 Пинг до Telegram: {ping_ms} мс\n{status}"
         )
     except Exception as e:
-        await message.answer(f"❌ Не удалось измерить пинг: {e}")
+        await _word_trigger_answer(message, f"❌ Не удалось измерить пинг: {e}")
 
 @dp.message(F.text.lower() == "остров")
 async def island_word(message: Message):
@@ -2316,7 +2325,7 @@ async def island_word(message: Message):
             text=f"🏝️ Купить остров — {db.ISLAND_PRICE:,} 🪙",
             callback_data="island_buy_island"
         ))
-        await message.answer(
+        await _word_trigger_answer(message, 
             "🏝️ У тебя пока нет острова.\n\n"
             "Купи его, чтобы строить домик, причал и корабль. "
             "Домик и корабль будут приносить пассивный доход.",
@@ -2362,9 +2371,9 @@ async def island_word(message: Message):
         except:
             pass
     except FileNotFoundError as e:
-        await message.answer(f"❌ Ошибка: {e}. Проверь, что картинки лежат в images/")
+        await _word_trigger_answer(message, f"❌ Ошибка: {e}. Проверь, что картинки лежат в images/")
     except Exception as e:
-        await message.answer(f"❌ Ошибка построения острова: {e}")
+        await _word_trigger_answer(message, f"❌ Ошибка построения острова: {e}")
 
 
 @dp.callback_query(F.data.startswith("island_buy_"))
@@ -2385,7 +2394,7 @@ async def gifts_word(message: Message):
     incoming = db.gift_list_incoming(user_id)
 
     if not incoming:
-        await message.answer(
+        await _word_trigger_answer(message, 
             "🎁 У тебя нет входящих подарков.\n\n"
             "Открыть/отправить подарки можно в веб-версии бота."
         )
@@ -2395,7 +2404,7 @@ async def gifts_word(message: Message):
     for g in incoming[:5]:
         text += f"• от @{g['from_username'] or g['from_user']} ({g['gift_type']})\n"
     text += "\nОткрой веб-версию → 🎁 Подарки, чтобы открыть."
-    await message.answer(text, parse_mode="Markdown")
+    await _word_trigger_answer(message, text, parse_mode="Markdown")
 
 # ==================== ВХОД НОВЫХ УЧАСТНИКОВ ====================
 
