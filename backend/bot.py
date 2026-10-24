@@ -2656,57 +2656,62 @@ async def test_chest(message: Message):
 
 # ==================== ТРЕКИНГ ЗАДАНИЙ ====================
 
+def _track_group_message_tasks(
+    user_id: int, username: str | None, *, is_reply: bool, is_photo: bool,
+    is_audio: bool, is_night: bool,
+):
+    """Perform all synchronous profile/task database work in a worker thread."""
+    user = db.get_user(user_id)
+    if not user:
+        db.create_user(user_id, username)
+        user = db.get_user(user_id)
+    elif username and user.get("username") != username:
+        conn = sqlite3.connect(db.DB_NAME)
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE users SET username = ? WHERE user_id = ?", (username, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+        user = db.get_user(user_id)
+
+    if user and user["is_banned"]:
+        return True, []
+
+    completed = db.track_message_tasks(
+        user_id,
+        is_reply=is_reply,
+        is_photo=is_photo,
+        is_audio=is_audio,
+        is_night=is_night,
+    )
+    return False, completed
+
+
 @dp.message(F.chat.type.in_({"group", "supergroup"}), ~F.text.lower().startswith("кн "))
 async def track_daily_tasks(message: Message, state: FSMContext):
-    """Отслеживает активность игроков в группах для ежедневных заданий."""
-    # Пропускаем ботов
+    """Track group activity without blocking the bot's event loop on database I/O."""
     if message.from_user is None or message.from_user.is_bot:
         return
 
-    # Пропускаем FSM-состояния (пользователь что-то вводит в боте)
     current_state = await state.get_state()
     if current_state is not None:
         return
 
     user_id = message.from_user.id
-
-    # Синхронизируем профиль по сообщениям в группе: это позволяет
-    # находить участников для дуэлей даже если они ещё не запускали бота в ЛС.
-    current_username = message.from_user.username
-    user = db.get_user(user_id)
-    if not user:
-        db.create_user(user_id, current_username)
-        user = db.get_user(user_id)
-    elif current_username and user.get("username") != current_username:
-        conn = sqlite3.connect(db.DB_NAME)
-        cur = conn.cursor()
-        cur.execute("UPDATE users SET username = ? WHERE user_id = ?", (current_username, user_id))
-        conn.commit()
-        conn.close()
-        user = db.get_user(user_id)
-
-    # Проверяем, не забанен ли
-    if user and user["is_banned"]:
-        return
-
-    # Определяем тип контента
-    is_reply = message.reply_to_message is not None
-    is_photo = message.photo is not None
-    is_audio = message.voice is not None or message.audio is not None
-
-    # Ночной житель — после 20:00
     now = datetime.now(ZoneInfo("Europe/Moscow"))
-    is_night = now.hour >= 20
-
-    # Обновляем прогресс
     try:
-        completed_tasks = db.track_message_tasks(
+        is_banned, completed_tasks = await asyncio.to_thread(
+            _track_group_message_tasks,
             user_id,
-            is_reply=is_reply,
-            is_photo=is_photo,
-            is_audio=is_audio,
-            is_night=is_night
+            message.from_user.username,
+            is_reply=message.reply_to_message is not None,
+            is_photo=message.photo is not None,
+            is_audio=message.voice is not None or message.audio is not None,
+            is_night=now.hour >= 20,
         )
+        if is_banned:
+            return
 
         if completed_tasks:
             username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
@@ -2715,19 +2720,19 @@ async def track_daily_tasks(message: Message, state: FSMContext):
                     f"{username}, ты выполнил(а) ежедневное задание "
                     f"«{task['name']}» и получил(а) {task['reward']} 🪙"
                 )
-                # Личное уведомление может не дойти, если пользователь не запускал бота.
                 try:
                     await bot.send_message(user_id, notification)
                 except Exception as notify_error:
-                    logger.info(f"Не удалось отправить личное уведомление о задании user_id={user_id}: {notify_error}")
-
-                # Дублируем уведомление в основной чат флуда.
+                    logger.info(
+                        "Не удалось отправить личное уведомление о задании user_id=%s: %s",
+                        user_id, notify_error,
+                    )
                 try:
                     await bot.send_message(config.FLUD_CHAT_ID, notification)
                 except Exception as notify_error:
-                    logger.warning(f"Не удалось отправить уведомление о задании в чат флуда: {notify_error}")
-    except Exception as e:
-        logger.error(f"Ошибка трекинга заданий: {e}")
+                    logger.warning("Не удалось отправить уведомление в чат флуда: %s", notify_error)
+    except Exception:
+        logger.exception("Ошибка трекинга ежедневных заданий user_id=%s", user_id)
 
 # ==================== ФОНОВЫЕ ЗАДАЧИ ====================
 
