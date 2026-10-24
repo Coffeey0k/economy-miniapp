@@ -247,6 +247,8 @@ def _load_start_state(user_id: int, username: str):
         db.create_user(user_id, username)
         user = db.get_user(user_id)
 
+    if user and user["is_banned"] == 1:
+        return is_new, user, None, None, None
     if user and user["is_banned"] == 2:
         db.set_user_ban(user_id, False)
         user["is_banned"] = 0
