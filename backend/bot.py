@@ -2870,22 +2870,33 @@ async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
 
 @dp.callback_query(F.data == "world_event_claim")
 async def world_event_claim_callback(callback: CallbackQuery):
+    # Подтверждаем нажатие сразу: Telegram принимает callback-ответы лишь ограниченное время.
+    # DB-функции синхронные, поэтому выполняем их в потоке, не блокируя event loop aiogram.
     try:
-        result = world_events.claim_event(callback.from_user.id)
+        await callback.answer()
+    except Exception:
+        logger.warning("Не удалось подтвердить callback мирового события", exc_info=True)
+
+    try:
+        result = await asyncio.to_thread(world_events.claim_event, callback.from_user.id)
         try:
-            world_events.record_season_activity(callback.from_user.id, "event", 1)
+            await asyncio.to_thread(
+                world_events.record_season_activity, callback.from_user.id, "event", 1
+            )
         except Exception:
             logger.exception("Награда события выдана, но сезонный прогресс не обновлён")
-        await callback.answer("Награда получена!", show_alert=True)
+
         if callback.message:
             await callback.message.answer(
                 f"🎁 Получено: +{int(result['reward_ldc']):,} LDC и +{int(result['reward_xp'])} сезонного опыта."
             )
     except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.answer(f"ℹ️ {exc}")
     except Exception:
         logger.exception("Не удалось выдать награду глобального события")
-        await callback.answer("Не удалось получить награду. Попробуй позже.", show_alert=True)
+        if callback.message:
+            await callback.message.answer("Не удалось получить награду. Попробуй позже.")
 
 
 async def announce_world_event(event: dict):
