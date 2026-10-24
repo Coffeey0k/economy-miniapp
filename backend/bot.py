@@ -239,33 +239,48 @@ TUTORIAL_STEPS = [
     "Удачи… она тебе пригодится."
 ]
 
+def _load_start_state(user_id: int, username: str):
+    """Выполняет синхронные PostgreSQL-операции /start вне event loop."""
+    user = db.get_user(user_id)
+    is_new = user is None
+    if is_new:
+        db.create_user(user_id, username)
+        user = db.get_user(user_id)
+
+    if user and user["is_banned"] == 2:
+        db.set_user_ban(user_id, False)
+        user["is_banned"] = 0
+
+    settings = db.get_user_settings(user_id)
+    db.assign_daily_tasks(user_id)
+    balance = user["balance"] if user else db.get_balance(user_id)
+    rank = db.get_user_rank(user_id) if settings["tutorial_done"] else None
+    return is_new, user, settings, balance, rank
+
+
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or str(user_id)
 
-    is_new = not db.get_user(user_id)
-    if is_new:
-        db.create_user(user_id, username)
+    try:
+        is_new, user, settings, balance, rank = await asyncio.to_thread(
+            _load_start_state, user_id, username
+        )
+    except Exception:
+        logger.exception("Не удалось обработать /start user_id=%s", user_id)
+        await message.answer(
+            "⚠️ Сейчас не удалось подключиться к базе данных. Попробуй ещё раз через несколько секунд."
+        )
+        return
 
-    user = db.get_user(user_id)
-    if user:
-        # Если is_banned == 2 (заблокировал бота, но вернулся) — снимаем флаг
-        if user["is_banned"] == 2:
-            db.set_user_ban(user_id, False)
-        # Если is_banned == 1 (реальный бан) — не пускаем
-        elif user["is_banned"] == 1:
-            await message.answer("🚫 Вы заблокированы. Обратитесь к администратору.")
-            return
-
-    settings = db.get_user_settings(user_id)
+    if user and user["is_banned"] == 1:
+        await message.answer("🚫 Вы заблокированы. Обратитесь к администратору.")
+        return
 
     # Keep the most recent owner mappings instead of clearing all protections at once.
     while len(message_owners) > 5000:
         message_owners.pop(next(iter(message_owners)), None)
-
-    # Назначаем ежедневные задания
-    db.assign_daily_tasks(user_id)
 
     # Если туториал ещё не пройден — показываем его
     if not settings["tutorial_done"]:
@@ -279,8 +294,8 @@ async def cmd_start(message: Message):
     # Иначе — сразу главное меню + подсказки (одним сообщением)
     welcome_text = (
         f"🏝️ Lavender Dream Coin\n\n"
-        f"💰 Баланс: {db.get_balance(user_id)} 🪙\n"
-        f"🏆 Место в топе: #{db.get_user_rank(user_id)}\n\n"
+        f"💰 Баланс: {balance} 🪙\n"
+        f"🏆 Место в топе: #{rank}\n\n"
     )
 
     if settings["hints_enabled"] and is_new:
