@@ -685,7 +685,7 @@ async def _process_game(callback: CallbackQuery, user_id: int, net_change: int, 
         db.assign_daily_tasks(user_id)
         db.update_task_progress(user_id, "games", 1)
         try:
-            world_events.record_season_activity(user_id, "game", 1)
+            await asyncio.to_thread(world_events.record_season_activity, user_id, "game", 1)
         except Exception:
             logger.exception("Не удалось обновить сезонный прогресс игры")
     except Exception:
@@ -1233,7 +1233,7 @@ async def transfer_word_trigger(message: Message, state: FSMContext):
 @dp.message(F.text.lower().strip().in_({"рынок ресурсов", "системный магазин", "магазин ресурсов"}))
 async def system_market_word_trigger(message: Message):
     try:
-        data = world_events.get_system_market(message.from_user.id)
+        data = await asyncio.to_thread(world_events.get_system_market, message.from_user.id)
         lines = ["🏪 Системный магазин Lavender Dream", "", "🛒 Припасы NPC:"]
         builder = InlineKeyboardBuilder()
         for offer in data.get("offers", []):
@@ -1337,7 +1337,7 @@ async def system_market_sell_callback(callback: CallbackQuery):
 @dp.message(F.text.lower().strip().in_({"экспедиции питомцев", "экспедиция питомца", "экспедиции"}))
 async def pet_expeditions_word_trigger(message: Message):
     try:
-        data = world_events.list_pet_expeditions(message.from_user.id)
+        data = await asyncio.to_thread(world_events.list_pet_expeditions, message.from_user.id)
         lines = ["🧭 Экспедиции питомцев", ""]
         builder = InlineKeyboardBuilder()
         active = [e for e in data.get("expeditions", []) if e.get("status") == "active"]
@@ -1426,7 +1426,7 @@ async def pet_expedition_claim_callback(callback: CallbackQuery):
 @dp.message(F.text.lower().strip().in_({"достижения", "ачивки"}))
 async def achievements_word_trigger(message: Message):
     try:
-        data = world_events.get_achievements(message.from_user.id)
+        data = await asyncio.to_thread(world_events.get_achievements, message.from_user.id)
         lines = ["🏆 Достижения Lavender Dream", ""]
         builder = InlineKeyboardBuilder()
         buttons = 0
@@ -1472,7 +1472,7 @@ async def achievement_claim_callback(callback: CallbackQuery):
 @dp.message(F.text.lower().strip().in_({"коллекция", "моя коллекция", "бестиарий"}))
 async def collection_word_trigger(message: Message):
     try:
-        data = world_events.get_collection(message.from_user.id)
+        data = await asyncio.to_thread(world_events.get_collection, message.from_user.id)
         summary = data.get("summary", {})
         lines = [
             "📚 Коллекция Lavender Dream",
@@ -1526,7 +1526,7 @@ async def title_equip_callback(callback: CallbackQuery):
 @dp.message(F.text.lower().strip().in_({"сезон", "сезоны"}))
 async def season_word_trigger(message: Message):
     try:
-        status = world_events.get_season_status(message.from_user.id)
+        status = await asyncio.to_thread(world_events.get_season_status, message.from_user.id)
         season = status.get("season") or {}
         progress = status.get("progress") or {}
         ends = season.get("ends_at")
@@ -2989,13 +2989,13 @@ async def world_event_scheduler():
         try:
             if world_events.get_current_event():
                 continue
-            settings = world_events.get_settings()
+            settings = await asyncio.to_thread(world_events.get_settings)
             now = datetime.utcnow()
             next_allowed = _event_datetime(settings.get("next_allowed_at"))
             if next_allowed and now < next_allowed:
                 continue
 
-            scheduled = world_events.get_due_schedule()
+            scheduled = await asyncio.to_thread(world_events.get_due_schedule)
             if scheduled:
                 try:
                     event = world_events.start_event(
