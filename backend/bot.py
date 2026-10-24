@@ -2728,9 +2728,20 @@ async def track_daily_tasks(message: Message, state: FSMContext):
         if completed_tasks:
             username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
             for task in completed_tasks:
+                # update_task_progress returns an aggregate: names[] + total reward.
+                # Support the older single-task shape as well.
+                task_names = task.get("names") or ([task["name"]] if task.get("name") else [])
+                reward = int(task.get("reward") or 0)
+                if not task_names:
+                    logger.warning(
+                        "Пропущено уведомление о ежедневном задании без названия user_id=%s task=%r",
+                        user_id, task,
+                    )
+                    continue
+                names_text = "», «".join(str(name) for name in task_names)
                 notification = (
                     f"{username}, ты выполнил(а) ежедневное задание "
-                    f"«{task['name']}» и получил(а) {task['reward']} 🪙"
+                    f"«{names_text}» и получил(а) {reward} 🪙"
                 )
                 try:
                     await bot.send_message(user_id, notification)
