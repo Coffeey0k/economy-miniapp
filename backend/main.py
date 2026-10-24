@@ -24,6 +24,7 @@ Backend для Telegram Mini App бота Lavender Dream.
 это стоит держать в голове при высокой нагрузке.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -212,7 +213,8 @@ async def audit_rejected_api_requests(request: Request, call_next):
             request.method, request.url.path, client_host,
         )
         try:
-            bot_db.log_security_event(
+            await asyncio.to_thread(
+                bot_db.log_security_event,
                 "api_exception", "Unhandled server exception",
                 ip_address=client_host, method=request.method,
                 path=request.url.path, status_code=500,
@@ -244,7 +246,9 @@ async def audit_rejected_api_requests(request: Request, call_next):
                     body = await request.json()
                     uid = get_telegram_user_id(body.get("initData", "")) if isinstance(body, dict) else None
                 if uid:
-                    world_events.record_season_activity(uid, activity[0], activity[1])
+                    await asyncio.to_thread(
+                        world_events.record_season_activity, uid, activity[0], activity[1]
+                    )
             except Exception:
                 logger.exception("Не удалось обновить сезонный прогресс для %s", path)
     if response.status_code >= 400:
@@ -253,7 +257,8 @@ async def audit_rejected_api_requests(request: Request, call_next):
             request.method, request.url.path, response.status_code, client_host,
         )
         try:
-            bot_db.log_security_event(
+            await asyncio.to_thread(
+                bot_db.log_security_event,
                 "api_rejected", f"HTTP {response.status_code}",
                 ip_address=client_host, method=request.method,
                 path=request.url.path, status_code=response.status_code,
