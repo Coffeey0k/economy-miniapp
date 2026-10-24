@@ -49,7 +49,7 @@ bot_db.init_db()  # Ensure boost/event tables exist even when the API starts bef
 import world_events as world_events
 
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 # ========== НАСТРОЙКИ ==========
@@ -5912,6 +5912,12 @@ def tech_find_user(init_data: str = Query(..., alias="initData"),
         "pets_count": len(pets),
         "island": island,
     }
+
+@app.head("/")
+def health_head():
+    """Fast, database-independent liveness probe for hosts that use HEAD /."""
+    return Response(status_code=200)
+
 
 @app.get("/")
 @app.get("/health")
