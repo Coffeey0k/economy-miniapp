@@ -900,6 +900,9 @@
   .coin-container,.dice-cube,.slot-container,.dart-target { filter:drop-shadow(0 5px 12px rgba(139,92,246,.12)); }
   .slot-reel { border-radius:12px; box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 3px 10px rgba(0,0,0,.14); }
   .mini-game-result { margin:12px auto 0; max-width:520px; animation:miniResultIn .22s ease-out; }
+  #minesweeper-area .ms-cell { aspect-ratio:1;min-width:0;border:1px solid rgba(167,139,250,.32) !important;border-radius:8px;padding:0 !important;color:var(--text);background:linear-gradient(145deg,var(--secondary-bg),var(--bg)) !important;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:transform .12s,border-color .12s,background .12s; }
+  #minesweeper-area .ms-cell.ms-open { background:var(--hover-bg) !important;border-color:var(--accent) !important;animation:miniCellPop .16s ease-out; }
+  #minesweeper-area .ms-cell.ms-mine { background:rgba(239,68,68,.18) !important;border-color:#f87171 !important;animation:miniHit .28s ease-out; }
   @keyframes miniCellPop { from{transform:scale(.88);opacity:.65} to{transform:scale(1);opacity:1} }
   @keyframes miniHit { 0%{transform:scale(.9)} 65%{transform:scale(1.04)} 100%{transform:scale(1)} }
   @keyframes miniResultIn { from{transform:translateY(5px);opacity:.5} to{transform:translateY(0);opacity:1} }
