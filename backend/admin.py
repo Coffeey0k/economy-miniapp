@@ -1,3 +1,4 @@
+import asyncio
 import db_compat as sqlite3
 from datetime import datetime
 from aiogram import Router, F
@@ -91,7 +92,7 @@ async def admin_give_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_give_user)
 async def admin_give_user(message: Message, state: FSMContext):
     target = message.text.strip().lstrip("@")
-    user = _find_user(target)
+    user = await asyncio.to_thread(_find_user, target)
     if not user:
         await message.answer("❌ Пользователь не найден, попробуйте снова:")
         return
@@ -110,10 +111,10 @@ async def admin_give_amount(message: Message, state: FSMContext):
         data = await state.get_data()
         target_id = data["target_id"]
         target_name = data["target_name"]
-        if db.update_balance(target_id, amount):
+        if await asyncio.to_thread(db.update_balance, target_id, amount):
             await message.answer(
                 f"✅ Выдано {amount} 🪙 @{target_name}\n"
-                f"Новый баланс: {db.get_balance(target_id)} 🪙",
+                f"Новый баланс: {await asyncio.to_thread(db.get_balance, target_id)} 🪙",
                 reply_markup=admin_menu()
             )
         else:
@@ -142,7 +143,7 @@ async def admin_take_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_take_user)
 async def admin_take_user(message: Message, state: FSMContext):
     target = message.text.strip().lstrip("@")
-    user = _find_user(target)
+    user = await asyncio.to_thread(_find_user, target)
     if not user:
         await message.answer("❌ Пользователь не найден, попробуйте снова:")
         return
@@ -161,10 +162,10 @@ async def admin_take_amount(message: Message, state: FSMContext):
         data = await state.get_data()
         target_id = data["target_id"]
         target_name = data["target_name"]
-        if db.update_balance(target_id, -amount):
+        if await asyncio.to_thread(db.update_balance, target_id, -amount):
             await message.answer(
                 f"✅ Снято {amount} 🪙 у @{target_name}\n"
-                f"Новый баланс: {db.get_balance(target_id)} 🪙",
+                f"Новый баланс: {await asyncio.to_thread(db.get_balance, target_id)} 🪙",
                 reply_markup=admin_menu()
             )
         else:
@@ -193,7 +194,7 @@ async def admin_balance_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_balance_user)
 async def admin_balance_show(message: Message, state: FSMContext):
     target = message.text.strip().lstrip("@")
-    user = _find_user(target)
+    user = await asyncio.to_thread(_find_user, target)
     if not user:
         await message.answer("❌ Пользователь не найден")
         await state.clear()
@@ -213,7 +214,7 @@ async def admin_users(callback: CallbackQuery):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    users = db.get_all_users()
+    users = await asyncio.to_thread(db.get_all_users)
     if not users:
         await callback.message.edit_text("👥 Пользователей пока нет.", reply_markup=admin_menu())
         await callback.answer()
@@ -235,7 +236,7 @@ async def admin_stats(callback: CallbackQuery):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    s = db.get_statistics()
+    s = await asyncio.to_thread(db.get_statistics)
     await callback.message.edit_text(
         f"📊 Статистика бота\n\n"
         f"👥 Пользователей: {s['total_users']}\n"
@@ -266,13 +267,13 @@ async def admin_ban_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_ban_user)
 async def admin_ban_user(message: Message, state: FSMContext):
     target = message.text.strip().lstrip("@")
-    user = _find_user(target)
+    user = await asyncio.to_thread(_find_user, target)
     if not user:
         await message.answer("❌ Пользователь не найден")
         await state.clear()
         return
     new_state = not user["is_banned"]
-    db.set_user_ban(user["user_id"], new_state)
+    await asyncio.to_thread(db.set_user_ban, user["user_id"], new_state)
     await message.answer(
         f"{'✅ Разблокирован' if not new_state else '🚫 Заблокирован'} @{user['username'] or user['user_id']}",
         reply_markup=admin_menu()
@@ -316,7 +317,7 @@ async def admin_add_item(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_item_type)
 async def admin_item_type(message: Message, state: FSMContext):
     item_type = message.text.strip().lower().replace(" ", "_")
-    if item_type.startswith("boost_") and db.parse_boost_item(item_type) is None:
+    if item_type.startswith("boost_") and await asyncio.to_thread(db.parse_boost_item, item_type) is None:
         await message.answer("❌ Формат буста: boost_bonus_50 или boost_work_50 (1–90).")
         return
     await state.update_data(item_type=item_type)
@@ -352,7 +353,7 @@ async def admin_item_desc(message: Message, state: FSMContext):
     if desc.lower() == "нет":
         desc = ""
     data = await state.get_data()
-    ok = db.add_catalog_item(
+    ok = await asyncio.to_thread(db.add_catalog_item, 
         data["item_type"], data["item_name"],
         data["item_price"], desc
     )
@@ -371,7 +372,7 @@ async def admin_edit_price_start(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    items = db.get_all_catalog_items()
+    items = await asyncio.to_thread(db.get_all_catalog_items)
     text = "✏️ Изменение товара\n\nТекущие товары:\n"
     for it in items:
         text += f"• {it['item_type']} — {it['name']} ({it['price']:,} 🪙)\n"
@@ -384,7 +385,7 @@ async def admin_edit_price_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_edit_item)
 async def admin_edit_item(message: Message, state: FSMContext):
     item_type = message.text.strip()
-    item = db.get_price(item_type)
+    item = await asyncio.to_thread(db.get_price, item_type)
     if not item:
         await message.answer("❌ Товар не найден")
         return
@@ -427,7 +428,7 @@ async def admin_edit_value(message: Message, state: FSMContext):
             return
     elif field == "desc":
         kwargs["description"] = val
-    db.update_catalog_item(item_type, **kwargs)
+    await asyncio.to_thread(db.update_catalog_item, item_type, **kwargs)
     await message.answer("✅ Товар обновлён!", reply_markup=admin_catalog_menu())
     await state.clear()
 
@@ -449,7 +450,7 @@ async def admin_edit_value(message: Message, state: FSMContext):
             return
     elif field == "desc":
         kwargs["description"] = val
-    db.update_catalog_item(item_type, **kwargs)
+    await asyncio.to_thread(db.update_catalog_item, item_type, **kwargs)
     await message.answer("✅ Товар обновлён!", reply_markup=admin_catalog_menu())
     await state.clear()
 
@@ -459,7 +460,7 @@ async def admin_delete_item_start(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    items = db.get_all_catalog_items()
+    items = await asyncio.to_thread(db.get_all_catalog_items)
     text = "❌ Удаление товара\n\nТекущие товары:\n"
     for it in items:
         text += f"• {it['item_type']} — {it['name']}\n"
@@ -472,7 +473,7 @@ async def admin_delete_item_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_delete_item)
 async def admin_delete_item_confirm(message: Message, state: FSMContext):
     item_type = message.text.strip().lower().replace(" ", "_")
-    if db.delete_catalog_item(item_type):
+    if await asyncio.to_thread(db.delete_catalog_item, item_type):
         await message.answer(
             f"✅ Товар '{item_type}' удалён!",
             reply_markup=admin_catalog_menu()
@@ -503,12 +504,12 @@ async def admin_remove_purchase_start(callback: CallbackQuery, state: FSMContext
 @router.message(AdminStates.waiting_remove_user)
 async def admin_remove_user(message: Message, state: FSMContext):
     target = message.text.strip().lstrip("@")
-    user = _find_user(target)
+    user = await asyncio.to_thread(_find_user, target)
     if not user:
         await message.answer("❌ Пользователь не найден")
         await state.clear()
         return
-    purchases = db.get_purchases_full(user["user_id"])
+    purchases = await asyncio.to_thread(db.get_purchases_full, user["user_id"])
     if not purchases:
         await message.answer("❌ У пользователя нет покупок", reply_markup=admin_menu())
         await state.clear()
@@ -539,7 +540,7 @@ async def admin_remove_purchase(callback: CallbackQuery):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     pid = int(callback.data.split("_")[2])
-    db.delete_purchase(pid)
+    await asyncio.to_thread(db.delete_purchase, pid)
     await callback.answer("✅ Покупка аннулирована", show_alert=True)
     await callback.message.edit_text("🗑️ Покупка удалена.", reply_markup=admin_menu())
 
@@ -551,7 +552,7 @@ async def admin_show_new_list(callback: CallbackQuery):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    users = db.get_all_new_members()
+    users = await asyncio.to_thread(db.get_all_new_members)
     if not users:
         await callback.message.edit_text("📋 Список 'Нью' пуст", reply_markup=admin_menu(), parse_mode=None)
         await callback.answer()
@@ -577,7 +578,7 @@ async def admin_delete_new(callback: CallbackQuery):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     uid = int(callback.data.split("_")[3])
-    if db.delete_new_member(uid):
+    if await asyncio.to_thread(db.delete_new_member, uid):
         await callback.answer("✅ Удалён из нью", show_alert=True)
         await admin_show_new_list(callback)
     else:
@@ -607,7 +608,7 @@ async def admin_broadcast_send(message: Message, state: FSMContext):
 
     text = message.text
     bot: Bot = message.bot
-    users = db.get_all_users()
+    users = await asyncio.to_thread(db.get_all_users)
     sent = 0
     blocked = 0
     failed = 0
@@ -633,7 +634,7 @@ async def admin_broadcast_send(message: Message, state: FSMContext):
             # и следующие рассылки не пытались писать этому аккаунту снова.
             blocked += 1
             try:
-                db.mark_user_blocked_bot(user_id)
+                await asyncio.to_thread(db.mark_user_blocked_bot, user_id)
             except Exception:
                 # Не ломаем всю рассылку, если не удалось сохранить статус.
                 pass
@@ -680,12 +681,12 @@ async def admin_mass_bonus_send(message: Message, state: FSMContext):
     try:
         amount = int(message.text)
         bot = message.bot
-        users = db.get_all_users()
+        users = await asyncio.to_thread(db.get_all_users)
         count = 0
         for u in users:
             if u["is_banned"]:
                 continue
-            db.update_balance(u["user_id"], amount)
+            await asyncio.to_thread(db.update_balance, u["user_id"], amount)
             count += 1
             try:
                 await bot.send_message(
@@ -815,7 +816,7 @@ async def admin_promo_expires(message: Message, state: FSMContext):
             await message.answer("❌ Неверный формат. Пример: 2026-12-31 23:59")
             return
     data = await state.get_data()
-    ok = db.create_promo(
+    ok = await asyncio.to_thread(db.create_promo, 
         data["code"], data["reward_type"], data["reward_value"],
         data["max_uses"], expires
     )
@@ -837,7 +838,7 @@ async def admin_promo_list(callback: CallbackQuery):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    promos = db.get_all_promos()
+    promos = await asyncio.to_thread(db.get_all_promos)
     if not promos:
         await callback.message.edit_text(
             "🎟️ Промокодов пока нет.",
@@ -860,7 +861,7 @@ async def admin_promo_info(callback: CallbackQuery):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     code = callback.data.replace("admin_promo_info_", "")
-    promo = db.get_promo(code)
+    promo = await asyncio.to_thread(db.get_promo, code)
     if not promo:
         await callback.answer("❌ Промокод не найден", show_alert=True)
         return
@@ -881,7 +882,7 @@ async def admin_promo_delete(callback: CallbackQuery):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     code = callback.data.replace("admin_promo_delete_", "")
-    db.delete_promo(code)
+    await asyncio.to_thread(db.delete_promo, code)
     await callback.answer("✅ Промокод удалён", show_alert=True)
     await admin_promo_list(callback)
 
@@ -905,7 +906,7 @@ async def admin_promo_edit_value(message: Message, state: FSMContext):
     val = message.text.strip()
     if val.lower() != "нет":
         data = await state.get_data()
-        db.update_promo(data["edit_code"], reward_value=val)
+        await asyncio.to_thread(db.update_promo, data["edit_code"], reward_value=val)
     await message.answer("Введите новое число активаций (или 'нет'):")
     await state.set_state(AdminStates.waiting_promo_edit_maxuses)
 
@@ -915,7 +916,7 @@ async def admin_promo_edit_maxuses(message: Message, state: FSMContext):
     val = message.text.strip()
     if val.lower() != "нет":
         try:
-            db.update_promo((await state.get_data())["edit_code"], max_uses=int(val))
+            await asyncio.to_thread(db.update_promo, (await state.get_data())["edit_code"], max_uses=int(val))
         except ValueError:
             pass
     await message.answer("Введите новую дату окончания ГГГГ-ММ-ДД ЧЧ:ММ (или 'нет'):")
@@ -928,7 +929,7 @@ async def admin_promo_edit_expires(message: Message, state: FSMContext):
     if val.lower() != "нет":
         try:
             datetime.strptime(val, "%Y-%m-%d %H:%M")
-            db.update_promo((await state.get_data())["edit_code"], expires_at=val)
+            await asyncio.to_thread(db.update_promo, (await state.get_data())["edit_code"], expires_at=val)
         except ValueError:
             await message.answer("❌ Неверный формат")
             await state.clear()
@@ -944,7 +945,7 @@ async def admin_wheel(callback: CallbackQuery):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    sectors = db.get_wheel_sectors()
+    sectors = await asyncio.to_thread(db.get_wheel_sectors)
     await callback.message.edit_text(
         "🎡 Настройки колеса фортуны:",
         reply_markup=admin_wheel_menu(sectors),
@@ -973,7 +974,7 @@ async def admin_wheel_delete(callback: CallbackQuery):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     sid = int(callback.data.split("_")[3])
-    db.delete_wheel_sector(sid)
+    await asyncio.to_thread(db.delete_wheel_sector, sid)
     await callback.answer("✅ Удалено", show_alert=True)
     await admin_wheel(callback)
 
@@ -1040,7 +1041,7 @@ async def admin_wheel_chance(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ Введите число")
         return
-    db.add_wheel_sector(
+    await asyncio.to_thread(db.add_wheel_sector, 
         data["label"], data["reward_type"], data["reward_value"], chance
     )
     await message.answer("✅ Деление добавлено!", reply_markup=admin_menu())
@@ -1054,7 +1055,7 @@ async def admin_cursed_egg(callback: CallbackQuery):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    stock = db.get_egg_stock()
+    stock = await asyncio.to_thread(db.get_egg_stock)
     text = (
         f"🥚 Проклятое яйцо\n\n"
         f"Статус: {'🟢 Активно' if stock['active'] else '🔴 Неактивно'}\n"
@@ -1069,7 +1070,7 @@ async def admin_cursed_activate(callback: CallbackQuery):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    db.set_cursed_egg_active(5)
+    await asyncio.to_thread(db.set_cursed_egg_active, 5)
     await _announce_cursed_egg(callback.bot)
     await callback.answer("✅ Проклятое яйцо активировано", show_alert=True)
     await admin_cursed_egg(callback)
@@ -1080,7 +1081,7 @@ async def admin_cursed_deactivate(callback: CallbackQuery):
     if callback.from_user.id not in config.ADMIN_IDS:
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    db.deactivate_cursed_egg()
+    await asyncio.to_thread(db.deactivate_cursed_egg)
     await callback.answer("✅ Деактивировано", show_alert=True)
     await admin_cursed_egg(callback)
 
@@ -1112,7 +1113,7 @@ def _find_user(query: str):
 
 async def _announce_cursed_egg(bot):
     """Оповещение о появлении проклятого яйца"""
-    stock = db.get_egg_stock()
+    stock = await asyncio.to_thread(db.get_egg_stock)
     text = (
         "🕯️ ВНИМАНИЕ.\n"
         "Сегодня в магазине Lavender Dream Coin появилось то, чего там быть не должно...\n\n"
@@ -1123,7 +1124,7 @@ async def _announce_cursed_egg(bot):
         "⚠️ Когда они исчезнут из магазина, вернуть их будет невозможно.\n"
         "Если ты достаточно смелый — оно уже ждёт тебя."
     )
-    for u in db.get_all_users():
+    for u in await asyncio.to_thread(db.get_all_users):
         try:
             await bot.send_message(u["user_id"], text)
         except Exception:

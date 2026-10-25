@@ -38,7 +38,69 @@ db_compat.py — совместимый со sqlite3 API модуль, кото�
 
 import os
 import re
+import time
+import logging
+import threading
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool, PoolError
+from psycopg2.extensions import TRANSACTION_STATUS_IDLE
+
+
+logger = logging.getLogger(__name__)
+_POOL_LOCK = threading.Lock()
+_CONNECTION_POOL = None
+_CONNECTION_POOL_DSN = None
+
+
+def _positive_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        return max(minimum, min(maximum, int(os.environ.get(name, str(default)))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _get_connection_pool(dsn: str, connect_timeout: int):
+    global _CONNECTION_POOL, _CONNECTION_POOL_DSN
+    with _POOL_LOCK:
+        if _CONNECTION_POOL is None or _CONNECTION_POOL_DSN != dsn:
+            if _CONNECTION_POOL is not None:
+                try:
+                    _CONNECTION_POOL.closeall()
+                except Exception:
+                    logger.exception("Не удалось закрыть старый пул PostgreSQL")
+            minconn = _positive_int_env("DB_POOL_MIN", 1, 1, 4)
+            maxconn = _positive_int_env("DB_POOL_MAX", 24, 2, 40)
+            minconn = min(minconn, maxconn)
+            # Bound SQL execution and lock waits so a stalled/contended query
+            # cannot hold a Telegram update for minutes. Values are configurable
+            # per deployment while remaining within safe operational limits.
+            try:
+                statement_timeout_ms = max(
+                    1000, min(120000, int(os.environ.get("DB_STATEMENT_TIMEOUT_MS", "20000")))
+                )
+            except (TypeError, ValueError):
+                statement_timeout_ms = 20000
+            try:
+                lock_timeout_ms = max(
+                    500, min(60000, int(os.environ.get("DB_LOCK_TIMEOUT_MS", "5000")))
+                )
+            except (TypeError, ValueError):
+                lock_timeout_ms = 5000
+
+            _CONNECTION_POOL = ThreadedConnectionPool(
+                minconn,
+                maxconn,
+                dsn,
+                connect_timeout=connect_timeout,
+                application_name="lavender_dream_bot",
+                options=(
+                    f"-c statement_timeout={statement_timeout_ms} "
+                    f"-c lock_timeout={lock_timeout_ms} "
+                    "-c idle_in_transaction_session_timeout=30000"
+                ),
+            )
+            _CONNECTION_POOL_DSN = dsn
+        return _CONNECTION_POOL
 
 
 # ========== Row: как sqlite3.Row, но и по индексу, и по имени ==========
@@ -141,11 +203,23 @@ class Cursor:
         m = _re.match(r"\s*INSERT\s+INTO\s+(\w+)", query, _re.IGNORECASE)
         self._last_insert_table = m.group(1) if m else None
 
+        started = time.perf_counter()
         try:
             self._cur.execute(_translate(query), safe_params if safe_params else None)
         except Exception:
             self._conn.rollback()
             raise
+        finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            try:
+                slow_threshold = float(os.environ.get("DB_SLOW_QUERY_MS", "300"))
+            except (TypeError, ValueError):
+                slow_threshold = 300.0
+            if elapsed_ms >= slow_threshold:
+                operation = query.strip().split(None, 1)[0].upper() if query.strip() else "UNKNOWN"
+                table_match = re.search(r"\b(?:FROM|INTO|UPDATE|JOIN)\s+([A-Za-z_][\w.]*)", query, re.IGNORECASE)
+                table = table_match.group(1) if table_match else "unknown"
+                logger.warning("SLOW_DB_QUERY elapsed_ms=%.0f operation=%s table=%s", elapsed_ms, operation, table)
         return self
 
     def _wrap(self, raw_row):
@@ -204,8 +278,28 @@ class Connection:
             connect_timeout = max(2, min(15, int(os.environ.get("DB_CONNECT_TIMEOUT", "5"))))
         except (TypeError, ValueError):
             connect_timeout = 5
-        self._conn = psycopg2.connect(dsn, connect_timeout=connect_timeout)
-        self.row_factory = None  # для совместимости с "conn.row_factory = sqlite3.Row" (не используется)
+        self._pool = _get_connection_pool(dsn, connect_timeout)
+        pool_wait_started = time.perf_counter()
+        deadline = time.monotonic() + 5.0
+        while True:
+            try:
+                self._conn = self._pool.getconn()
+                break
+            except PoolError:
+                # Wait in the calling worker instead of failing an otherwise
+                # valid update merely because all pooled connections are busy.
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.025)
+        pool_wait_ms = (time.perf_counter() - pool_wait_started) * 1000
+        try:
+            pool_wait_threshold = float(os.environ.get("DB_SLOW_POOL_WAIT_MS", "250"))
+        except (TypeError, ValueError):
+            pool_wait_threshold = 250.0
+        if pool_wait_ms >= pool_wait_threshold:
+            logger.warning("SLOW_DB_POOL_WAIT elapsed_ms=%.0f", pool_wait_ms)
+        self._closed = False
+        self.row_factory = None  # совместимость с conn.row_factory = sqlite3.Row
 
     def cursor(self):
         return Cursor(self._conn)
@@ -217,7 +311,32 @@ class Connection:
         self._conn.rollback()
 
     def close(self):
-        self._conn.close()
+        if self._closed:
+            return
+        self._closed = True
+        close_connection = bool(self._conn.closed)
+        if not close_connection:
+            try:
+                if self._conn.get_transaction_status() != TRANSACTION_STATUS_IDLE:
+                    self._conn.rollback()
+            except Exception:
+                close_connection = True
+                logger.exception("Ошибка сброса соединения PostgreSQL перед возвратом в пул")
+        try:
+            self._pool.putconn(self._conn, close=close_connection)
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            logger.exception("Не удалось вернуть соединение PostgreSQL в пул")
+
+    def __del__(self):
+        # Return borrowed connections even when legacy code forgets close().
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def connect(_ignored_sqlite_path=None):
