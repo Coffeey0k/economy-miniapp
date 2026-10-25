@@ -540,14 +540,8 @@ def init_db():
         "ALTER TABLE web_rules_read ALTER COLUMN user_id TYPE BIGINT"
     )
 
-    # Remove obsolete feature tables; their dependent application code has been
-    # removed and the historical records are explicitly no longer retained.
-    for obsolete_table in (
-        "clan_requests", "clan_members", "clans",
-        "web_trades", "pet_trades",
-        "music_personal", "music_shared", "music_slots",
-    ):
-        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table} CASCADE")
+    # Preserve legacy tables and records during startup. Any feature removal must
+    # be handled by a separately reviewed, explicitly invoked migration.
 
     conn.commit()
     conn.close()
