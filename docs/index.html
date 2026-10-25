@@ -870,6 +870,46 @@
   .island-inventory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; }
   .island-resource { display:flex; justify-content:space-between; gap:8px; padding:10px; border:1px solid var(--card-border); border-radius:10px; background:var(--secondary-bg); }
 
+
+  /* ===== Лёгкий визуал мини-игр: простые градиенты и короткие CSS-анимации ===== */
+  #minesweeper-area .card + div[style*="grid-template-columns"] { margin-top:12px !important; }
+  #minesweeper-area .card + div[style*="grid-template-columns"] button {
+    aspect-ratio:1; min-width:0; border:1px solid rgba(167,139,250,.32) !important;
+    border-radius:8px; padding:0 !important; color:var(--text);
+    background:linear-gradient(145deg,var(--secondary-bg),var(--bg)) !important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+    transition:transform .12s,border-color .12s,background .12s;
+  }
+  #minesweeper-area .card + div[style*="grid-template-columns"] button:active { transform:scale(.93); }
+  #minesweeper-area .card + div[style*="grid-template-columns"] button:not(:empty) { animation:miniCellPop .16s ease-out; }
+  #ttt-area button.btn[style*="height:76px"] {
+    height:clamp(64px,18vw,88px) !important; border-radius:14px;
+    border:1px solid var(--card-border); background:linear-gradient(145deg,var(--secondary-bg),var(--bg));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06); transition:transform .12s,border-color .12s;
+  }
+  #ttt-area button.btn[style*="height:76px"]:not(:disabled):active { transform:scale(.94); }
+  #ttt-area button.btn[style*="height:76px"]:disabled { border-color:var(--accent); }
+  .bs-grid-wrap { gap:4px !important; }
+  .bs-combat-cell {
+    border-radius:7px !important;
+    background-image:linear-gradient(145deg,rgba(139,92,246,.12),rgba(56,189,248,.12)) !important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06) !important;
+  }
+  .bs-combat-cell:not(:disabled):active { transform:scale(.94); }
+  .bs-combat-cell.bs-explosion { animation:miniHit .28s ease-out; }
+  .coin-container,.dice-cube,.slot-container,.dart-target { filter:drop-shadow(0 5px 12px rgba(139,92,246,.12)); }
+  .slot-reel { border-radius:12px; box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 3px 10px rgba(0,0,0,.14); }
+  .mini-game-result { margin:12px auto 0; max-width:520px; animation:miniResultIn .22s ease-out; }
+  #minesweeper-area .ms-cell { aspect-ratio:1;min-width:0;border:1px solid rgba(167,139,250,.32) !important;border-radius:8px;padding:0 !important;color:var(--text);background:linear-gradient(145deg,var(--secondary-bg),var(--bg)) !important;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:transform .12s,border-color .12s,background .12s; }
+  #minesweeper-area .ms-cell.ms-open { background:var(--hover-bg) !important;border-color:var(--accent) !important;animation:miniCellPop .16s ease-out; }
+  #minesweeper-area .ms-cell.ms-mine { background:rgba(239,68,68,.18) !important;border-color:#f87171 !important;animation:miniHit .28s ease-out; }
+  @keyframes miniCellPop { from{transform:scale(.88);opacity:.65} to{transform:scale(1);opacity:1} }
+  @keyframes miniHit { 0%{transform:scale(.9)} 65%{transform:scale(1.04)} 100%{transform:scale(1)} }
+  @keyframes miniResultIn { from{transform:translateY(5px);opacity:.5} to{transform:translateY(0);opacity:1} }
+  @media (prefers-reduced-motion:reduce) {
+    #minesweeper-area button,#ttt-area button,.bs-combat-cell,.mini-game-result { animation:none !important;transition:none !important; }
+  }
+
 </style>
 </head>
 <body>
@@ -2329,11 +2369,13 @@
     if (!msState) return;
     const { board, revealed, size } = msState;
     const numEmoji = {"0":"⬜","1":"1️⃣","2":"2️⃣","3":"3️⃣","4":"4️⃣","5":"5️⃣","6":"6️⃣","7":"7️⃣","8":"8️⃣"};
-    let html = `<div class="card" style="margin-bottom:10px;text-align:center;"><strong>💰 Ставка: ${msState.bet.toLocaleString()} 🪙</strong><div class="label">Выплата при победе: ${msState.reward.toLocaleString()} 🪙</div></div><div style="display:grid;grid-template-columns:repeat(${size},minmax(0,1fr));gap:4px;max-width:440px;margin:0 auto;">`;
+    let html = `<div class="card mini-game-panel" style="margin-bottom:10px;text-align:center;"><div class="mini-game-kicker">💣 Сапёр · ${size}×${size}</div><strong>💰 Ставка: ${msState.bet.toLocaleString()} 🪙</strong><div class="label">Выплата при победе: ${msState.reward.toLocaleString()} 🪙</div></div><div class="ms-board" style="display:grid;grid-template-columns:repeat(${size},minmax(0,1fr));gap:5px;max-width:440px;margin:0 auto;">`;
     for (let i = 0; i < size * size; i++) {
       let content = "⬛";
       if (revealed[i] === "1") content = board[i] === "M" ? "💥" : (numEmoji[board[i]] || "⬜");
-      html += `<button onclick="openMsCell(${i})" style="background:none;border:none;font-size:22px;padding:2px;cursor:pointer;">${content}</button>`;
+      const isOpen = revealed[i] === "1";
+      const isMine = isOpen && board[i] === "M";
+      html += `<button class="ms-cell${isOpen ? " ms-open" : ""}${isMine ? " ms-mine" : ""}" ${isOpen ? "disabled" : ""} aria-label="${isOpen ? "Открытая клетка" : "Открыть клетку"}" onclick="openMsCell(${i})">${content === "⬛" ? "" : content}</button>`;
     }
     html += `</div>`;
     document.getElementById("minesweeper-area").innerHTML = html;
