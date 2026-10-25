@@ -1,3 +1,4 @@
+import time
 from PIL import Image
 import re
 import os
@@ -119,6 +120,24 @@ message_owners = {}
 _task_active_hour_seen = set()
 
 
+class UpdateTimingMiddleware(BaseMiddleware):
+    """Log slow Telegram handlers without logging message contents."""
+    async def __call__(self, handler, event, data):
+        started = time.perf_counter()
+        try:
+            return await handler(event, data)
+        finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            if elapsed_ms >= 1500:
+                user = getattr(event, "from_user", None)
+                logger.warning(
+                    "SLOW_UPDATE type=%s user_id=%s elapsed_ms=%.0f",
+                    type(event).__name__,
+                    getattr(user, "id", None),
+                    elapsed_ms,
+                )
+
+
 class OwnerCheckMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         if isinstance(event, CallbackQuery) and event.message:
@@ -130,6 +149,8 @@ class OwnerCheckMiddleware(BaseMiddleware):
 
 
 # Регистрируем middleware для callback-запросов
+dp.message.middleware(UpdateTimingMiddleware())
+dp.callback_query.middleware(UpdateTimingMiddleware())
 dp.callback_query.middleware(OwnerCheckMiddleware())
 
 
@@ -166,14 +187,14 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                     if now.weekday() >= 5:
                         task_types.append("weekend_messages")
 
-                    hour_key = (uid, db.daily_task_date(), now.hour)
+                    hour_key = (uid, await asyncio.to_thread(db.daily_task_date), now.hour)
                     if hour_key not in _task_active_hour_seen:
                         _task_active_hour_seen.add(hour_key)
                         task_types.append("active_hours")
                     if len(_task_active_hour_seen) > 50000:
                         # Drop expired hour keys only; never clear current-hour
                         # keys or active users could earn the same task repeatedly.
-                        current_date = db.daily_task_date()
+                        current_date = await asyncio.to_thread(db.daily_task_date)
                         current_hour_keys = {
                             key for key in _task_active_hour_seen
                             if key[1] == current_date and key[2] == now.hour
@@ -200,9 +221,9 @@ async def track_bot_block_status(event: ChatMemberUpdated):
 
     try:
         if new_status == "kicked":
-            db.mark_user_blocked_bot(user_id)
+            await asyncio.to_thread(db.mark_user_blocked_bot, user_id)
         elif old_status == "kicked" and new_status in {"member", "administrator"}:
-            db.unmark_user_blocked_bot(user_id)
+            await asyncio.to_thread(db.unmark_user_blocked_bot, user_id)
     except Exception:
         logger.exception("Не удалось обновить статус блокировки бота user_id=%s", user_id)
 
@@ -378,7 +399,7 @@ async def feedback_receive(message: Message, state: FSMContext):
     try:
         await bot.send_message(config.OWNER_ID, header)
         await bot.copy_message(config.OWNER_ID, message.chat.id, message.message_id)
-        db.log_action(user.id, "feedback", f"Обращение отправлено владельцу; username={username}", amount=0)
+        await asyncio.to_thread(db.log_action, user.id, "feedback", f"Обращение отправлено владельцу; username={username}", amount=0)
         sent = await message.answer("✅ Сообщение отправлено владельцу Lavender Dream. Спасибо!", reply_markup=main_menu(user.id))
         message_owners[sent.message_id] = user.id
     except Exception:
@@ -404,7 +425,7 @@ async def tutorial_next(callback: CallbackQuery):
 @dp.callback_query(F.data == "tutorial_finish")
 async def tutorial_finish(callback: CallbackQuery):
     user_id = callback.from_user.id
-    db.set_tutorial_done(user_id)
+    await asyncio.to_thread(db.set_tutorial_done, user_id)
     await callback.message.edit_text(
         "✅ Туториал завершён!\n\nУдачи в Lavender Dream! 🤍",
         reply_markup=main_menu(user_id)
@@ -415,7 +436,7 @@ async def tutorial_finish(callback: CallbackQuery):
 @dp.callback_query(F.data == "tutorial_skip")
 async def tutorial_skip(callback: CallbackQuery):
     user_id = callback.from_user.id
-    db.set_tutorial_done(user_id)
+    await asyncio.to_thread(db.set_tutorial_done, user_id)
     await callback.message.edit_text(
         "Окей, туториал пропущен. Если что — ты всегда можешь вернуться в меню командой /start.",
         reply_markup=main_menu(user_id)
@@ -427,7 +448,7 @@ async def tutorial_skip(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "hints_disable")
 async def hints_disable(callback: CallbackQuery):
-    db.set_hints_enabled(callback.from_user.id, False)
+    await asyncio.to_thread(db.set_hints_enabled, callback.from_user.id, False)
     await callback.message.edit_text(
         "❌ Подсказки отключены.",
         reply_markup=back_to_main_menu()
@@ -467,14 +488,14 @@ async def cmd_admin(message: Message):
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery):
     user_id = callback.from_user.id
-    user = db.get_user(user_id)
+    user = await asyncio.to_thread(db.get_user, user_id)
     if user and user["is_banned"]:
         await callback.answer("🚫 Вы заблокированы", show_alert=True)
         return
     await callback.message.edit_text(
         f"🏝️ Lavender Dream Coin\n\n"
-        f"💰 Баланс: {db.get_balance(user_id)} 🪙\n"
-        f"🏆 Место в топе: #{db.get_user_rank(user_id)}",
+        f"💰 Баланс: {await asyncio.to_thread(db.get_balance, user_id)} 🪙\n"
+        f"🏆 Место в топе: #{await asyncio.to_thread(db.get_user_rank, user_id)}",
         reply_markup=main_menu(user_id),
         parse_mode=None
     )
@@ -485,7 +506,7 @@ async def back_to_main(callback: CallbackQuery):
 @dp.callback_query(F.data == "hints_menu")
 async def hints_menu_handler(callback: CallbackQuery, answer_callback: bool = True):
     user_id = callback.from_user.id
-    settings = db.get_user_settings(user_id)
+    settings = await asyncio.to_thread(db.get_user_settings, user_id)
     enabled = settings["hints_enabled"]
 
     builder = InlineKeyboardBuilder()
@@ -516,9 +537,9 @@ async def hints_menu_handler(callback: CallbackQuery, answer_callback: bool = Tr
 @dp.callback_query(F.data == "hints_toggle")
 async def hints_toggle(callback: CallbackQuery):
     user_id = callback.from_user.id
-    settings = db.get_user_settings(user_id)
+    settings = await asyncio.to_thread(db.get_user_settings, user_id)
     new_value = not settings["hints_enabled"]
-    db.set_hints_enabled(user_id, new_value)
+    await asyncio.to_thread(db.set_hints_enabled, user_id, new_value)
     await callback.answer("✅ Подсказки включены" if new_value else "❌ Подсказки отключены")
     await hints_menu_handler(callback, answer_callback=False)
 
@@ -526,7 +547,7 @@ async def hints_toggle(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "main_home")
 async def show_home(callback: CallbackQuery):
-    top_users = db.get_top_users(10)
+    top_users = await asyncio.to_thread(db.get_top_users, 10)
     if not top_users:
         await callback.message.edit_text("📊 Топ пуст.", reply_markup=home_menu())
         await callback.answer()
@@ -536,7 +557,7 @@ async def show_home(callback: CallbackQuery):
     for i, (uid, uname, bal) in enumerate(top_users, 1):
         medal = medals[i - 1] if i <= 3 else f"{i}."
         # Используем display_name с косметикой
-        display_name = db.get_display_name(uid)
+        display_name = await asyncio.to_thread(db.get_display_name, uid)
         text += f"{medal} {display_name} — {bal:,} 🪙\n"
     await callback.message.edit_text(text, reply_markup=home_menu(), parse_mode=None)
     await callback.answer()
@@ -551,24 +572,24 @@ async def refresh_top(callback: CallbackQuery):
 @dp.callback_query(F.data == "profile")
 async def show_profile(callback: CallbackQuery):
     user_id = callback.from_user.id
-    user = db.get_user(user_id)
-    db.check_badges(user_id)
+    user = await asyncio.to_thread(db.get_user, user_id)
+    await asyncio.to_thread(db.check_badges, user_id)
     if not user:
         await callback.answer("❌ Не найден", show_alert=True)
         return
     uname = user["username"] or str(user_id)
     balance = user["balance"]
-    rank = db.get_user_rank(user_id)
-    warns = db.get_warn_count(user_id)
-    purchases = db.get_user_purchases(user_id)
-    pets = db.get_user_pets(user_id)
-    stats = _get_game_stats(user_id)
-    prof = db.get_profession(user_id)
-    cosmetics = db.get_cosmetics(user_id)
-    badges = db.get_badges(user_id)
+    rank = await asyncio.to_thread(db.get_user_rank, user_id)
+    warns = await asyncio.to_thread(db.get_warn_count, user_id)
+    purchases = await asyncio.to_thread(db.get_user_purchases, user_id)
+    pets = await asyncio.to_thread(db.get_user_pets, user_id)
+    stats = await asyncio.to_thread(_get_game_stats, user_id)
+    prof = await asyncio.to_thread(db.get_profession, user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
+    badges = await asyncio.to_thread(db.get_badges, user_id)
 
     # === Формируем отображаемое имя с косметикой ===
-    display_name = db.get_display_name(user_id)
+    display_name = await asyncio.to_thread(db.get_display_name, user_id)
     # Статус
     status_text = ""
     if cosmetics["status"] and cosmetics["status"] in db.STATUSES:
@@ -614,6 +635,83 @@ async def refresh_profile(callback: CallbackQuery):
     await show_profile(callback)
 
 
+
+def _find_user_by_normalized_username(target: str):
+    conn = sqlite3.connect(db.DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT user_id, username FROM users WHERE LOWER(REPLACE(TRIM(username), '@', '')) = LOWER(?) LIMIT 1",
+            (target,),
+        )
+        return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def _find_user_by_exact_username(target: str):
+    conn = sqlite3.connect(db.DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id, username FROM users WHERE username = ?", (target,))
+        return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def _count_rulers() -> int:
+    conn = sqlite3.connect(db.DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM professions WHERE profession = 'ruler'")
+        return int(cur.fetchone()[0])
+    finally:
+        conn.close()
+
+
+def _delete_profession(user_id: int) -> None:
+    conn = sqlite3.connect(db.DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM professions WHERE user_id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _insert_pet(user_id: int, pet_name: str, pet_emoji: str, rarity: str, income: int) -> None:
+    conn = sqlite3.connect(db.DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO pets (user_id, pet_name, pet_emoji, rarity, income) VALUES (?, ?, ?, ?, ?)",
+            (user_id, pet_name, pet_emoji, rarity, income),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _insert_purchase(user_id: int, item_type: str) -> None:
+    conn = sqlite3.connect(db.DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO purchases (user_id, item_type) VALUES (?, ?)", (user_id, item_type))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _set_next_random_at(value: str, db_path: str) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE world_event_settings SET next_random_at = ? WHERE id = 1", (value,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _get_game_stats(user_id: int) -> dict:
     conn = sqlite3.connect(db.DB_NAME)
     cur = conn.cursor()
@@ -656,7 +754,7 @@ async def handle_bet(callback: CallbackQuery, state: FSMContext):
     if bet < 500:
         await callback.answer("❌ Минимальная ставка — 500 LDC.", show_alert=True)
         return
-    if db.get_balance(user_id) < bet:
+    if await asyncio.to_thread(db.get_balance, user_id) < bet:
         await callback.answer(f"❌ Недостаточно монет", show_alert=True)
         return
     if game_type == "slot":
@@ -681,18 +779,18 @@ async def handle_bet(callback: CallbackQuery, state: FSMContext):
 
 
 async def _process_game(callback: CallbackQuery, user_id: int, net_change: int, msg: str, game_type: str = "slot"):
-    allowed, remaining = db.register_game_play(user_id, game_type)
+    allowed, remaining = await asyncio.to_thread(db.register_game_play, user_id, game_type)
     if not allowed:
         await callback.answer(f"⏳ Эта игра на перерыве ещё {format_time(remaining)}", show_alert=True)
         return
     # Игровые функции возвращают чистое изменение баланса.
-    if not db.update_balance(user_id, net_change):
+    if not await asyncio.to_thread(db.update_balance, user_id, net_change):
         await callback.answer("❌ Не удалось обновить баланс.", show_alert=True)
         return
-    db.update_game_stats(user_id, net_change > 0, abs(net_change))
+    await asyncio.to_thread(db.update_game_stats, user_id, net_change > 0, abs(net_change))
     try:
-        db.assign_daily_tasks(user_id)
-        db.update_task_progress(user_id, "games", 1)
+        await asyncio.to_thread(db.assign_daily_tasks, user_id)
+        await asyncio.to_thread(db.update_task_progress, user_id, "games", 1)
         try:
             await asyncio.to_thread(world_events.record_season_activity, user_id, "game", 1)
         except Exception:
@@ -700,7 +798,7 @@ async def _process_game(callback: CallbackQuery, user_id: int, net_change: int, 
     except Exception:
         logger.exception("Не удалось обновить задание за сыгранную игру")
     await callback.message.edit_text(
-        f"{msg}\n\n💰 Баланс: {db.get_balance(user_id)} 🪙",
+        f"{msg}\n\n💰 Баланс: {await asyncio.to_thread(db.get_balance, user_id)} 🪙",
         reply_markup=game_result_keyboard()
     )
     await callback.answer()
@@ -714,7 +812,7 @@ async def handle_coin_choice(callback: CallbackQuery):
     if bet < 500:
         await callback.answer("❌ Минимальная ставка — 500 LDC.", show_alert=True)
         return
-    if db.get_balance(callback.from_user.id) < bet:
+    if await asyncio.to_thread(db.get_balance, callback.from_user.id) < bet:
         await callback.answer("❌ Недостаточно LDC.", show_alert=True)
         return
     win, msg = play_coin(bet, choice)
@@ -730,19 +828,19 @@ async def handle_dice(message: Message, state: FSMContext):
             return
         bet = (await state.get_data()).get("bet")
         uid = message.from_user.id
-        allowed, remaining = db.register_game_play(uid, "dice")
+        allowed, remaining = await asyncio.to_thread(db.register_game_play, uid, "dice")
         if not allowed:
             await message.answer(f"⏳ Кубик на перерыве ещё {format_time(remaining)}")
             await state.clear()
             return
         win, msg = play_dice(bet, guess)
         if win > 0:
-            db.update_balance(uid, win)
-            db.update_game_stats(uid, True, win)
+            await asyncio.to_thread(db.update_balance, uid, win)
+            await asyncio.to_thread(db.update_game_stats, uid, True, win)
         else:
-            db.update_balance(uid, win)
-            db.update_game_stats(uid, False, abs(win))
-        await message.answer(f"{msg}\n\n💰 Баланс: {db.get_balance(uid)} 🪙", reply_markup=game_result_keyboard())
+            await asyncio.to_thread(db.update_balance, uid, win)
+            await asyncio.to_thread(db.update_game_stats, uid, False, abs(win))
+        await message.answer(f"{msg}\n\n💰 Баланс: {await asyncio.to_thread(db.get_balance, uid)} 🪙", reply_markup=game_result_keyboard())
         await state.clear()
     except ValueError:
         await message.answer("❌ Введите число")
@@ -757,19 +855,19 @@ async def handle_number(message: Message, state: FSMContext):
             return
         bet = (await state.get_data()).get("bet")
         uid = message.from_user.id
-        allowed, remaining = db.register_game_play(uid, "number")
+        allowed, remaining = await asyncio.to_thread(db.register_game_play, uid, "number")
         if not allowed:
             await message.answer(f"⏳ Угадай число на перерыве ещё {format_time(remaining)}")
             await state.clear()
             return
         win, msg = play_number(bet, guess)
         if win > 0:
-            db.update_balance(uid, win)
-            db.update_game_stats(uid, True, win)
+            await asyncio.to_thread(db.update_balance, uid, win)
+            await asyncio.to_thread(db.update_game_stats, uid, True, win)
         else:
-            db.update_balance(uid, win)
-            db.update_game_stats(uid, False, abs(win))
-        await message.answer(f"{msg}\n\n💰 Баланс: {db.get_balance(uid)} 🪙", reply_markup=game_result_keyboard())
+            await asyncio.to_thread(db.update_balance, uid, win)
+            await asyncio.to_thread(db.update_game_stats, uid, False, abs(win))
+        await message.answer(f"{msg}\n\n💰 Баланс: {await asyncio.to_thread(db.get_balance, uid)} 🪙", reply_markup=game_result_keyboard())
         await state.clear()
     except ValueError:
         await message.answer("❌ Введите число")
@@ -780,8 +878,8 @@ async def handle_number(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "catalog")
 async def show_catalog(callback: CallbackQuery):
     user_id = callback.from_user.id
-    balance = db.get_balance(user_id)
-    items = db.get_all_catalog_items()
+    balance = await asyncio.to_thread(db.get_balance, user_id)
+    items = await asyncio.to_thread(db.get_all_catalog_items)
     text = f"📦 Каталог Lavender Dream Coin\n\n💰 Баланс: {balance:,} 🪙\n\n"
     for it in items:
         text += f"{it['name']} — {it['price']:,} 🪙\n"
@@ -801,20 +899,20 @@ async def show_catalog(callback: CallbackQuery):
 async def buy_item(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     item_type = callback.data.replace("buy_", "")
-    price = db.get_price(item_type)
+    price = await asyncio.to_thread(db.get_price, item_type)
     if item_type == "wheel_tickets_weekly":
-        ok, result_text = db.buy_weekly_wheel_tickets(user_id)
+        ok, result_text = await asyncio.to_thread(db.buy_weekly_wheel_tickets, user_id)
         if not ok:
             await callback.answer(result_text, show_alert=True)
             return
-        db.log_action(user_id, "purchase", "Куплено: wheel_tickets_weekly", amount=-price)
+        await asyncio.to_thread(db.log_action, user_id, "purchase", "Куплено: wheel_tickets_weekly", amount=-price)
         await callback.message.edit_text(
-            f"✅ {result_text}\n\n🎟️ Билетов сейчас: {db.get_wheel_tickets(user_id)}\n💰 Баланс: {db.get_balance(user_id)} LDC",
+            f"✅ {result_text}\n\n🎟️ Билетов сейчас: {await asyncio.to_thread(db.get_wheel_tickets, user_id)}\n💰 Баланс: {await asyncio.to_thread(db.get_balance, user_id)} LDC",
             reply_markup=back_to_catalog_keyboard(),
         )
         await callback.answer()
         return
-    if db.get_balance(user_id) < price:
+    if await asyncio.to_thread(db.get_balance, user_id) < price:
         await callback.answer(f"❌ Нужно {price} 🪙", show_alert=True)
         return
     if item_type in ["admin", "unban"]:
@@ -827,11 +925,11 @@ async def buy_item(callback: CallbackQuery, state: FSMContext):
         await state.update_data(item_type=item_type)
         await callback.answer()
         return
-    if db.add_purchase(user_id, item_type):
-        db.log_action(user_id, "purchase", f"Куплено: {item_type}", amount=price)
+    if await asyncio.to_thread(db.add_purchase, user_id, item_type):
+        await asyncio.to_thread(db.log_action, user_id, "purchase", f"Куплено: {item_type}", amount=price)
 
         await callback.message.edit_text(
-            f"✅ Покупка успешна!\nСписано: {price:,} 🪙\nБаланс: {db.get_balance(user_id)} 🪙",
+            f"✅ Покупка успешна!\nСписано: {price:,} 🪙\nБаланс: {await asyncio.to_thread(db.get_balance, user_id)} 🪙",
             reply_markup=back_to_catalog_keyboard()
         )
 
@@ -846,7 +944,7 @@ async def buy_item(callback: CallbackQuery, state: FSMContext):
 async def confirm_admin_buy(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     item_type = (await state.get_data()).get("item_type", "admin")
-    price = db.get_price(item_type)
+    price = await asyncio.to_thread(db.get_price, item_type)
     names = {"admin": "Админка", "unban": "Разбан"}
     await bot.send_message(
         config.OWNER_ID,
@@ -887,10 +985,10 @@ async def open_egg_handler(callback: CallbackQuery):
         return
     egg = db.PET_EGGS[egg_type]
     user_id = callback.from_user.id
-    if db.get_balance(user_id) < egg["price"]:
+    if await asyncio.to_thread(db.get_balance, user_id) < egg["price"]:
         await callback.answer(f"❌ Нужно {egg['price']:,} 🪙", show_alert=True)
         return
-    result = db.open_egg(user_id, egg_type)
+    result = await asyncio.to_thread(db.open_egg, user_id, egg_type)
     if not result:
         await callback.answer("❌ Ошибка", show_alert=True)
         return
@@ -901,22 +999,22 @@ async def open_egg_handler(callback: CallbackQuery):
         f"Доход: {result['income']} 🪙 раз в 4 часа\n"
         f"Статус: {'✅ активирован' if result.get('is_active') else '💤 сохранён в коллекции — нет свободного слота'}\n"
         f"{'🎟️ Бонус: +1 билет колеса!' if result.get('ticket_bonus') else ''}\n"
-        f"💰 Баланс: {db.get_balance(user_id)} 🪙",
+        f"💰 Баланс: {await asyncio.to_thread(db.get_balance, user_id)} 🪙",
         reply_markup=back_to_catalog_keyboard()
     )
-    db.log_action(user_id, "egg", f"Открыто яйцо {egg_type}: {result['name']}", amount=-egg['price'])
+    await asyncio.to_thread(db.log_action, user_id, "egg", f"Открыто яйцо {egg_type}: {result['name']}", amount=-egg['price'])
     await callback.answer("🎉 Питомец получен!")
 
 
 @dp.callback_query(F.data.startswith("open_cursed"))
 async def cursed_egg_open_confirm(callback: CallbackQuery):
     """Открытие проклятого яйца — сначала подтверждение"""
-    stock = db.get_egg_stock()
+    stock = await asyncio.to_thread(db.get_egg_stock)
     if not stock["active"] or stock["stock"] <= 0:
         await callback.answer("❌ Проклятое яйцо недоступно", show_alert=True)
         return
     user_id = callback.from_user.id
-    if db.get_balance(user_id) < 10000:
+    if await asyncio.to_thread(db.get_balance, user_id) < 10000:
         await callback.answer("❌ Нужно 10,000 🪙", show_alert=True)
         return
     await callback.message.edit_text(
@@ -935,7 +1033,7 @@ async def cursed_egg_open_confirm(callback: CallbackQuery):
 @dp.callback_query(F.data == "cursed_open_yes")
 async def cursed_open_yes(callback: CallbackQuery):
     user_id = callback.from_user.id
-    result = db.open_cursed_egg(user_id)
+    result = await asyncio.to_thread(db.open_cursed_egg, user_id)
     if not result:
         await callback.answer("❌ Ошибка или яйца кончились", show_alert=True)
         return
@@ -957,7 +1055,7 @@ async def cursed_open_yes(callback: CallbackQuery):
 
 async def announce_cursed_egg():
     """Оповещение о появлении проклятого яйца"""
-    stock = db.get_egg_stock()
+    stock = await asyncio.to_thread(db.get_egg_stock)
     if not stock["active"]:
         return
     text = (
@@ -971,7 +1069,7 @@ async def announce_cursed_egg():
         "Если ты достаточно смелый — оно уже ждёт тебя."
     )
     # Всем пользователям в ЛС
-    for u in db.get_all_users():
+    for u in await asyncio.to_thread(db.get_all_users):
         try:
             await bot.send_message(u["user_id"], text)
         except Exception:
@@ -990,7 +1088,7 @@ async def announce_cursed_egg_sold_out():
         "Больше их сегодня не будет.\n"
         "...до следующей субботы. 👁️"
     )
-    for u in db.get_all_users():
+    for u in await asyncio.to_thread(db.get_all_users):
         try:
             await bot.send_message(u["user_id"], text)
         except Exception:
@@ -1014,7 +1112,7 @@ async def pets_menu_handler(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "my_pets")
 async def my_pets(callback: CallbackQuery):
-    pets = db.get_user_pets(callback.from_user.id)
+    pets = await asyncio.to_thread(db.get_user_pets, callback.from_user.id)
     if not pets:
         await callback.message.edit_text(
             "🐾 У вас пока нет питомцев.\nОткройте яйцо в каталоге!",
@@ -1034,12 +1132,12 @@ async def my_pets(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("pet_info_"))
 async def pet_info(callback: CallbackQuery):
     pet_id = int(callback.data.split("_")[2])
-    pets = db.get_user_pets(callback.from_user.id)
+    pets = await asyncio.to_thread(db.get_user_pets, callback.from_user.id)
     pet = next((p for p in pets if p["id"] == pet_id), None)
     if not pet:
         await callback.answer("❌ Не найден", show_alert=True)
         return
-    care = db.get_pet_care(pet_id, callback.from_user.id) or {"energy": 100, "mood": 100, "health": 100, "level": 1, "experience": 0}
+    care = await asyncio.to_thread(db.get_pet_care, pet_id, callback.from_user.id) or {"energy": 100, "mood": 100, "health": 100, "level": 1, "experience": 0}
     await callback.message.edit_text(
         f"🐾 {pet['name']}\n"
         f"Редкость: {pet['rarity']}\n"
@@ -1057,7 +1155,7 @@ async def pet_info(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("pet_activate_"))
 async def pet_activate(callback: CallbackQuery):
     pet_id = int(callback.data.split("_")[2])
-    ok = db.set_pet_active(pet_id, callback.from_user.id, True)
+    ok = await asyncio.to_thread(db.set_pet_active, pet_id, callback.from_user.id, True)
     if ok:
         await callback.answer("✅ Активирован")
     else:
@@ -1068,17 +1166,17 @@ async def pet_activate(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("pet_deactivate_"))
 async def pet_deactivate(callback: CallbackQuery):
     pet_id = int(callback.data.split("_")[2])
-    db.set_pet_active(pet_id, callback.from_user.id, False)
+    await asyncio.to_thread(db.set_pet_active, pet_id, callback.from_user.id, False)
     await callback.answer("💤 Деактивирован")
     await pet_info_by_id(callback, pet_id)
 
 
 async def pet_info_by_id(callback: CallbackQuery, pet_id: int):
-    pets = db.get_user_pets(callback.from_user.id)
+    pets = await asyncio.to_thread(db.get_user_pets, callback.from_user.id)
     pet = next((p for p in pets if p["id"] == pet_id), None)
     if not pet:
         return
-    care = db.get_pet_care(pet_id, callback.from_user.id) or {"energy": 100, "mood": 100, "health": 100, "level": 1, "experience": 0}
+    care = await asyncio.to_thread(db.get_pet_care, pet_id, callback.from_user.id) or {"energy": 100, "mood": 100, "health": 100, "level": 1, "experience": 0}
     await callback.message.edit_text(
         f"🐾 {pet['name']}\n"
         f"Редкость: {pet['rarity']}\n"
@@ -1104,7 +1202,7 @@ async def pet_care_handler(callback: CallbackQuery):
     except ValueError:
         await callback.answer("Некорректный питомец.", show_alert=True)
         return
-    ok, message_text = db.care_for_pet(callback.from_user.id, pet_id, action)
+    ok, message_text = await asyncio.to_thread(db.care_for_pet, callback.from_user.id, pet_id, action)
     if not ok:
         await callback.answer(message_text, show_alert=True)
         return
@@ -1119,7 +1217,7 @@ async def pet_sell_handler(callback: CallbackQuery):
     except ValueError:
         await callback.answer("Некорректный питомец.", show_alert=True)
         return
-    ok, message_text = db.sell_pet_to_system(callback.from_user.id, pet_id)
+    ok, message_text = await asyncio.to_thread(db.sell_pet_to_system, callback.from_user.id, pet_id)
     if not ok:
         await callback.answer(message_text, show_alert=True)
         return
@@ -1142,40 +1240,33 @@ async def pet_gift_start(callback: CallbackQuery, state: FSMContext):
 @dp.message(GiftPetStates.waiting_recipient)
 async def pet_gift_send(message: Message, state: FSMContext):
     target = message.text.strip().lstrip("@")
-    conn = sqlite3.connect(db.DB_NAME)
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT user_id, username FROM users WHERE LOWER(REPLACE(TRIM(username), '@', '')) = LOWER(?) LIMIT 1",
-        (target,),
-    )
-    row = cur.fetchone()
-    conn.close()
+    row = await asyncio.to_thread(_find_user_by_normalized_username, target)
     if not row:
         await message.answer("❌ Пользователь не найден")
         return
     target_id = row[0]
     sender_id = message.from_user.id
     pet_id = (await state.get_data()).get("pet_id")
-    slot_ok, gift_count = db.reserve_daily_gift_slot(sender_id, daily_limit=5)
+    slot_ok, gift_count = await asyncio.to_thread(db.reserve_daily_gift_slot, sender_id, daily_limit=5)
     if not slot_ok:
         await message.answer("🚫 Лимит подарков исчерпан: максимум 5 успешных отправок в сутки (UTC), общий для бота и веба.")
         await state.clear()
         return
-    if db.transfer_pet(pet_id, sender_id, target_id):
+    if await asyncio.to_thread(db.transfer_pet, pet_id, sender_id, target_id):
         await message.answer(f"✅ Питомец подарен @{target}! Подарков сегодня: {gift_count}/5 (UTC).")
         try:
             await bot.send_message(target_id, f"🎁 Вам подарили питомца!")
         except Exception:
             logger.exception("Не удалось выполнить необязательную операцию")
     else:
-        db.release_daily_gift_slot(sender_id)
+        await asyncio.to_thread(db.release_daily_gift_slot, sender_id)
         await message.answer("❌ Не удалось подарить")
     await state.clear()
 
 
 @dp.callback_query(F.data == "gift_pet_start")
 async def gift_pet_start(callback: CallbackQuery):
-    pets = db.get_user_pets(callback.from_user.id)
+    pets = await asyncio.to_thread(db.get_user_pets, callback.from_user.id)
     if not pets:
         await callback.answer("❌ У вас нет питомцев", show_alert=True)
         return
@@ -1195,7 +1286,7 @@ async def gift_pet_start(callback: CallbackQuery):
 @dp.message(F.text.lower().strip().in_({"питомцы", "питомец"}))
 async def pets_word_trigger(message: Message):
     sent = await message.answer(
-        f"🐾 Питомцы\nАктивные слоты: {db.count_active_pets(message.from_user.id)}/{db.get_pet_slot_limit(message.from_user.id)}\nВыбери действие:",
+        f"🐾 Питомцы\nАктивные слоты: {await asyncio.to_thread(db.count_active_pets, message.from_user.id)}/{await asyncio.to_thread(db.get_pet_slot_limit, message.from_user.id)}\nВыбери действие:",
         reply_markup=pets_menu(),
     )
     message_owners[sent.message_id] = message.from_user.id
@@ -1209,18 +1300,18 @@ async def catalog_word_trigger(message: Message):
 
 @dp.callback_query(F.data == "pet_slot_buy")
 async def pet_slot_buy_handler(callback: CallbackQuery):
-    slots = db.get_pet_slot_limit(callback.from_user.id)
+    slots = await asyncio.to_thread(db.get_pet_slot_limit, callback.from_user.id)
     if slots >= 15:
         await callback.answer("Уже куплены все 15 слотов.", show_alert=True)
         return
     price = 5000 * (slots - 2)
-    ok, result_text = db.buy_pet_slot(callback.from_user.id)
+    ok, result_text = await asyncio.to_thread(db.buy_pet_slot, callback.from_user.id)
     if not ok:
         await callback.answer(result_text, show_alert=True)
         return
     await callback.message.edit_text(
         f"🪹 {result_text}\n\n"
-        f"Активные питомцы: {db.count_active_pets(callback.from_user.id)}/{db.get_pet_slot_limit(callback.from_user.id)}",
+        f"Активные питомцы: {await asyncio.to_thread(db.count_active_pets, callback.from_user.id)}/{await asyncio.to_thread(db.get_pet_slot_limit, callback.from_user.id)}",
         reply_markup=pets_menu(),
     )
     await callback.answer("Слот куплен!")
@@ -1620,8 +1711,8 @@ async def season_claim_callback(callback: CallbackQuery):
 
 @dp.message(F.text.lower().strip().in_({"задания", "задание"}))
 async def tasks_word_trigger(message: Message):
-    db.assign_daily_tasks(message.from_user.id)
-    tasks = db.get_user_tasks(message.from_user.id)
+    await asyncio.to_thread(db.assign_daily_tasks, message.from_user.id)
+    tasks = await asyncio.to_thread(db.get_user_tasks, message.from_user.id)
     if not tasks:
         sent = await message.answer("📋 Заданий пока нет. Загляни позже!", reply_markup=tasks_menu())
         message_owners[sent.message_id] = message.from_user.id
@@ -1641,7 +1732,7 @@ async def tasks_word_trigger(message: Message):
 
 @dp.message(F.text.lower().strip().in_({"топ", "банк топ"}))
 async def balance_top_word_trigger(message: Message):
-    top_users = db.get_top_users(10)
+    top_users = await asyncio.to_thread(db.get_top_users, 10)
     if not top_users:
         await message.answer("📊 Топ пока пуст.")
         return
@@ -1649,13 +1740,13 @@ async def balance_top_word_trigger(message: Message):
     text = "🏦 Топ игроков по балансу LDC\n\n"
     for i, (uid, username, balance) in enumerate(top_users, 1):
         medal = medals[i - 1] if i <= 3 else f"{i}."
-        text += f"{medal} {db.get_display_name(uid)} — {balance:,} 🪙\n"
+        text += f"{medal} {await asyncio.to_thread(db.get_display_name, uid)} — {balance:,} 🪙\n"
     await message.answer(text)
 
 
 @dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "курс"))
 async def lcc_rate_word_trigger(message: Message):
-    rate = db.get_lcc_rate()
+    rate = await asyncio.to_thread(db.get_lcc_rate)
     await message.answer(f"💎 Текущий курс Lavender Crypto Coin (LCC): 1 LCC ≈ {rate:,.2f} LDC.")
 
 
@@ -1716,7 +1807,7 @@ async def game_word_trigger(message: Message):
     if args:
         bet = parse_bet(args[-1])
     if bet is None:
-        db.log_action(message.from_user.id, "security", f"Некорректная ставка/аргументы игры: game={game_type}; text={message.text[:180]!r}")
+        await asyncio.to_thread(db.log_action, message.from_user.id, "security", f"Некорректная ставка/аргументы игры: game={game_type}; text={message.text[:180]!r}")
         if game_type in {"coin", "dice", "number"} and choice is None:
             hint = "Формат: монетка о 500 (или монетка р 1к)." if game_type == "coin" else ("Формат: кубик 4 500." if game_type == "dice" else "Формат: число 7 500.")
             await message.answer(f"{title}\n{hint}\nМинимальная ставка — 500 LDC.")
@@ -1724,14 +1815,14 @@ async def game_word_trigger(message: Message):
             await message.answer(f"{title}\nИспользуй «{word} [выбор] [ставка]» для игры. Минимальная ставка — 500 LDC.")
         return
     if bet < 500:
-        db.log_action(message.from_user.id, "security", f"Ставка ниже минимума: game={game_type}; bet={bet}")
+        await asyncio.to_thread(db.log_action, message.from_user.id, "security", f"Ставка ниже минимума: game={game_type}; bet={bet}")
         await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
 
     user_id = message.from_user.id
-    balance = db.get_balance(user_id)
+    balance = await asyncio.to_thread(db.get_balance, user_id)
     if balance < bet:
-        db.log_action(user_id, "security", f"Ставка превышает баланс: game={game_type}; bet={bet}; balance={balance}")
+        await asyncio.to_thread(db.log_action, user_id, "security", f"Ставка превышает баланс: game={game_type}; bet={bet}; balance={balance}")
         await message.answer(f"❌ Недостаточно LDC. Твой баланс: {balance:,} LDC.")
         return
     # Validate all required arguments before consuming a play attempt.
@@ -1745,9 +1836,9 @@ async def game_word_trigger(message: Message):
         await message.answer("🃏 Укажи число от 1 до 10: «число 7 500».")
         return
 
-    allowed, remaining = db.register_game_play(user_id, game_type)
+    allowed, remaining = await asyncio.to_thread(db.register_game_play, user_id, game_type)
     if not allowed:
-        db.log_action(user_id, "security", f"Попытка игры во время кулдауна: game={game_type}; remaining={remaining}s")
+        await asyncio.to_thread(db.log_action, user_id, "security", f"Попытка игры во время кулдауна: game={game_type}; remaining={remaining}s")
         await message.answer(f"⏳ Эта игра на перерыве ещё {format_time(remaining)}")
         return
 
@@ -1762,22 +1853,22 @@ async def game_word_trigger(message: Message):
     else:
         net_change, result_text = play_number(bet, choice)
 
-    if not db.update_balance(user_id, net_change):
+    if not await asyncio.to_thread(db.update_balance, user_id, net_change):
         await message.answer("❌ Не удалось обновить баланс. Попробуй ещё раз.")
         return
-    db.update_game_stats(user_id, net_change > 0, abs(net_change))
+    await asyncio.to_thread(db.update_game_stats, user_id, net_change > 0, abs(net_change))
     try:
-        db.assign_daily_tasks(user_id)
-        db.update_task_progress(user_id, "games", 1)
+        await asyncio.to_thread(db.assign_daily_tasks, user_id)
+        await asyncio.to_thread(db.update_task_progress, user_id, "games", 1)
         try:
-            world_events.record_season_activity(user_id, "game", 1)
+            await asyncio.to_thread(world_events.record_season_activity, user_id, "game", 1)
         except Exception:
             logger.exception("Не удалось обновить сезонный прогресс игры")
-        db.log_action(user_id, "game", f"Игра {game_type}; ставка={bet}; изменение баланса={net_change}", amount=net_change)
+        await asyncio.to_thread(db.log_action, user_id, "game", f"Игра {game_type}; ставка={bet}; изменение баланса={net_change}", amount=net_change)
     except Exception:
         logger.exception("Не удалось обновить статистику или задание игры")
     await message.answer(
-        f"{title}\n💰 Ставка: {bet:,} LDC\n{result_text}\n\nБаланс: {db.get_balance(user_id):,} LDC",
+        f"{title}\n💰 Ставка: {bet:,} LDC\n{result_text}\n\nБаланс: {await asyncio.to_thread(db.get_balance, user_id):,} LDC",
         reply_markup=game_result_keyboard()
     )
 
@@ -1795,7 +1886,7 @@ async def professions_menu_handler(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "my_profession")
 async def my_profession(callback: CallbackQuery, answer_callback: bool = True):
-    prof = db.get_profession(callback.from_user.id)
+    prof = await asyncio.to_thread(db.get_profession, callback.from_user.id)
     if not prof or not prof["profession"]:
         await callback.message.edit_text(
             "💼 У вас нет профессии.\nУстроиться стоит 1000 🪙.",
@@ -1807,7 +1898,7 @@ async def my_profession(callback: CallbackQuery, answer_callback: bool = True):
 
     from database import PROFESSIONS
     info = PROFESSIONS[prof["profession"]]
-    salary = db.get_profession_salary(prof["profession"], prof["level"])
+    salary = await asyncio.to_thread(db.get_profession_salary, prof["profession"], prof["level"])
     level = prof["level"]
     days = prof["days_worked"]
     if level >= 5:
@@ -1852,15 +1943,11 @@ async def hire(callback: CallbackQuery):
             await callback.answer("❌ Только для администрации", show_alert=True)
             return
         # Максимум 3 правителя
-        conn = sqlite3.connect(db.DB_NAME)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM professions WHERE profession = 'ruler'")
-        count = cur.fetchone()[0]
-        conn.close()
+        count = await asyncio.to_thread(_count_rulers)
         if count >= 3:
             await callback.answer("❌ Уже 3 правителя. Больше нельзя.", show_alert=True)
             return
-    ok, msg = db.hire_profession(callback.from_user.id, prof_key)
+    ok, msg = await asyncio.to_thread(db.hire_profession, callback.from_user.id, prof_key)
     await callback.answer(msg, show_alert=True)
     if ok:
         await my_profession(callback, answer_callback=False)
@@ -1869,16 +1956,16 @@ async def hire(callback: CallbackQuery):
 @dp.callback_query(F.data == "work_now")
 async def work_now(callback: CallbackQuery):
     user_id = callback.from_user.id
-    balance_before = db.get_balance(user_id)
-    ok, msg = db.work_profession(user_id)
+    balance_before = await asyncio.to_thread(db.get_balance, user_id)
+    ok, msg = await asyncio.to_thread(db.work_profession, user_id)
     if not ok:
         await callback.answer(msg, show_alert=True)
         return
 
     # Логируем фактически начисленную сумму, включая бонусы друзей.
     try:
-        earned = db.get_balance(user_id) - balance_before
-        db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
+        earned = await asyncio.to_thread(db.get_balance, user_id) - balance_before
+        await asyncio.to_thread(db.log_action, user_id, "work", f"Зарплата ({msg})", amount=earned)
     except Exception:
         logger.exception("Не удалось записать лог работы user_id=%s", user_id)
 
@@ -1887,11 +1974,7 @@ async def work_now(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "fire_profession")
 async def fire_profession(callback: CallbackQuery):
-    conn = sqlite3.connect(db.DB_NAME)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM professions WHERE user_id = ?", (callback.from_user.id,))
-    conn.commit()
-    conn.close()
+    await asyncio.to_thread(_delete_profession, callback.from_user.id)
     await callback.answer("✅ Вы уволены", show_alert=True)
     await callback.message.edit_text(
         "Вы уволились. Можешь устроиться на любую доступную профессию бесплатно.",
@@ -1903,7 +1986,7 @@ async def fire_profession(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "tasks_menu")
 async def tasks_menu_handler(callback: CallbackQuery):
-    db.assign_daily_tasks(callback.from_user.id)
+    await asyncio.to_thread(db.assign_daily_tasks, callback.from_user.id)
     await callback.message.edit_text(
         "📋 Ваши ежедневные задания:",
         reply_markup=tasks_menu()
@@ -1913,7 +1996,7 @@ async def tasks_menu_handler(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "my_tasks")
 async def my_tasks(callback: CallbackQuery):
-    tasks = db.get_user_tasks(callback.from_user.id)
+    tasks = await asyncio.to_thread(db.get_user_tasks, callback.from_user.id)
     if not tasks:
         await callback.message.edit_text(
             "📋 Заданий пока нет. Загляни позже!",
@@ -1942,7 +2025,7 @@ async def wheel_menu_handler(callback: CallbackQuery):
     await callback.message.edit_text(
         "🎡 Колесо фортуны\n\n"
         "Стоимость вращения: 10 🎟️\n"
-        f"Билеты у тебя: {db.get_wheel_tickets(callback.from_user.id)} 🎟️\nКулдаун: раз в 3 часа\n\n"
+        f"Билеты у тебя: {await asyncio.to_thread(db.get_wheel_tickets, callback.from_user.id)} 🎟️\nКулдаун: раз в 3 часа\n\n"
         "Билеты можно получить за некоторые задания, из сундуков, яиц и промокодов. Испытай удачу!",
         reply_markup=wheel_menu()
     )
@@ -1951,11 +2034,11 @@ async def wheel_menu_handler(callback: CallbackQuery):
 @dp.callback_query(F.data == "wheel_spin")
 async def wheel_spin(callback: CallbackQuery):
     user_id = callback.from_user.id
-    if db.get_wheel_tickets(user_id) < 10:
+    if await asyncio.to_thread(db.get_wheel_tickets, user_id) < 10:
         await callback.answer("❌ Нужно 10 билетов колеса 🎟️", show_alert=True)
         return
 
-    can, remaining = db.can_spin_wheel(user_id)
+    can, remaining = await asyncio.to_thread(db.can_spin_wheel, user_id)
     if not can:
         await callback.answer(
             f"⏳ Колесо будет доступно через {format_time(remaining)}",
@@ -1963,12 +2046,12 @@ async def wheel_spin(callback: CallbackQuery):
         )
         return
 
-    if not db.change_wheel_tickets(user_id, -10):
+    if not await asyncio.to_thread(db.change_wheel_tickets, user_id, -10):
         await callback.answer("❌ Нужно 10 билетов колеса 🎟️", show_alert=True)
         return
-    db.set_wheel_time(user_id)
+    await asyncio.to_thread(db.set_wheel_time, user_id)
 
-    sectors = db.get_wheel_sectors()
+    sectors = await asyncio.to_thread(db.get_wheel_sectors)
     total = sum(s["chance"] for s in sectors)
     r = random.uniform(0, total)
     upto = 0
@@ -1982,18 +2065,11 @@ async def wheel_spin(callback: CallbackQuery):
     reward_text = ""
     if chosen["reward_type"] == "money":
         amt = int(chosen["reward_value"])
-        db.update_balance(user_id, amt)
+        await asyncio.to_thread(db.update_balance, user_id, amt)
         reward_text = f"+{amt} 🪙"
     elif chosen["reward_type"] == "pet":
         pet_name = chosen["reward_value"]
-        conn = sqlite3.connect(db.DB_NAME)
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO pets (user_id, pet_name, pet_emoji, rarity, income) VALUES (?, ?, ?, ?, ?)",
-            (user_id, pet_name, pet_name.split()[0], "обычный", 100)
-        )
-        conn.commit()
-        conn.close()
+        await asyncio.to_thread(_insert_pet, user_id, pet_name, pet_name.split()[0], "обычный", 100)
         reward_text = f"Питомец {pet_name}"
     elif chosen["reward_type"] == "egg":
         egg_type = chosen["reward_value"]
@@ -2009,28 +2085,14 @@ async def wheel_spin(callback: CallbackQuery):
                     chosen_p = p
                     break
                 upto_p += p[3]
-            conn = sqlite3.connect(db.DB_NAME)
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO pets (user_id, pet_name, pet_emoji, rarity, income) VALUES (?, ?, ?, ?, ?)",
-                (user_id, chosen_p[0], chosen_p[0].split()[0], chosen_p[1], chosen_p[2])
-            )
-            conn.commit()
-            conn.close()
+            await asyncio.to_thread(_insert_pet, user_id, chosen_p[0], chosen_p[0].split()[0], chosen_p[1], chosen_p[2])
             reward_text = f"{egg['name']}: {chosen_p[0]}"
         else:
             reward_text = "яйцо"
     elif chosen["reward_type"] == "random_purchase":
         items = ["change_role", "anti_warn", "immunity", "video"]
         chosen_item = random.choice(items)
-        conn = sqlite3.connect(db.DB_NAME)
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO purchases (user_id, item_type) VALUES (?, ?)",
-            (user_id, chosen_item)
-        )
-        conn.commit()
-        conn.close()
+        await asyncio.to_thread(_insert_purchase, user_id, chosen_item)
         names = {"change_role": "Смена роли", "anti_warn": "Антиварн",
                  "immunity": "Иммунитет", "video": "Видео с вами"}
         reward_text = f"Покупка: {names[chosen_item]}"
@@ -2039,10 +2101,10 @@ async def wheel_spin(callback: CallbackQuery):
         f"🎡 Колесо крутится...\n\n"
         f"Выпало: {chosen['label']}\n"
         f"Приз: {reward_text}\n\n"
-        f"💰 Баланс: {db.get_balance(user_id)} 🪙",
+        f"💰 Баланс: {await asyncio.to_thread(db.get_balance, user_id)} 🪙",
         reply_markup=wheel_menu()
     )
-    db.log_action(user_id, "wheel", f"Колесо: {reward_text}", amount=0)
+    await asyncio.to_thread(db.log_action, user_id, "wheel", f"Колесо: {reward_text}", amount=0)
     await callback.answer("🎉")
     
 # ==================== ПРОМОКОД ====================
@@ -2073,7 +2135,7 @@ async def promo_activate(message: Message, state: FSMContext):
         return
 
     try:
-        ok, result = db.activate_promo(code, message.from_user.id)
+        ok, result = await asyncio.to_thread(db.activate_promo, code, message.from_user.id)
     except Exception:
         logger.exception("Ошибка активации промокода user_id=%s code=%s", message.from_user.id, code)
         await message.answer("❌ Не удалось активировать промокод. Попробуйте позже.")
@@ -2082,7 +2144,7 @@ async def promo_activate(message: Message, state: FSMContext):
 
     if ok:
         try:
-            db.log_action(message.from_user.id, "promo", f"Промокод {code}", amount=0)
+            await asyncio.to_thread(db.log_action, message.from_user.id, "promo", f"Промокод {code}", amount=0)
         except Exception:
             logger.exception("Не удалось записать лог промокода user_id=%s", message.from_user.id)
         await message.answer(f"✅ Промокод активирован!\nНаграда: {result}")
@@ -2105,13 +2167,13 @@ async def _word_trigger_answer(message: Message, text: str, **kwargs):
 @dp.message(F.text.lower() == "банк")
 async def bank_word(message: Message):
     uid = message.from_user.id
-    can, remaining = db.can_claim_bonus(uid)
+    can, remaining = await asyncio.to_thread(db.can_claim_bonus, uid)
     if can:
-        bonus = db.claim_bonus(uid)
-        next_cooldown = db.get_user_cooldown_seconds(uid, "bonus", 10800)
+        bonus = await asyncio.to_thread(db.claim_bonus, uid)
+        next_cooldown = await asyncio.to_thread(db.get_user_cooldown_seconds, uid, "bonus", 10800)
         await _word_trigger_answer(message, 
             f"🏦 Вы получили бонус {bonus} 🪙!\n"
-            f"💰 Баланс: {db.get_balance(uid)} 🪙\n"
+            f"💰 Баланс: {await asyncio.to_thread(db.get_balance, uid)} 🪙\n"
             f"Следующий бонус через {format_time(next_cooldown)}."
         )
     else:
@@ -2122,8 +2184,8 @@ async def bank_word(message: Message):
 async def balance_word(message: Message):
     uid = message.from_user.id
     await _word_trigger_answer(message, 
-        f"💰 Ваш баланс: {db.get_balance(uid):,} Lavender Dream Coin\n"
-        f"🏆 Место: #{db.get_user_rank(uid)}"
+        f"💰 Ваш баланс: {await asyncio.to_thread(db.get_balance, uid):,} Lavender Dream Coin\n"
+        f"🏆 Место: #{await asyncio.to_thread(db.get_user_rank, uid)}"
     )
 
 
@@ -2132,13 +2194,13 @@ async def clean_finished(message: Message):
     if message.from_user.id not in config.ADMIN_IDS:
         await _word_trigger_answer(message, "❌ Нет прав")
         return
-    count = db.clear_all_immunities()
+    count = await asyncio.to_thread(db.clear_all_immunities)
     await _word_trigger_answer(message, f"🧹 Чистка окончена! Аннулировано иммунитетов: {count}")
 
 
 @dp.message(F.text.lower() == "топ нью")
 async def top_new(message: Message):
-    users = db.get_today_new_members(exclude_user_id=bot.id)
+    users = await asyncio.to_thread(db.get_today_new_members, exclude_user_id=bot.id)
     if not users:
         await _word_trigger_answer(message, "📊 Топ Нью за сегодня: пусто")
         return
@@ -2150,7 +2212,7 @@ async def top_new(message: Message):
 
 @dp.message(F.text.func(lambda text: isinstance(text, str) and text.strip().casefold() == "кто нью"))
 async def who_new(message: Message):
-    users = db.get_new_members(4, exclude_user_id=bot.id)
+    users = await asyncio.to_thread(db.get_new_members, 4, exclude_user_id=bot.id)
     if not users:
         await _word_trigger_answer(message, "📊 Кто Нью (4 дня): пусто")
         return
@@ -2166,7 +2228,7 @@ async def call_new(message: Message):
     if message.from_user.id not in config.ADMIN_IDS:
         await _word_trigger_answer(message, "❌ Только админы")
         return
-    users = db.get_new_members(1, exclude_user_id=bot.id)
+    users = await asyncio.to_thread(db.get_new_members, 1, exclude_user_id=bot.id)
     if not users:
         await _word_trigger_answer(message, "📢 Нет новых")
         return
@@ -2179,16 +2241,16 @@ async def work_word_handler(message: Message):
     """Ворд-триггер 'работать' — получить зарплату по профессии"""
     user_id = message.from_user.id
 
-    if not db.get_user(user_id):
+    if not await asyncio.to_thread(db.get_user, user_id):
         username = message.from_user.username or str(user_id)
-        db.create_user(user_id, username)
+        await asyncio.to_thread(db.create_user, user_id, username)
 
-    user = db.get_user(user_id)
+    user = await asyncio.to_thread(db.get_user, user_id)
     if user and user["is_banned"]:
         await _word_trigger_answer(message, "🚫 Вы заблокированы.")
         return
 
-    prof = db.get_profession(user_id)
+    prof = await asyncio.to_thread(db.get_profession, user_id)
     if not prof or not prof["profession"]:
         await _word_trigger_answer(message, 
             "💼 У вас нет профессии.\n"
@@ -2196,11 +2258,11 @@ async def work_word_handler(message: Message):
         )
         return
 
-    balance_before = db.get_balance(user_id)
-    ok, msg = db.work_profession(user_id)
+    balance_before = await asyncio.to_thread(db.get_balance, user_id)
+    ok, msg = await asyncio.to_thread(db.work_profession, user_id)
     if ok:
         # Прогресс-бар
-        new_prof = db.get_profession(user_id)
+        new_prof = await asyncio.to_thread(db.get_profession, user_id)
         level = new_prof["level"]
         days = new_prof["days_worked"]
         if level >= 5:
@@ -2210,14 +2272,14 @@ async def work_word_handler(message: Message):
             bar = "▰" * filled + "▱" * (7 - filled) + f" {days}/7 дней"
         # Логирование не должно мешать отправке ответа после начисления зарплаты.
         try:
-            earned = db.get_balance(user_id) - balance_before
-            db.log_action(user_id, "work", f"Зарплата ({msg})", amount=earned)
+            earned = await asyncio.to_thread(db.get_balance, user_id) - balance_before
+            await asyncio.to_thread(db.log_action, user_id, "work", f"Зарплата ({msg})", amount=earned)
         except Exception:
             logger.exception("Не удалось записать лог работы user_id=%s", user_id)
         await _word_trigger_answer(message, 
             f"💼 {msg}\n"
             f"📊 Прогресс: {bar}\n"
-            f"💰 Баланс: {db.get_balance(user_id)} 🪙"
+            f"💰 Баланс: {await asyncio.to_thread(db.get_balance, user_id)} 🪙"
         )
     else:
         await _word_trigger_answer(message, f"⏳ {msg}")
@@ -2239,34 +2301,26 @@ async def profile_word_handler(message: Message):
         if arg.isdigit():
             target_id = int(arg)
         else:
-            conn = sqlite3.connect(db.DB_NAME)
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT user_id, username FROM users "
-                "WHERE LOWER(REPLACE(TRIM(username), '@', '')) = LOWER(?) LIMIT 1",
-                (arg,),
-            )
-            row = cur.fetchone()
-            conn.close()
+            row = await asyncio.to_thread(_find_user_by_normalized_username, arg)
             if not row:
                 await _word_trigger_answer(message, f"❌ Пользователь @{arg} не найден.")
                 return
             target_id, target_name = row[0], row[1]
 
-    user = db.get_user(target_id)
+    user = await asyncio.to_thread(db.get_user, target_id)
     if not user:
         await _word_trigger_answer(message, "❌ Профиль не найден.")
         return
 
-    db.check_badges(target_id)
+    await asyncio.to_thread(db.check_badges, target_id)
     balance = user["balance"]
-    rank = db.get_user_rank(target_id)
-    warns = db.get_warn_count(target_id)
-    pets = db.get_user_pets(target_id)
-    prof = db.get_profession(target_id)
-    display_name = db.get_display_name(target_id)
-    cosmetics = db.get_cosmetics(target_id)
-    badges = db.get_badges(target_id)
+    rank = await asyncio.to_thread(db.get_user_rank, target_id)
+    warns = await asyncio.to_thread(db.get_warn_count, target_id)
+    pets = await asyncio.to_thread(db.get_user_pets, target_id)
+    prof = await asyncio.to_thread(db.get_profession, target_id)
+    display_name = await asyncio.to_thread(db.get_display_name, target_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, target_id)
+    badges = await asyncio.to_thread(db.get_badges, target_id)
 
     lines = [f"👤 Профиль {display_name}"]
     if cosmetics["status"] and cosmetics["status"] in db.STATUSES:
@@ -2316,7 +2370,7 @@ async def bank_ping_handler(message: Message):
 @dp.message(F.text.lower() == "остров")
 async def island_word(message: Message):
     user_id = message.from_user.id
-    state = db.island_get(user_id)
+    state = await asyncio.to_thread(db.island_get, user_id)
 
     if not state["has_island"]:
         # Нет острова — просто текст
@@ -2342,7 +2396,7 @@ async def island_word(message: Message):
             f"{'🏠 Домик: есть' if state['has_house'] else '🏠 Домик: нет'}\n"
             f"{'⚓ Причал: есть' if state['has_pier'] else '⚓ Причал: нет'}\n"
             f"{'🚢 Корабль: есть' if state['has_ship'] else '🚢 Корабль: нет'}\n\n"
-            f"💰 Баланс: {db.get_balance(user_id):,} 🪙"
+            f"💰 Баланс: {await asyncio.to_thread(db.get_balance, user_id):,} 🪙"
         )
         # Кнопки покупки того, чего нет
         builder = InlineKeyboardBuilder()
@@ -2382,7 +2436,7 @@ async def island_word(message: Message):
 @dp.callback_query(F.data.startswith("island_buy_"))
 async def island_buy_cb(callback: CallbackQuery):
     item = callback.data.replace("island_buy_", "")
-    ok, msg = db.island_buy(callback.from_user.id, item)
+    ok, msg = await asyncio.to_thread(db.island_buy, callback.from_user.id, item)
     if ok:
         await callback.answer(f"✅ {msg}", show_alert=True)
         # Перерисовываем
@@ -2394,7 +2448,7 @@ async def island_buy_cb(callback: CallbackQuery):
 @dp.message(F.text.lower() == "подарки")
 async def gifts_word(message: Message):
     user_id = message.from_user.id
-    incoming = db.gift_list_incoming(user_id)
+    incoming = await asyncio.to_thread(db.gift_list_incoming, user_id)
 
     if not incoming:
         await _word_trigger_answer(message, 
@@ -2417,7 +2471,7 @@ async def on_user_join(message: Message):
         if user.id == bot.id:
             continue
         uname = user.username or user.full_name or str(user.id)
-        db.add_new_member(user.id, uname)
+        await asyncio.to_thread(db.add_new_member, user.id, uname)
         logger.info(f"👤 Новый: @{uname}")
 
 
@@ -2448,11 +2502,7 @@ async def transfer_recipient(message: Message, state: FSMContext):
         await message.answer("❌ Отправь username текстом.")
         return
     target = message.text.strip().lstrip("@")
-    conn = sqlite3.connect(db.DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id, username FROM users WHERE username = ?", (target,))
-    row = cur.fetchone()
-    conn.close()
+    row = await asyncio.to_thread(_find_user_by_exact_username, target)
     if not row:
         await message.answer("❌ Не найден. Попробуйте снова:")
         return
@@ -2461,7 +2511,7 @@ async def transfer_recipient(message: Message, state: FSMContext):
         return
     await state.update_data(recipient_id=row[0], recipient_name=target)
     await message.answer(
-        f"💸 Получатель: @{target}\nВаш баланс: {db.get_balance(message.from_user.id)} 🪙\n\nВведите сумму:"
+        f"💸 Получатель: @{target}\nВаш баланс: {await asyncio.to_thread(db.get_balance, message.from_user.id)} 🪙\n\nВведите сумму:"
     )
     await state.set_state(TransferStates.waiting_amount)
 
@@ -2479,7 +2529,7 @@ async def transfer_amount(message: Message, state: FSMContext):
             await message.answer("❌ Максимум за один перевод — 200 000 LDC.")
             return
         uid = message.from_user.id
-        if amount > db.get_balance(uid):
+        if amount > await asyncio.to_thread(db.get_balance, uid):
             await message.answer("❌ Недостаточно")
             return
         await state.update_data(amount=amount)
@@ -2497,7 +2547,7 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     required = {"recipient_id", "recipient_name", "amount"}
     if not required.issubset(data):
-        db.log_action(callback.from_user.id, "security", "Подтверждение перевода без активного состояния")
+        await asyncio.to_thread(db.log_action, callback.from_user.id, "security", "Подтверждение перевода без активного состояния")
         await state.clear()
         await callback.answer("Перевод устарел. Начни заново.", show_alert=True)
         return
@@ -2505,10 +2555,10 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
     rname = data["recipient_name"]
     amount = data["amount"]
     sid = callback.from_user.id
-    ok, reason, count = db.transfer_coins_limited(sid, rid, amount, daily_limit=5)
+    ok, reason, count = await asyncio.to_thread(db.transfer_coins_limited, sid, rid, amount, daily_limit=5)
     if not ok:
         if reason == "limit":
-            db.log_action(sid, "security", f"Попытка перевода сверх суточного лимита; target_id={rid}; amount={amount}; count={count}")
+            await asyncio.to_thread(db.log_action, sid, "security", f"Попытка перевода сверх суточного лимита; target_id={rid}; amount={amount}; count={count}")
             error_text = "🚫 Лимит исчерпан: максимум 5 успешных переводов в сутки (UTC)."
         elif reason == "max_amount":
             error_text = "❌ Максимум за один перевод — 200 000 LDC."
@@ -2517,15 +2567,15 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
         elif reason == "recipient":
             error_text = "❌ Получатель не найден."
         else:
-            db.log_action(sid, "security", f"Перевод отклонён; reason={reason}; target_id={rid}; amount={amount}")
+            await asyncio.to_thread(db.log_action, sid, "security", f"Перевод отклонён; reason={reason}; target_id={rid}; amount={amount}")
             error_text = "❌ Перевод не выполнен: проверь данные и попробуй ещё раз."
         await callback.message.edit_text(error_text, reply_markup=back_to_main_menu())
         await state.clear()
         await callback.answer()
         return
-    db.log_action(sid, "transfer", f"Перевод @{rname}; переводов сегодня {count}/5 UTC", amount=amount, target_user_id=rid)
+    await asyncio.to_thread(db.log_action, sid, "transfer", f"Перевод @{rname}; переводов сегодня {count}/5 UTC", amount=amount, target_user_id=rid)
     await callback.message.edit_text(
-        f"✅ Переведено {amount} 🪙 @{rname}\nПереводов сегодня: {count}/5 (UTC)\nБаланс: {db.get_balance(sid)} 🪙",
+        f"✅ Переведено {amount} 🪙 @{rname}\nПереводов сегодня: {count}/5 (UTC)\nБаланс: {await asyncio.to_thread(db.get_balance, sid)} 🪙",
         reply_markup=back_to_main_menu()
     )
     try:
@@ -2540,7 +2590,7 @@ async def confirm_transfer(callback: CallbackQuery, state: FSMContext):
 async def cancel_transfer(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     try:
-        db.log_action(callback.from_user.id, "cancel", "Отменён перевод")
+        await asyncio.to_thread(db.log_action, callback.from_user.id, "cancel", "Отменён перевод")
     except Exception:
         logger.exception("Не удалось записать отмену перевода user_id=%s", callback.from_user.id)
     await callback.message.edit_text("❌ Отменено", reply_markup=back_to_main_menu())
@@ -2559,16 +2609,16 @@ async def approve_purchase(message: Message):
         return
     item_type = parts[1]
     uid = int(parts[2])
-    user = db.get_user(uid)
+    user = await asyncio.to_thread(db.get_user, uid)
     if not user:
         await message.answer("❌ Не найден")
         return
-    price = db.get_price(item_type)
+    price = await asyncio.to_thread(db.get_price, item_type)
     if user["balance"] < price:
         await message.answer(f"❌ Мало монет")
         return
-    if db.add_purchase(uid, item_type):
-        db.log_action(uid, "purchase", f"Покупка подтверждена владельцем: {item_type}", amount=price)
+    if await asyncio.to_thread(db.add_purchase, uid, item_type):
+        await asyncio.to_thread(db.log_action, uid, "purchase", f"Покупка подтверждена владельцем: {item_type}", amount=price)
         await message.answer(f"✅ Покупка подтверждена")
         try:
             await bot.send_message(uid, f"✅ Покупка {item_type} подтверждена!")
@@ -2585,7 +2635,7 @@ async def reject_purchase(message: Message):
         item_type = parts[1]
         try:
             uid = int(parts[2])
-            db.log_action(uid, "purchase_reject", f"Покупка отклонена владельцем: {item_type}")
+            await asyncio.to_thread(db.log_action, uid, "purchase_reject", f"Покупка отклонена владельцем: {item_type}")
         except (TypeError, ValueError):
             logger.warning("Некорректная команда отклонения покупки: %r", message.text)
     await message.answer("❌ Отклонено")
@@ -2597,7 +2647,7 @@ async def reject_purchase(message: Message):
 async def cancel_action(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     try:
-        db.log_action(callback.from_user.id, "cancel", "Пользователь отменил действие")
+        await asyncio.to_thread(db.log_action, callback.from_user.id, "cancel", "Пользователь отменил действие")
     except Exception:
         logger.exception("Не удалось записать отмену действия user_id=%s", callback.from_user.id)
     await callback.message.edit_text("❌ Отменено", reply_markup=back_to_main_menu())
@@ -2607,11 +2657,11 @@ async def cancel_action(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "claim_bonus")
 async def claim_bonus_cb(callback: CallbackQuery):
     uid = callback.from_user.id
-    can, remaining = db.can_claim_bonus(uid)
+    can, remaining = await asyncio.to_thread(db.can_claim_bonus, uid)
     if can:
-        bonus = db.claim_bonus(uid)
+        bonus = await asyncio.to_thread(db.claim_bonus, uid)
         await callback.message.edit_text(
-            f"🎁 Бонус: +{bonus} 🪙\nБаланс: {db.get_balance(uid)} 🪙",
+            f"🎁 Бонус: +{bonus} 🪙\nБаланс: {await asyncio.to_thread(db.get_balance, uid)} 🪙",
             reply_markup=back_to_main_menu()
         )
     else:
@@ -2639,8 +2689,8 @@ async def open_chest(callback: CallbackQuery):
     username = callback.from_user.username or str(user_id)
     
     # Выдаём награду
-    reward = db.roll_chest_reward()
-    reward_text = db.give_chest_reward(user_id, reward)
+    reward = await asyncio.to_thread(db.roll_chest_reward)
+    reward_text = await asyncio.to_thread(db.give_chest_reward, user_id, reward)
     
     # Обновляем сообщение
     try:
@@ -2781,14 +2831,14 @@ async def weekly_clean_reminder():
 async def clear_old_members():
     while True:
         await asyncio.sleep(86400)
-        db.clear_old_new_members(7)
+        await asyncio.to_thread(db.clear_old_new_members, 7)
 
 async def blocked_users_cleanup_loop():
     """Remove users marked as having blocked the bot; they can re-register if they return."""
     while True:
         await asyncio.sleep(86400)
         try:
-            removed = db.clear_blocked_users()
+            removed = await asyncio.to_thread(db.clear_blocked_users)
             if removed:
                 logger.info("🧹 Удалено заблокировавших бота пользователей: %s", removed)
         except Exception:
@@ -2803,7 +2853,7 @@ async def daily_tasks_reset():
         if target <= now:
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
-        db.reset_daily_tasks()
+        await asyncio.to_thread(db.reset_daily_tasks)
         logger.info("📋 Ежедневные задания обновлены")
 
 
@@ -2811,14 +2861,14 @@ async def pets_income():
     """Доход питомцев раз в 4 часа"""
     while True:
         await asyncio.sleep(14400)  # 4 часа
-        users = db.get_all_users()
+        users = await asyncio.to_thread(db.get_all_users)
         for u in users:
             if u["is_banned"]:
                 continue
-            pets = db.get_user_pets(u["user_id"])
+            pets = await asyncio.to_thread(db.get_user_pets, u["user_id"])
             total = sum(p["income"] for p in pets if p["is_active"])
             if total > 0:
-                db.update_balance(u["user_id"], total)
+                await asyncio.to_thread(db.update_balance, u["user_id"], total)
         logger.info("🐾 Доход питомцев начислен")
 
 
@@ -2830,11 +2880,11 @@ async def cursed_egg_scheduler():
         await asyncio.sleep(1800)
         # Если суббота (weekday=5), вечер (17:00–22:00) и яйцо неактивно
         if now.weekday() == 5 and 17 <= now.hour <= 22:
-            stock = db.get_egg_stock()
+            stock = await asyncio.to_thread(db.get_egg_stock)
             if not stock["active"]:
                 # 10% шанс, что активируется в этот получасовой слот
                 if random.random() < 0.1:
-                    db.set_cursed_egg_active(5)
+                    await asyncio.to_thread(db.set_cursed_egg_active, 5)
                     await announce_cursed_egg()
                     logger.info("🕯️ Проклятое яйцо активировано")
 
@@ -2934,8 +2984,8 @@ def build_island_image(user_id: int, state: dict) -> str:
 
 async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
     """Шлёт ЛС всем админам/владельцу/тех.админам о покупке в каталоге."""
-    item_name = db.get_item_name(item_type)
-    buyer = db.get_user(buyer_id)
+    item_name = await asyncio.to_thread(db.get_item_name, item_type)
+    buyer = await asyncio.to_thread(db.get_user, buyer_id)
     buyer_name = f"@{buyer['username']}" if buyer and buyer.get("username") else f"ID{buyer_id}"
 
     text = (
@@ -2943,7 +2993,7 @@ async def notify_admins_purchase(buyer_id: int, item_type: str, price: int):
         f"👤 Покупатель: {buyer_name} (ID {buyer_id})\n"
         f"📦 Товар: {item_name}\n"
         f"💰 Цена: {price:,} 🪙\n"
-        f"💼 Баланс после: {db.get_balance(buyer_id):,} 🪙"
+        f"💼 Баланс после: {await asyncio.to_thread(db.get_balance, buyer_id):,} 🪙"
     )
 
     targets = set(config.ADMIN_IDS) | set(config.TECH_ADMIN_IDS) | {config.OWNER_ID}
@@ -2999,7 +3049,7 @@ async def announce_world_event(event: dict):
     )
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🎁 Забрать награду", callback_data="world_event_claim"))
-    for user in db.get_all_users():
+    for user in await asyncio.to_thread(db.get_all_users):
         uid = user.get("user_id")
         if not uid or user.get("is_banned"):
             continue
@@ -3024,7 +3074,7 @@ async def world_event_scheduler():
     while True:
         await asyncio.sleep(30)
         try:
-            if world_events.get_current_event():
+            if await asyncio.to_thread(world_events.get_current_event):
                 continue
             settings = await asyncio.to_thread(world_events.get_settings)
             now = datetime.utcnow()
@@ -3035,7 +3085,7 @@ async def world_event_scheduler():
             scheduled = await asyncio.to_thread(world_events.get_due_schedule)
             if scheduled:
                 try:
-                    event = world_events.start_event(
+                    event = await asyncio.to_thread(world_events.start_event, 
                         scheduled["event_type"],
                         duration_minutes=scheduled.get("duration_minutes") or 60,
                         reward_ldc=scheduled.get("reward_ldc") or 500,
@@ -3054,18 +3104,17 @@ async def world_event_scheduler():
                 continue
             next_random = _event_datetime(settings.get("next_random_at"))
             if not next_random:
-                conn = sqlite3.connect(os.environ.get("DB_PATH", db.DB_NAME))
-                cur = conn.cursor()
                 first_random = now + timedelta(minutes=random.randint(60, 240))
-                cur.execute("UPDATE world_event_settings SET next_random_at = ? WHERE id = 1",
-                            (first_random.isoformat(),))
-                conn.commit()
-                conn.close()
+                await asyncio.to_thread(
+                    _set_next_random_at,
+                    first_random.isoformat(),
+                    os.environ.get("DB_PATH", db.DB_NAME),
+                )
                 continue
             if now >= next_random:
                 event_type = random.choice(list(world_events.EVENT_TYPES.keys()))
                 try:
-                    event = world_events.start_event(
+                    event = await asyncio.to_thread(world_events.start_event, 
                         event_type,
                         duration_minutes=settings.get("default_duration_minutes") or 60,
                         reward_ldc=random.randint(300, 1500),
@@ -3085,7 +3134,7 @@ async def gifts_cleanup_loop():
     while True:
         await asyncio.sleep(86400)  # раз в день
         try:
-            count = db.gift_cleanup_expired()
+            count = await asyncio.to_thread(db.gift_cleanup_expired)
             if count > 0:
                 logger.info(f"🎁 Очищено просроченных подарков: {count}")
         except Exception as e:
@@ -3095,7 +3144,7 @@ async def islands_income_loop():
     while True:
         await asyncio.sleep(600)  # каждые 10 минут
         try:
-            credited = db.islands_income_tick()
+            credited = await asyncio.to_thread(db.islands_income_tick)
             for user_id, amount, type_, item_name in credited:
                 try:
                     await bot.send_message(
@@ -3114,7 +3163,7 @@ async def halloween_event_scheduler():
     event_key = "halloween_2026"
     while True:
         now = datetime.now(ZoneInfo("Europe/Moscow"))
-        if (now.year, now.month, now.day) == (2026, 10, 31) and not db.event_was_announced(event_key):
+        if (now.year, now.month, now.day) == (2026, 10, 31) and not await asyncio.to_thread(db.event_was_announced, event_key):
             try:
                 await bot.send_message(
                     config.FLUD_CHAT_ID,
@@ -3122,7 +3171,7 @@ async def halloween_event_scheduler():
                     "Праздник уже начался! Открой Mini App 31 октября и забери праздничную награду 500 🪙.\n"
                     "Ивент действует до 00:00 1 ноября."
                 )
-                db.mark_event_announced(event_key)
+                await asyncio.to_thread(db.mark_event_announced, event_key)
                 logger.info("Хэллоуинский ивент объявлен")
             except Exception:
                 logger.exception("Не удалось объявить хэллоуинский ивент")
@@ -3137,7 +3186,7 @@ async def main():
     db_module.init_db()
     print_banner()
     logger.info("🚀 Lavender Dream Coin запускается...")
-    db.remove_bot_from_new_members(bot.id)
+    await asyncio.to_thread(db.remove_bot_from_new_members, bot.id)
     await bot.set_my_commands([
         {"command": "start", "description": "🏠 Запустить бота"},
         {"command": "help", "description": "ℹ️ Помощь"},
