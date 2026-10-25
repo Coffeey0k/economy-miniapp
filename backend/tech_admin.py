@@ -6,6 +6,7 @@
 Их действия логируются, но логи видят ТОЛЬКО они между собой.
 """
 
+import asyncio
 import logging
 
 from aiogram import Router, F
@@ -63,7 +64,7 @@ async def tech_panel(callback: CallbackQuery, answer_callback: bool = True):
         return
 
     uid = callback.from_user.id
-    test = db.is_test_mode(uid)
+    test = await asyncio.to_thread(db.is_test_mode, uid)
     test_status = "🟢 ВКЛ" if test else "🔴 ВЫКЛ"
 
     await callback.message.edit_text(
@@ -87,9 +88,9 @@ async def tech_test_mode(callback: CallbackQuery):
         return
 
     uid = callback.from_user.id
-    current = db.is_test_mode(uid)
+    current = await asyncio.to_thread(db.is_test_mode, uid)
     new_value = not current
-    db.set_test_mode(uid, new_value, added_by=uid)
+    await asyncio.to_thread(db.set_test_mode, uid, new_value, added_by=uid)
 
     await callback.answer(
         f"🧪 Тест-режим {'ВКЛЮЧЁН' if new_value else 'ВЫКЛЮЧЕН'}\n"
@@ -158,7 +159,7 @@ async def tech_logs_all(callback: CallbackQuery):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    entries = db.get_action_log(limit=500)
+    entries = await asyncio.to_thread(db.get_action_log, limit=500)
     if not entries:
         text = "📜 Логи пусты."
     else:
@@ -206,7 +207,7 @@ async def tech_logs_type(callback: CallbackQuery):
     types = groups.get(t, [t])
     entries = []
     for tt in types:
-        entries += db.get_action_log(filter_type=tt, limit=100)
+        entries += await asyncio.to_thread(db.get_action_log, filter_type=tt, limit=100)
 
     entries.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     entries = entries[:100]
@@ -258,14 +259,14 @@ async def tech_logs_user_show(message: Message, state: FSMContext):
         return
 
     query = message.text.strip().lstrip("@")
-    user = _find_user(query)
+    user = await asyncio.to_thread(_find_user, query)
     if not user:
         await message.answer("❌ Не найден")
         await state.clear()
         return
 
     uid = user["user_id"]
-    entries = db.get_user_actions(uid, limit=200)
+    entries = await asyncio.to_thread(db.get_user_actions, uid, limit=200)
 
     uname = f"@{user['username']}" if user["username"] else f"ID {uid}"
     if not entries:
@@ -316,7 +317,7 @@ async def tech_show_user(message: Message, state: FSMContext):
         return
 
     query = message.text.strip().lstrip("@")
-    user = _find_user(query)
+    user = await asyncio.to_thread(_find_user, query)
     if not user:
         await message.answer("❌ Не найден")
         await state.clear()
@@ -325,17 +326,17 @@ async def tech_show_user(message: Message, state: FSMContext):
     uid = user["user_id"]
     uname = f"@{user['username']}" if user["username"] else f"ID {uid}"
 
-    purchases = db.get_user_purchases(uid)
-    pets = db.get_user_pets(uid)
-    prof = db.get_profession(uid)
-    island = db.island_get(uid)
-    rcc_stats = db.rcc_get_stats(uid)
+    purchases = await asyncio.to_thread(db.get_user_purchases, uid)
+    pets = await asyncio.to_thread(db.get_user_pets, uid)
+    prof = await asyncio.to_thread(db.get_profession, uid)
+    island = await asyncio.to_thread(db.island_get, uid)
+    rcc_stats = await asyncio.to_thread(db.rcc_get_stats, uid)
 
     text = (
         f"👤 {uname}\n"
         f"💰 Баланс: {user['balance']:,} 🪙\n"
-        f"⚠️ Варны: {db.get_warn_count(uid)}\n"
-        f"🎮 Игр: {_count_games(uid)}\n"
+        f"⚠️ Варны: {await asyncio.to_thread(db.get_warn_count, uid)}\n"
+        f"🎮 Игр: {await asyncio.to_thread(_count_games, uid)}\n"
         f"🐾 Питомцев: {len(pets)}\n"
     )
     if prof and prof["profession"]:
@@ -389,7 +390,7 @@ async def tech_balance_user(message: Message, state: FSMContext):
         return
 
     query = message.text.strip().lstrip("@")
-    user = _find_user(query)
+    user = await asyncio.to_thread(_find_user, query)
     if not user:
         await message.answer("❌ Не найден")
         await state.clear()
@@ -401,6 +402,22 @@ async def tech_balance_user(message: Message, state: FSMContext):
         f"Введите новое значение (просто число):"
     )
     await state.set_state(TechStates.waiting_balance_new_value)
+
+
+def _set_balance_and_get_old(target_id: int, new_balance: int):
+    conn = db.sqlite3.connect(db.DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT balance FROM users WHERE user_id = ?", (target_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        old_balance = int(row[0] or 0)
+        cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_id))
+        conn.commit()
+        return old_balance
+    finally:
+        conn.close()
 
 
 @router.message(TechStates.waiting_balance_new_value)
@@ -421,22 +438,14 @@ async def tech_balance_set(message: Message, state: FSMContext):
     data = await state.get_data()
     target_id = data["target_id"]
 
-    # Сохраняем старое значение, чтобы журнал отражал реальное изменение.
-    conn = db.sqlite3.connect(db.DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT balance FROM users WHERE user_id = ?", (target_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
+    # Сохраняем старое значение и меняем баланс одним вызовом в worker thread.
+    old_balance = await asyncio.to_thread(_set_balance_and_get_old, target_id, new_balance)
+    if old_balance is None:
         await message.answer("❌ Игрок больше не найден.")
         await state.clear()
         return
-    old_balance = int(row[0] or 0)
-    cur.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_id))
-    conn.commit()
-    conn.close()
 
-    db.log_action(
+    await asyncio.to_thread(db.log_action, 
         target_id, "tech_action",
         f"Баланс изменён тех.админом {message.from_user.id}: {old_balance} → {new_balance}",
         amount=new_balance - old_balance,
@@ -456,7 +465,7 @@ async def tech_balance_edit(callback: CallbackQuery, state: FSMContext):
         return
 
     target_id = int(callback.data.replace("tech_balance_edit_", ""))
-    user = db.get_user(target_id)
+    user = await asyncio.to_thread(db.get_user, target_id)
     if not user:
         await callback.answer("❌ Не найден", show_alert=True)
         return
@@ -494,7 +503,7 @@ async def tech_purchases_user(message: Message, state: FSMContext):
         return
 
     query = message.text.strip().lstrip("@")
-    user = _find_user(query)
+    user = await asyncio.to_thread(_find_user, query)
     if not user:
         await message.answer("❌ Не найден")
         await state.clear()
@@ -516,7 +525,7 @@ async def tech_purchases_user_cb(callback: CallbackQuery):
 
 
 async def _show_purchases(message: Message, user_id: int):
-    purchases = db.get_purchases_full(user_id)
+    purchases = await asyncio.to_thread(db.get_purchases_full, user_id)
     if not purchases:
         builder = InlineKeyboardBuilder()
         builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="tech_panel"))
@@ -527,7 +536,7 @@ async def _show_purchases(message: Message, user_id: int):
     text = f"🛍️ Покупки игрока (id={user_id}):\n\n"
     for pid, itype, is_used in purchases:
         status = "✅" if is_used else "⏳"
-        name = db.get_item_name(itype)
+        name = await asyncio.to_thread(db.get_item_name, itype)
         text += f"{status} {name} (id={pid})\n"
         builder.row(
             InlineKeyboardButton(text=f"🗑️ Аннулировать {name}", callback_data=f"tech_wipe_purchase_{pid}"),
@@ -572,7 +581,7 @@ async def tech_wipe_purch_confirm(callback: CallbackQuery):
     pid = int(parts[0])
     refund = bool(int(parts[1]))
 
-    ok = db.admin_wipe_purchase(pid, refund=refund)
+    ok = await asyncio.to_thread(db.admin_wipe_purchase, pid, refund=refund)
     if ok:
         await callback.answer("✅ Аннулировано", show_alert=True)
     else:
@@ -594,7 +603,7 @@ async def tech_wipe_all_purch(callback: CallbackQuery):
     uid = int(parts[0])
     refund = bool(int(parts[1]))
 
-    count = db.admin_wipe_user_purchases(uid, refund=refund)
+    count = await asyncio.to_thread(db.admin_wipe_user_purchases, uid, refund=refund)
     await callback.answer(f"✅ Удалено: {count}", show_alert=True)
     await callback.message.edit_text(
         f"Удалено покупок: {count}",
@@ -668,14 +677,14 @@ async def tech_island_show(message: Message, state: FSMContext):
         return
 
     query = message.text.strip().lstrip("@")
-    user = _find_user(query)
+    user = await asyncio.to_thread(_find_user, query)
     if not user:
         await message.answer("❌ Не найден")
         await state.clear()
         return
 
     uid = user["user_id"]
-    island = db.island_get(uid)
+    island = await asyncio.to_thread(db.island_get, uid)
 
     if not island["has_island"]:
         await message.answer("❌ У игрока нет острова.")
@@ -715,7 +724,7 @@ async def tech_island_wipe(callback: CallbackQuery):
     uid = int(parts[0])
     item = parts[1]
 
-    ok = db.admin_wipe_island(uid, item=None if item == "all" else item)
+    ok = await asyncio.to_thread(db.admin_wipe_island, uid, item=None if item == "all" else item)
     await callback.answer("✅ Удалено" if ok else "❌ Ошибка", show_alert=True)
     await callback.message.edit_text(
         "Готово.",
@@ -730,7 +739,7 @@ async def tech_income_wipe(callback: CallbackQuery):
         return
 
     uid = int(callback.data.replace("tech_income_wipe_", ""))
-    ok = db.admin_wipe_last_island_income(uid)
+    ok = await asyncio.to_thread(db.admin_wipe_last_island_income, uid)
     await callback.answer("✅ Доход снят" if ok else "❌ Ошибка", show_alert=True)
     await callback.message.edit_text(
         "Готово.",
@@ -747,7 +756,7 @@ async def tech_logs_user_id(callback: CallbackQuery):
         return
 
     uid = int(callback.data.replace("tech_logs_user_id_", ""))
-    entries = db.get_user_actions(uid, limit=30)
+    entries = await asyncio.to_thread(db.get_user_actions, uid, limit=30)
 
     if not entries:
         text = "📜 Действий нет."
