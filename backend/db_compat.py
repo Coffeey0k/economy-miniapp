@@ -258,6 +258,7 @@ class Connection:
         except (TypeError, ValueError):
             connect_timeout = 5
         self._pool = _get_connection_pool(dsn, connect_timeout)
+        pool_wait_started = time.perf_counter()
         deadline = time.monotonic() + 5.0
         while True:
             try:
@@ -269,6 +270,13 @@ class Connection:
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.025)
+        pool_wait_ms = (time.perf_counter() - pool_wait_started) * 1000
+        try:
+            pool_wait_threshold = float(os.environ.get("DB_SLOW_POOL_WAIT_MS", "250"))
+        except (TypeError, ValueError):
+            pool_wait_threshold = 250.0
+        if pool_wait_ms >= pool_wait_threshold:
+            logger.warning("SLOW_DB_POOL_WAIT elapsed_ms=%.0f", pool_wait_ms)
         self._closed = False
         self.row_factory = None  # совместимость с conn.row_factory = sqlite3.Row
 
