@@ -71,12 +71,33 @@ def _get_connection_pool(dsn: str, connect_timeout: int):
             minconn = _positive_int_env("DB_POOL_MIN", 1, 1, 4)
             maxconn = _positive_int_env("DB_POOL_MAX", 24, 2, 40)
             minconn = min(minconn, maxconn)
+            # Bound SQL execution and lock waits so a stalled/contended query
+            # cannot hold a Telegram update for minutes. Values are configurable
+            # per deployment while remaining within safe operational limits.
+            try:
+                statement_timeout_ms = max(
+                    1000, min(120000, int(os.environ.get("DB_STATEMENT_TIMEOUT_MS", "20000")))
+                )
+            except (TypeError, ValueError):
+                statement_timeout_ms = 20000
+            try:
+                lock_timeout_ms = max(
+                    500, min(60000, int(os.environ.get("DB_LOCK_TIMEOUT_MS", "5000")))
+                )
+            except (TypeError, ValueError):
+                lock_timeout_ms = 5000
+
             _CONNECTION_POOL = ThreadedConnectionPool(
                 minconn,
                 maxconn,
                 dsn,
                 connect_timeout=connect_timeout,
                 application_name="lavender_dream_bot",
+                options=(
+                    f"-c statement_timeout={statement_timeout_ms} "
+                    f"-c lock_timeout={lock_timeout_ms} "
+                    "-c idle_in_transaction_session_timeout=30000"
+                ),
             )
             _CONNECTION_POOL_DSN = dsn
         return _CONNECTION_POOL
