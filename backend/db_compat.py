@@ -69,7 +69,7 @@ def _get_connection_pool(dsn: str, connect_timeout: int):
                 except Exception:
                     logger.exception("Не удалось закрыть старый пул PostgreSQL")
             minconn = _positive_int_env("DB_POOL_MIN", 1, 1, 4)
-            maxconn = _positive_int_env("DB_POOL_MAX", 24, 2, 40)
+            maxconn = _positive_int_env("DB_POOL_MAX", 8, 2, 40)
             minconn = min(minconn, maxconn)
             # Bound SQL execution and lock waits so a stalled/contended query
             # cannot hold a Telegram update for minutes. Values are configurable
