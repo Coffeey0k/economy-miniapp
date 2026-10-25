@@ -88,7 +88,6 @@ def ensure_settings():
     conn.close()
 
 def get_settings():
-    ensure_settings()
     conn = _db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM world_event_settings WHERE id = 1")
@@ -97,7 +96,6 @@ def get_settings():
     return row
 
 def get_current_event():
-    ensure_settings()
     now = datetime.utcnow()
     conn = _db()
     cur = conn.cursor()

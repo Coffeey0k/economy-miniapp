@@ -69,7 +69,7 @@ def _get_connection_pool(dsn: str, connect_timeout: int):
                 except Exception:
                     logger.exception("Не удалось закрыть старый пул PostgreSQL")
             minconn = _positive_int_env("DB_POOL_MIN", 1, 1, 4)
-            maxconn = _positive_int_env("DB_POOL_MAX", 24, 2, 40)
+            maxconn = _positive_int_env("DB_POOL_MAX", 4, 2, 8)
             minconn = min(minconn, maxconn)
             # Bound SQL execution and lock waits so a stalled/contended query
             # cannot hold a Telegram update for minutes. Values are configurable
@@ -540,14 +540,8 @@ def init_db():
         "ALTER TABLE web_rules_read ALTER COLUMN user_id TYPE BIGINT"
     )
 
-    # Remove obsolete feature tables; their dependent application code has been
-    # removed and the historical records are explicitly no longer retained.
-    for obsolete_table in (
-        "clan_requests", "clan_members", "clans",
-        "web_trades", "pet_trades",
-        "music_personal", "music_shared", "music_slots",
-    ):
-        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table} CASCADE")
+    # Preserve legacy tables and records during startup. Any feature removal must
+    # be handled by a separately reviewed, explicitly invoked migration.
 
     conn.commit()
     conn.close()

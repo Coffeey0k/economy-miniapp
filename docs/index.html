@@ -1545,7 +1545,7 @@
   }
   if (!window._worldEventPollingStarted) {
     window._worldEventPollingStarted = true;
-    setInterval(() => { loadWorldEvent(); }, 30000);
+    setInterval(() => { if (document.visibilityState === "visible") loadWorldEvent(); }, 60000);
   }
   async function claimWorldEvent() {
     try {
@@ -4092,18 +4092,29 @@
       document.getElementById("app").style.display = "block";
       document.getElementById("nav").style.display = "flex";
       checkRulesNotice().catch((e) => console.warn("Не удалось проверить прочтение правил:", e));
-      setInterval(() => { loadProfile().catch(() => {}); }, 20000);
+      setInterval(() => { if (document.visibilityState === "visible") loadProfile().catch(() => {}); }, 60000);
       // Refresh server-authoritative LCC energy while its tab is open so passive
       // regeneration is visible without requiring a click or reopening the tab.
       setInterval(() => {
+        if (document.visibilityState !== "visible") return;
         const rccTabEl = document.getElementById("tab-rcc");
         if (rccTabEl && rccTabEl.classList.contains("active") && !rccGame.active) {
           loadRcc().catch(() => {});
         }
-      }, 15000);
-      setInterval(() => { checkFriendRequests().catch(() => {}); }, 30000);
+      }, 30000);
+      setInterval(() => { if (document.visibilityState === "visible") checkFriendRequests().catch(() => {}); }, 90000);
       loadHalloweenEvent().catch(() => {});
-      setInterval(() => { loadHalloweenEvent().catch(() => {}); }, 60000);
+      setInterval(() => { if (document.visibilityState === "visible") loadHalloweenEvent().catch(() => {}); }, 300000);
+      if (!window._visibilityRefreshBound) {
+        window._visibilityRefreshBound = true;
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState !== "visible") return;
+          loadProfile().catch(() => {});
+          checkFriendRequests().catch(() => {});
+          loadHalloweenEvent().catch(() => {});
+          loadWorldEvent().catch(() => {});
+        });
+      }
     } catch (err) {
       document.getElementById("status").textContent = "Не удалось загрузить профиль. " + err.message;
     }

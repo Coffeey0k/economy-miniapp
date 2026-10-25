@@ -860,30 +860,9 @@ def init_db():
     ):
         cur.execute(f"ALTER TABLE {user_table} ALTER COLUMN user_id TYPE BIGINT")
 
-    # One-time feature removal: the old player-to-player trade, clan and music
-    # systems have no remaining runtime dependencies. Drop their data/tables.
-    for obsolete_table in (
-        "clan_requests", "clan_members", "clans",
-        "web_trades", "pet_trades",
-        "music_personal", "music_shared", "music_slots",
-    ):
-        cur.execute(f"DROP TABLE IF EXISTS {obsolete_table} CASCADE")
-
-    # Remove legacy music-only inventory and daily-task records.
-    cur.execute("DELETE FROM daily_tasks WHERE task_type = 'musician'")
-    cur.execute("DELETE FROM inventory_items WHERE item_key = 'music_tokens'")
-
-    # Existing musician jobs are migrated to the equivalent artist job so no
-    # player loses their profession or salary progression.
-    cur.execute("UPDATE professions SET profession = 'artist' WHERE profession = 'musician'")
-    cur.execute("""INSERT INTO profession_progress (user_id, profession, level, days_worked, last_work)
-        SELECT user_id, 'artist', level, days_worked, last_work
-        FROM profession_progress WHERE profession = 'musician'
-        ON CONFLICT(user_id, profession) DO UPDATE SET
-            level = GREATEST(profession_progress.level, excluded.level),
-            days_worked = GREATEST(profession_progress.days_worked, excluded.days_worked),
-            last_work = COALESCE(excluded.last_work, profession_progress.last_work)""")
-    cur.execute("DELETE FROM profession_progress WHERE profession = 'musician'")
+    # IMPORTANT: Do not destructively remove legacy feature tables or player data
+    # during startup. Keep old trade/clan/music tables until a separately reviewed
+    # migration has verified dependencies and preserved/exported historical data.
 
     conn.commit()
     conn.close()
