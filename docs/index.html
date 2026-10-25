@@ -2366,11 +2366,13 @@
     if (!msState) return;
     const { board, revealed, size } = msState;
     const numEmoji = {"0":"⬜","1":"1️⃣","2":"2️⃣","3":"3️⃣","4":"4️⃣","5":"5️⃣","6":"6️⃣","7":"7️⃣","8":"8️⃣"};
-    let html = `<div class="card" style="margin-bottom:10px;text-align:center;"><strong>💰 Ставка: ${msState.bet.toLocaleString()} 🪙</strong><div class="label">Выплата при победе: ${msState.reward.toLocaleString()} 🪙</div></div><div style="display:grid;grid-template-columns:repeat(${size},minmax(0,1fr));gap:4px;max-width:440px;margin:0 auto;">`;
+    let html = `<div class="card mini-game-panel" style="margin-bottom:10px;text-align:center;"><div class="mini-game-kicker">💣 Сапёр · ${size}×${size}</div><strong>💰 Ставка: ${msState.bet.toLocaleString()} 🪙</strong><div class="label">Выплата при победе: ${msState.reward.toLocaleString()} 🪙</div></div><div class="ms-board" style="display:grid;grid-template-columns:repeat(${size},minmax(0,1fr));gap:5px;max-width:440px;margin:0 auto;">`;
     for (let i = 0; i < size * size; i++) {
       let content = "⬛";
       if (revealed[i] === "1") content = board[i] === "M" ? "💥" : (numEmoji[board[i]] || "⬜");
-      html += `<button onclick="openMsCell(${i})" style="background:none;border:none;font-size:22px;padding:2px;cursor:pointer;">${content}</button>`;
+      const isOpen = revealed[i] === "1";
+      const isMine = isOpen && board[i] === "M";
+      html += `<button class="ms-cell${isOpen ? " ms-open" : ""}${isMine ? " ms-mine" : ""}" ${isOpen ? "disabled" : ""} aria-label="${isOpen ? "Открытая клетка" : "Открыть клетку"}" onclick="openMsCell(${i})">${content === "⬛" ? "" : content}</button>`;
     }
     html += `</div>`;
     document.getElementById("minesweeper-area").innerHTML = html;
