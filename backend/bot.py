@@ -2465,14 +2465,45 @@ async def gifts_word(message: Message):
 
 # ==================== ВХОД НОВЫХ УЧАСТНИКОВ ====================
 
+new_member_record_lock = asyncio.Lock()
+
+
+def _is_active_chat_member(member) -> bool:
+    """Определяет, считается ли участник реально состоящим в чате."""
+    status = getattr(member, "status", None)
+    if status in {"creator", "administrator", "member"}:
+        return True
+    return status == "restricted" and bool(getattr(member, "is_member", False))
+
+
+async def _record_new_member(user, source: str):
+    if user.id == bot.id:
+        return
+
+    uname = user.username or user.full_name or str(user.id)
+    # Оба Telegram update-типа могут описывать одно вступление.
+    # Сериализуем запись, чтобы не получить дубль при одновременной доставке.
+    async with new_member_record_lock:
+        await asyncio.to_thread(db.add_new_member, user.id, uname)
+    logger.info("👤 Вступление обработано: @%s id=%s source=%s", uname, user.id, source)
+
+
+@dp.chat_member()
+async def on_chat_member_update(event: ChatMemberUpdated):
+    """Надёжный источник события вступления, независимый от сервисного сообщения."""
+    was_member = _is_active_chat_member(event.old_chat_member)
+    is_member = _is_active_chat_member(event.new_chat_member)
+    if was_member or not is_member:
+        return
+
+    await _record_new_member(event.new_chat_member.user, "chat_member")
+
+
 @dp.message(F.new_chat_members)
 async def on_user_join(message: Message):
+    """Резервный обработчик сервисных сообщений о вступлении."""
     for user in message.new_chat_members:
-        if user.id == bot.id:
-            continue
-        uname = user.username or user.full_name or str(user.id)
-        await asyncio.to_thread(db.add_new_member, user.id, uname)
-        logger.info(f"👤 Новый: @{uname}")
+        await _record_new_member(user, "new_chat_members")
 
 
 # ==================== ПЕРЕВОДЫ ====================
