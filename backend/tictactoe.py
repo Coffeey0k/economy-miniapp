@@ -8,15 +8,32 @@
 Поле 3x3 хранится как строка из 9 символов: '_' пусто, 'X', 'O'.
 """
 
+import asyncio
 from aiogram import Router, F
 import re
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
+import db_compat as sqlite3
 import database as db
 
 router = Router()
+
+
+def _find_target_user_id(target_raw: str):
+    conn = sqlite3.connect(db.DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT user_id FROM users WHERE LOWER(REPLACE(TRIM(username), '@', '')) = ?",
+            (target_raw.lower(),),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
 
 
 # ==================== КЛАВИАТУШКИ ====================
@@ -57,7 +74,7 @@ async def ttt_create(message: Message):
     print(f">>> ttt_create вызван! text={message.text!r}")
     parts = message.text.split()
     if len(parts) < 3:
-        db.log_action(message.from_user.id, "security", f"Неполная команда КН: {message.text[:180]!r}")
+        await asyncio.to_thread(db.log_action, message.from_user.id, "security", f"Неполная команда КН: {message.text[:180]!r}")
         await message.answer(
             "❌ Неверный формат.\n"
             "Используй: `кн @username 500` или `кн бот 500`",
@@ -68,7 +85,7 @@ async def ttt_create(message: Message):
     target_raw = parts[1].strip().lstrip("@").lower()
     match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", parts[2].lower())
     if not match:
-        db.log_action(message.from_user.id, "security", f"Некорректная ставка КН: {message.text[:180]!r}")
+        await asyncio.to_thread(db.log_action, message.from_user.id, "security", f"Некорректная ставка КН: {message.text[:180]!r}")
         await message.answer("❌ Ставка должна быть числом (например, 1к или 1кк).")
         return
     try:
@@ -83,35 +100,35 @@ async def ttt_create(message: Message):
         return
 
     if bet < 500:
-        db.log_action(message.from_user.id, "security", f"Ставка КН ниже минимума: {bet}")
+        await asyncio.to_thread(db.log_action, message.from_user.id, "security", f"Ставка КН ниже минимума: {bet}")
         await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
 
     from_user = message.from_user.id
 
     # Проверка баланса
-    if db.get_balance(from_user) < bet:
-        db.log_action(from_user, "security", f"Ставка КН превышает баланс: bet={bet}; balance={db.get_balance(from_user)}")
-        await message.answer(f"❌ Недостаточно монет. У тебя {db.get_balance(from_user)} 🪙.")
+    if await asyncio.to_thread(db.get_balance, from_user) < bet:
+        await asyncio.to_thread(db.log_action, from_user, "security", f"Ставка КН превышает баланс: bet={bet}; balance={await asyncio.to_thread(db.get_balance, from_user)}")
+        await message.answer(f"❌ Недостаточно монет. У тебя {await asyncio.to_thread(db.get_balance, from_user)} 🪙.")
         return
 
     # === Игра с ботом ===
     if target_raw in ("бот", "bot"):
-        allowed, remaining = db.register_game_play(from_user, "ttt")
+        allowed, remaining = await asyncio.to_thread(db.register_game_play, from_user, "ttt")
         if not allowed:
             hours, rem = divmod(remaining, 3600)
             await message.answer(f"⏳ Крестики-нолики на перерыве ещё {hours} ч {rem // 60} мин.")
             return
-        if not db.update_balance(from_user, -bet):
+        if not await asyncio.to_thread(db.update_balance, from_user, -bet):
             await message.answer("❌ Не удалось списать ставку. Попробуй ещё раз.")
             return
-        game_id = db.ttt_create_game(
+        game_id = await asyncio.to_thread(db.ttt_create_game, 
             player_x=from_user,
             player_o=None,
             bet=bet,
             is_vs_bot=True
         )
-        game = db.ttt_get_game(game_id)
+        game = await asyncio.to_thread(db.ttt_get_game, game_id)
         text = (
             f"🤖 Игра с ботом\n"
             f"💰 Ставка: {bet} 🪙\n"
@@ -124,28 +141,21 @@ async def ttt_create(message: Message):
 
     # === Игра с игроком ===
     # Ищем того, кого вызывают
-    conn_import_sqlite3 = __import__("db_compat")
-    conn = conn_import_sqlite3.connect(db.DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users WHERE LOWER(REPLACE(TRIM(username), '@', '')) = ?", (target_raw.lower(),))
-    row = cur.fetchone()
-    conn.close()
+    to_user = await asyncio.to_thread(_find_target_user_id, target_raw)
 
-    if not row:
+    if to_user is None:
         await message.answer(f"❌ Пользователь @{target_raw} не найден.")
         return
-
-    to_user = row[0]
     if to_user == from_user:
         await message.answer("❌ Нельзя вызвать самого себя.")
         return
 
-    if db.get_balance(to_user) < bet:
+    if await asyncio.to_thread(db.get_balance, to_user) < bet:
         await message.answer(f"❌ У @{target_raw} недостаточно монет для такой ставки.")
         return
 
     # Создаём приглашение
-    invite_id = db.ttt_create_invite(
+    invite_id = await asyncio.to_thread(db.ttt_create_invite, 
         from_user=from_user,
         to_user=to_user,
         bet=bet,
@@ -168,7 +178,7 @@ async def ttt_create(message: Message):
 @router.callback_query(F.data.startswith("ttt_accept_"))
 async def ttt_accept(callback: CallbackQuery):
     invite_id = int(callback.data.replace("ttt_accept_", ""))
-    invite = db.ttt_get_invite(invite_id)
+    invite = await asyncio.to_thread(db.ttt_get_invite, invite_id)
 
     if not invite:
         await callback.answer("❌ Приглашение не найдено.", show_alert=True)
@@ -182,26 +192,26 @@ async def ttt_accept(callback: CallbackQuery):
 
     # Check both players before consuming either player's attempt.
     for player_id in (invite["from_user"], invite["to_user"]):
-        allowed, remaining = db.can_play_game(player_id, "ttt")
+        allowed, remaining = await asyncio.to_thread(db.can_play_game, player_id, "ttt")
         if not allowed:
             hours, rem = divmod(remaining, 3600)
             await callback.answer(f"Игрок на перерыве ещё {hours} ч {rem // 60} мин.", show_alert=True)
             return
     for player_id in (invite["from_user"], invite["to_user"]):
-        allowed, remaining = db.register_game_play(player_id, "ttt")
+        allowed, remaining = await asyncio.to_thread(db.register_game_play, player_id, "ttt")
         if not allowed:
             hours, rem = divmod(remaining, 3600)
             await callback.answer(f"Игрок на перерыве ещё {hours} ч {rem // 60} мин.", show_alert=True)
             return
 
     # Списание обеих ставок, смена статуса вызова и создание партии атомарны.
-    ok, result = db.ttt_accept_invite_atomic(invite_id, callback.from_user.id)
+    ok, result = await asyncio.to_thread(db.ttt_accept_invite_atomic, invite_id, callback.from_user.id)
     if not ok:
         await callback.answer(f"❌ {result}", show_alert=True)
         return
     game_id = result["game_id"]
 
-    game = db.ttt_get_game(game_id)
+    game = await asyncio.to_thread(db.ttt_get_game, game_id)
 
     bet = invite["bet"]
     text = (
@@ -219,7 +229,7 @@ async def ttt_accept(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("ttt_decline_"))
 async def ttt_decline(callback: CallbackQuery):
     invite_id = int(callback.data.replace("ttt_decline_", ""))
-    invite = db.ttt_get_invite(invite_id)
+    invite = await asyncio.to_thread(db.ttt_get_invite, invite_id)
 
     if not invite or invite["status"] != "pending":
         await callback.answer("❌ Приглашение уже неактивно.", show_alert=True)
@@ -228,7 +238,7 @@ async def ttt_decline(callback: CallbackQuery):
         await callback.answer("❌ Это не твоё приглашение.", show_alert=True)
         return
 
-    db.ttt_update_invite_status(invite_id, "declined")
+    await asyncio.to_thread(db.ttt_update_invite_status, invite_id, "declined")
     await callback.message.edit_text(
         f"❌ @{_get_username(invite['to_user'])} отклонил вызов."
     )
@@ -243,7 +253,7 @@ async def ttt_move(callback: CallbackQuery):
     game_id = int(parts[2])
     cell = int(parts[3])
 
-    game = db.ttt_get_game(game_id)
+    game = await asyncio.to_thread(db.ttt_get_game, game_id)
     if not game:
         await callback.answer("❌ Игра не найдена.", show_alert=True)
         return
@@ -272,7 +282,7 @@ async def ttt_move(callback: CallbackQuery):
             return
 
     # --- Твой ход ---
-    ok, result = db.ttt_make_move(game_id, cell, user_id)
+    ok, result = await asyncio.to_thread(db.ttt_make_move, game_id, cell, user_id)
     if not ok:
         await callback.answer(f"❌ {result}", show_alert=True)
         return
@@ -280,13 +290,13 @@ async def ttt_move(callback: CallbackQuery):
     # --- Ход бота ---
     if is_vs_bot and result == "next":
         # Передаём ход боту (player_o = None, поэтому просто вызываем бота)
-        bot_cell = db.ttt_bot_move(game_id)
+        bot_cell = await asyncio.to_thread(db.ttt_bot_move, game_id)
         if bot_cell is not None:
             # Ход бота без проверки turn — обойдём ttt_make_move
             _bot_apply_move(game_id, bot_cell)
 
     # --- Обновляем сообщение ---
-    updated = db.ttt_get_game(game_id)
+    updated = await asyncio.to_thread(db.ttt_get_game, game_id)
     if updated["status"] == "active":
         text = (
             f"🎮 Крестики-нолики\n"
@@ -342,11 +352,11 @@ def _bot_apply_move(game_id: int, cell: int):
 
 async def _finish_draw(callback: CallbackQuery, game: dict):
     # Ставки списываются в начале партии, поэтому при ничьей возвращаем их.
-    db.update_balance(game["player_x"], game["bet"])
-    db.update_game_stats(game["player_x"], False, 0)
+    await asyncio.to_thread(db.update_balance, game["player_x"], game["bet"])
+    await asyncio.to_thread(db.update_game_stats, game["player_x"], False, 0)
     if game.get("player_o"):
-        db.update_balance(game["player_o"], game["bet"])
-        db.update_game_stats(game["player_o"], False, 0)
+        await asyncio.to_thread(db.update_balance, game["player_o"], game["bet"])
+        await asyncio.to_thread(db.update_game_stats, game["player_o"], False, 0)
     await callback.message.edit_text(
         f"🎮 Ничья!\n\n"
         f"💰 Ставка {game['bet']} 🪙 возвращена каждому игроку."
@@ -359,14 +369,14 @@ async def _finish_win(callback: CallbackQuery, game: dict):
     # Учитываем завершённую игру в статистике каждого реального игрока.
     if game["is_vs_bot"]:
         if winner == 0:
-            db.update_game_stats(game["player_x"], False, game["bet"])
+            await asyncio.to_thread(db.update_game_stats, game["player_x"], False, game["bet"])
         else:
-            db.update_game_stats(game["player_x"], True, game["bet"])
+            await asyncio.to_thread(db.update_game_stats, game["player_x"], True, game["bet"])
     else:
         if winner:
-            db.update_game_stats(winner, True, game["bet"])
+            await asyncio.to_thread(db.update_game_stats, winner, True, game["bet"])
         if loser:
-            db.update_game_stats(loser, False, game["bet"])
+            await asyncio.to_thread(db.update_game_stats, loser, False, game["bet"])
 
     if game["is_vs_bot"]:
         if winner == 0:
@@ -374,23 +384,23 @@ async def _finish_win(callback: CallbackQuery, game: dict):
             text = (
                 f"🤖 Бот победил!\n\n"
                 f"❌ Ты потерял ставку: {game['bet']} 🪙\n"
-                f"📊 Баланс: {db.get_balance(game['player_x'])} 🪙"
+                f"📊 Баланс: {await asyncio.to_thread(db.get_balance, game['player_x'])} 🪙"
             )
         else:
             # Возвращаем собственную ставку + приз равный ставке.
             payout = game["bet"] * 2
-            db.update_balance(game["player_x"], payout)
+            await asyncio.to_thread(db.update_balance, game["player_x"], payout)
             text = (
                 f"🏆 Победа!\n\n"
                 f"🎁 Выплата: {payout} 🪙 (ставка {game['bet']} + выигрыш {game['bet']})\n"
                 f"📈 Чистый выигрыш: +{game['bet']} 🪙\n"
-                f"📊 Баланс: {db.get_balance(game['player_x'])} 🪙"
+                f"📊 Баланс: {await asyncio.to_thread(db.get_balance, game['player_x'])} 🪙"
             )
     else:
         # PvP
         if winner and loser:
             payout = game["bet"] * 2
-            db.update_balance(winner, payout)
+            await asyncio.to_thread(db.update_balance, winner, payout)
         winner_name = _get_username(winner) if winner else "?"
         text = (
             f"🏆 Победа!\n\n"
