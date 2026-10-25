@@ -292,6 +292,13 @@ class Connection:
                 pass
             logger.exception("Не удалось вернуть соединение PostgreSQL в пул")
 
+    def __del__(self):
+        # Return borrowed connections even when legacy code forgets close().
+        try:
+            self.close()
+        except Exception:
+            pass
+
 
 def connect(_ignored_sqlite_path=None):
     """Сигнатура как у sqlite3.connect(path) — путь к файлу игнорируется,
