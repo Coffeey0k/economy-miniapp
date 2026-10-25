@@ -42,7 +42,7 @@ import time
 import logging
 import threading
 import psycopg2
-from psycopg2.pool import ThreadedConnectionPool
+from psycopg2.pool import ThreadedConnectionPool, PoolError
 from psycopg2.extensions import TRANSACTION_STATUS_IDLE
 
 
@@ -69,7 +69,7 @@ def _get_connection_pool(dsn: str, connect_timeout: int):
                 except Exception:
                     logger.exception("Не удалось закрыть старый пул PostgreSQL")
             minconn = _positive_int_env("DB_POOL_MIN", 1, 1, 4)
-            maxconn = _positive_int_env("DB_POOL_MAX", 16, 2, 40)
+            maxconn = _positive_int_env("DB_POOL_MAX", 24, 2, 40)
             minconn = min(minconn, maxconn)
             _CONNECTION_POOL = ThreadedConnectionPool(
                 minconn,
@@ -258,7 +258,17 @@ class Connection:
         except (TypeError, ValueError):
             connect_timeout = 5
         self._pool = _get_connection_pool(dsn, connect_timeout)
-        self._conn = self._pool.getconn()
+        deadline = time.monotonic() + 5.0
+        while True:
+            try:
+                self._conn = self._pool.getconn()
+                break
+            except PoolError:
+                # Wait in the calling worker instead of failing an otherwise
+                # valid update merely because all pooled connections are busy.
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.025)
         self._closed = False
         self.row_factory = None  # совместимость с conn.row_factory = sqlite3.Row
 
