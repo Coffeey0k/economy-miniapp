@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Legacy/local SQLite database files (production uses PostgreSQL)
+*.db
+*.sqlite
+*.sqlite3
