@@ -6,6 +6,7 @@
 Проигрыш: попасть на мину → теряешь ставку.
 """
 
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -57,7 +58,7 @@ async def ms_start(message: Message):
     if len(parts) >= 2:
         match = re.fullmatch(r"([0-9]+(?:[.,][0-9]+)?)(к{1,3})?", parts[1].lower())
         if not match:
-            db.log_action(message.from_user.id, "security", f"Некорректная ставка Сапёра: {message.text[:180]!r}")
+            await asyncio.to_thread(db.log_action, message.from_user.id, "security", f"Некорректная ставка Сапёра: {message.text[:180]!r}")
             await message.answer("❌ Ставка должна быть числом (например, «сапёр 1к»).")
             return
         try:
@@ -68,35 +69,35 @@ async def ms_start(message: Message):
                 raise ValueError
             bet = int(scaled)
         except (ValueError, OverflowError):
-            db.log_action(message.from_user.id, "security", f"Ставка Сапёра вне диапазона: {message.text[:180]!r}")
+            await asyncio.to_thread(db.log_action, message.from_user.id, "security", f"Ставка Сапёра вне диапазона: {message.text[:180]!r}")
             await message.answer("❌ Некорректная ставка.")
             return
 
     if bet < 500:
-        db.log_action(message.from_user.id, "security", f"Ставка Сапёра ниже минимума: {bet}")
+        await asyncio.to_thread(db.log_action, message.from_user.id, "security", f"Ставка Сапёра ниже минимума: {bet}")
         await message.answer("❌ Минимальная ставка — 500 LDC.")
         return
 
     user_id = message.from_user.id
-    balance = db.get_balance(user_id)
+    balance = await asyncio.to_thread(db.get_balance, user_id)
     if balance < bet:
-        db.log_action(user_id, "security", f"Ставка Сапёра превышает баланс: bet={bet}; balance={balance}")
+        await asyncio.to_thread(db.log_action, user_id, "security", f"Ставка Сапёра превышает баланс: bet={bet}; balance={balance}")
         await message.answer(f"❌ Недостаточно LDC. У тебя {balance:,} LDC.")
         return
-    allowed, remaining = db.register_game_play(user_id, "minesweeper")
+    allowed, remaining = await asyncio.to_thread(db.register_game_play, user_id, "minesweeper")
     if not allowed:
-        db.log_action(user_id, "security", f"Попытка Сапёра во время кулдауна: remaining={remaining}s")
+        await asyncio.to_thread(db.log_action, user_id, "security", f"Попытка Сапёра во время кулдауна: remaining={remaining}s")
         hours, rem = divmod(remaining, 3600)
         minutes = rem // 60
         await message.answer(f"⏳ Сапёр на перерыве ещё {hours} ч {minutes} мин.")
         return
 
-    game_id = db.ms_create_game(user_id, bet)
+    game_id = await asyncio.to_thread(db.ms_create_game, user_id, bet)
     if not game_id:
         await message.answer("❌ Не удалось создать игру.")
         return
 
-    game = db.ms_get_game(game_id)
+    game = await asyncio.to_thread(db.ms_get_game, game_id)
     chat_hint = (
         "\n\n👥 В групповом чате у каждого игрока своя отдельная партия. "
         "Ставка и выигрыш принадлежат тому, кто запустил эту игру."
@@ -122,22 +123,22 @@ async def ms_open(callback: CallbackQuery):
     cell = int(parts[3])
 
     user_id = callback.from_user.id
-    ok, result, msg = db.ms_open_cell(game_id, cell, user_id)
+    ok, result, msg = await asyncio.to_thread(db.ms_open_cell, game_id, cell, user_id)
 
     if not ok:
         await callback.answer(f"❌ {msg}", show_alert=True)
         return
 
-    game = db.ms_get_game(game_id)
+    game = await asyncio.to_thread(db.ms_get_game, game_id)
 
     # === Проигрыш ===
     if game["status"] == "lose":
-        db.update_game_stats(user_id, False, game["bet"])
+        await asyncio.to_thread(db.update_game_stats, user_id, False, game["bet"])
         kb = ms_keyboard(game_id, game["board"], game["revealed"], game["field_size"]).as_markup()
         await callback.message.edit_text(
             f"💥 Мина! Ты проиграл.\n\n"
             f"💰 Потеряно: {game['bet']} 🪙\n"
-            f"📊 Баланс: {db.get_balance(user_id)} 🪙",
+            f"📊 Баланс: {await asyncio.to_thread(db.get_balance, user_id)} 🪙",
             reply_markup=kb
         )
         await callback.answer("💥 Бум!")
@@ -145,12 +146,12 @@ async def ms_open(callback: CallbackQuery):
 
     # === Победа ===
     if game["status"] == "win":
-        db.update_game_stats(user_id, True, game["bet"])
+        await asyncio.to_thread(db.update_game_stats, user_id, True, game["bet"])
         kb = ms_keyboard(game_id, game["board"], game["revealed"], game["field_size"]).as_markup()
         await callback.message.edit_text(
             f"🏆 Победа!\n\n"
             f"💰 Выплата: {game['bet'] * 2:,} 🪙 (чистая прибыль {game['bet']:,} 🪙)\n"
-            f"📊 Баланс: {db.get_balance(user_id)} 🪙",
+            f"📊 Баланс: {await asyncio.to_thread(db.get_balance, user_id)} 🪙",
             reply_markup=kb
         )
         await callback.answer("🎉 Победа!")
