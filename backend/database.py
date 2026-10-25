@@ -1728,18 +1728,30 @@ def claim_bonus(user_id: int) -> int:
 # === НОВЫЕ УЧАСТНИКИ ===
 
 def add_new_member(user_id: int, username: str = None):
+    """Record the latest join for a user without creating duplicate rows.
+
+    The list is a recent-joins view, so a user who leaves and later rejoins
+    must receive a fresh joined_at timestamp. Keep the existing row to avoid
+    growing duplicate records for the same Telegram account.
+    """
     conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM new_members WHERE user_id = ?", (user_id,))
-    if cur.fetchone():
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM new_members WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,))
+        existing = cur.fetchone()
+        if existing:
+            cur.execute(
+                "UPDATE new_members SET username = ?, joined_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (username, existing[0]),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO new_members (user_id, username) VALUES (?, ?)",
+                (user_id, username),
+            )
+        conn.commit()
+    finally:
         conn.close()
-        return
-    cur.execute(
-        "INSERT INTO new_members (user_id, username) VALUES (?, ?)",
-        (user_id, username)
-    )
-    conn.commit()
-    conn.close()
 
 
 def get_new_members(days: int = 4, exclude_user_id: int = None) -> List[tuple]:
