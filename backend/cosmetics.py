@@ -8,6 +8,7 @@
 - Темы (для веба)
 """
 
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -52,7 +53,7 @@ async def cosmetics_word(message: Message):
 @router.callback_query(F.data == "cos_color")
 async def cos_color(callback: CallbackQuery):
     user_id = callback.from_user.id
-    cosmetics = db.get_cosmetics(user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
     current = cosmetics["nickname_color"]
 
     builder = InlineKeyboardBuilder()
@@ -80,12 +81,12 @@ async def cos_buy_color(callback: CallbackQuery):
     color_key = callback.data.replace("cos_buy_color_", "")
     user_id = callback.from_user.id
 
-    cosmetics = db.get_cosmetics(user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
     if cosmetics["nickname_color"] == color_key:
         await callback.answer("❌ Этот цвет уже установлен", show_alert=True)
         return
 
-    ok, msg = db.purchase_cosmetics(user_id, "color", color_key)
+    ok, msg = await asyncio.to_thread(db.purchase_cosmetics, user_id, "color", color_key)
     if ok:
         await callback.answer(f"✅ {msg}", show_alert=True)
         await cos_color(callback)
@@ -98,7 +99,7 @@ async def cos_buy_color(callback: CallbackQuery):
 @router.callback_query(F.data == "cos_frame")
 async def cos_frame(callback: CallbackQuery):
     user_id = callback.from_user.id
-    cosmetics = db.get_cosmetics(user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
     current = cosmetics["frame"]
 
     builder = InlineKeyboardBuilder()
@@ -124,12 +125,12 @@ async def cos_buy_frame(callback: CallbackQuery):
     frame_key = callback.data.replace("cos_buy_frame_", "")
     user_id = callback.from_user.id
 
-    cosmetics = db.get_cosmetics(user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
     if cosmetics["frame"] == frame_key:
         await callback.answer("❌ Эта рамка уже установлена", show_alert=True)
         return
 
-    ok, msg = db.purchase_cosmetics(user_id, "frame", frame_key)
+    ok, msg = await asyncio.to_thread(db.purchase_cosmetics, user_id, "frame", frame_key)
     if ok:
         await callback.answer(f"✅ {msg}", show_alert=True)
         await cos_frame(callback)
@@ -142,7 +143,7 @@ async def cos_buy_frame(callback: CallbackQuery):
 @router.callback_query(F.data == "cos_status")
 async def cos_status(callback: CallbackQuery):
     user_id = callback.from_user.id
-    cosmetics = db.get_cosmetics(user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
     current = cosmetics["status"]
 
     builder = InlineKeyboardBuilder()
@@ -169,12 +170,12 @@ async def cos_buy_status(callback: CallbackQuery):
     status_key = callback.data.replace("cos_buy_status_", "")
     user_id = callback.from_user.id
 
-    cosmetics = db.get_cosmetics(user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
     if cosmetics["status"] == status_key:
         await callback.answer("❌ Этот статус уже установлен", show_alert=True)
         return
 
-    ok, msg = db.purchase_cosmetics(user_id, "status", status_key)
+    ok, msg = await asyncio.to_thread(db.purchase_cosmetics, user_id, "status", status_key)
     if ok:
         await callback.answer(f"✅ {msg}", show_alert=True)
         await cos_status(callback)
@@ -187,7 +188,7 @@ async def cos_buy_status(callback: CallbackQuery):
 @router.callback_query(F.data == "cos_theme")
 async def cos_theme(callback: CallbackQuery):
     user_id = callback.from_user.id
-    cosmetics = db.get_cosmetics(user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
     current = cosmetics["theme"]
 
     builder = InlineKeyboardBuilder()
@@ -215,19 +216,19 @@ async def cos_buy_theme(callback: CallbackQuery):
     theme_key = callback.data.replace("cos_buy_theme_", "")
     user_id = callback.from_user.id
 
-    cosmetics = db.get_cosmetics(user_id)
+    cosmetics = await asyncio.to_thread(db.get_cosmetics, user_id)
     if cosmetics["theme"] == theme_key:
         await callback.answer("❌ Эта тема уже установлена", show_alert=True)
         return
 
     # Бесплатные темы — просто применяем
     if db.THEMES[theme_key]["price"] == 0:
-        db.set_cosmetics(user_id, theme=theme_key)
+        await asyncio.to_thread(db.set_cosmetics, user_id, theme=theme_key)
         await callback.answer("✅ Тема применена", show_alert=True)
         await cos_theme(callback)
         return
 
-    ok, msg = db.purchase_cosmetics(user_id, "theme", theme_key)
+    ok, msg = await asyncio.to_thread(db.purchase_cosmetics, user_id, "theme", theme_key)
     if ok:
         await callback.answer(f"✅ {msg}", show_alert=True)
         await cos_theme(callback)
