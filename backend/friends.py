@@ -6,6 +6,7 @@
 - Ворд-триггер `друзья` — список друзей и бонус.
 """
 
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -51,7 +52,7 @@ async def friend_request(message: Message):
         await message.answer("❌ Нельзя добавить себя в друзья.")
         return
 
-    result = db.friend_send_request(from_user, target_id)
+    result = await asyncio.to_thread(db.friend_send_request, from_user, target_id)
 
     if result == "mutual":
         await message.answer(
@@ -110,7 +111,7 @@ async def friend_accept(callback: CallbackQuery):
     req_id = int(callback.data.replace("friend_accept_", ""))
     user_id = callback.from_user.id
 
-    if db.friend_accept(req_id, user_id):
+    if await asyncio.to_thread(db.friend_accept, req_id, user_id):
         await callback.message.edit_text("✅ Заявка принята! Вы теперь друзья.")
         await callback.answer("Друзья!")
     else:
@@ -122,7 +123,7 @@ async def friend_decline(callback: CallbackQuery):
     req_id = int(callback.data.replace("friend_decline_", ""))
     user_id = callback.from_user.id
 
-    if db.friend_decline(req_id, user_id):
+    if await asyncio.to_thread(db.friend_decline, req_id, user_id):
         await callback.message.edit_text("❌ Заявка отклонена.")
         await callback.answer()
     else:
@@ -136,11 +137,11 @@ async def friends_list_word(message: Message):
     user_id = message.from_user.id
 
     # Входящие заявки
-    pending = db.friend_pending_requests(user_id)
+    pending = await asyncio.to_thread(db.friend_pending_requests, user_id)
 
     # Список друзей
-    friends = db.friend_list(user_id)
-    bonus = db.friend_income_bonus(user_id)
+    friends = await asyncio.to_thread(db.friend_list, user_id)
+    bonus = await asyncio.to_thread(db.friend_income_bonus, user_id)
 
     text = "👥 Друзья\n\n"
     text += f"👤 Друзей: {len(friends)}\n"
@@ -154,7 +155,7 @@ async def friends_list_word(message: Message):
     if friends:
         text += "Твои друзья:\n"
         for f in friends[:20]:
-            name = db.get_display_name(f["user_id"])
+            name = await asyncio.to_thread(db.get_display_name, f["user_id"])
             text += f"• {name} — {f['balance']:,} 🪙\n"
         if len(friends) > 20:
             text += f"...и ещё {len(friends) - 20}\n"
