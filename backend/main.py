@@ -894,50 +894,51 @@ def hire_profession(payload: dict = Body(...)):
 def work_profession(payload: dict = Body(...)):
     user_id = get_telegram_user_id(payload.get("initData", ""))
     conn = db()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT profession, level, last_work, days_worked, last_work_day "
-        "FROM professions WHERE user_id = ? FOR UPDATE",
-        (user_id,),
-    )
-    row = cur.fetchone()
-    if not row or not row["profession"]:
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT profession, level, last_work, days_worked, last_work_day "
+            "FROM professions WHERE user_id = ? FOR UPDATE",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if not row or not row["profession"]:
+            raise HTTPException(status_code=400, detail="У вас нет профессии")
+
+        info = PROFESSION_INFO.get(row["profession"])
+        if not info:
+            raise HTTPException(status_code=400, detail="Профессия доступна только в боте")
+        now = datetime.now()
+        if row["last_work"]:
+            delta = now - datetime.fromisoformat(row["last_work"])
+            cooldown = bot_db.get_user_cooldown_seconds(user_id, "work", info["cooldown_hours"] * 3600)
+            if delta.total_seconds() < cooldown:
+                remaining = cooldown - int(delta.total_seconds())
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Отдых ещё не закончен: {remaining // 3600} ч {(remaining % 3600) // 60} мин",
+                )
+
+        salary = info["salary"] + (row["level"] - 1) * 50
+        change_balance(cur, user_id, salary)
+
+        today = now.date().isoformat()
+        new_days, new_level = row["days_worked"], row["level"]
+        if row["last_work_day"] != today:
+            new_days += 1
+            if new_days >= 7 and new_level < 5:
+                new_level += 1
+                new_days = 0
+
+        cur.execute("""
+            UPDATE professions SET last_work = ?, days_worked = ?, level = ?, last_work_day = ?
+            WHERE user_id = ?
+        """, (now.isoformat(), new_days, new_level, today, user_id))
+        conn.commit()
+    finally:
+        # Always return the connection and release any row lock, including on exceptions.
         conn.close()
-        raise HTTPException(status_code=400, detail="У вас нет профессии")
 
-    info = PROFESSION_INFO.get(row["profession"])
-    if not info:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Профессия доступна только в боте")
-    now = datetime.now()
-    if row["last_work"]:
-        delta = now - datetime.fromisoformat(row["last_work"])
-        cooldown = bot_db.get_user_cooldown_seconds(user_id, "work", info["cooldown_hours"] * 3600)
-        if delta.total_seconds() < cooldown:
-            remaining = cooldown - int(delta.total_seconds())
-            conn.close()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Отдых ещё не закончен: {remaining // 3600} ч {(remaining % 3600) // 60} мин",
-            )
-
-    salary = info["salary"] + (row["level"] - 1) * 50
-    change_balance(cur, user_id, salary)
-
-    today = now.date().isoformat()
-    new_days, new_level = row["days_worked"], row["level"]
-    if row["last_work_day"] != today:
-        new_days += 1
-        if new_days >= 7 and new_level < 5:
-            new_level += 1
-            new_days = 0
-
-    cur.execute("""
-        UPDATE professions SET last_work = ?, days_worked = ?, level = ?, last_work_day = ?
-        WHERE user_id = ?
-    """, (now.isoformat(), new_days, new_level, today, user_id))
-    conn.commit()
-    conn.close()
     reduction = bot_db.consume_user_boost(user_id, "work")
     base_cooldown = info["cooldown_hours"] * 3600
     next_cooldown = base_cooldown * (100 - reduction) // 100 if reduction else base_cooldown
