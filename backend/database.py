@@ -848,40 +848,61 @@ def init_db():
         )
     """)
 
-    # Telegram IDs exceed PostgreSQL INTEGER. The bot and API may both call
-    # init_db() at the same time, so serialize legacy migrations and re-check
-    # each column's real type before taking an exclusive table lock.
-    cur.execute("SELECT pg_try_advisory_xact_lock(734219, 1)")
-    migration_lock = cur.fetchone()[0]
-    if migration_lock:
-        for table_name, column_name in [
-            ("users", "user_id"),
-            ("users", "balance"),
-            ("purchases", "user_id"),
-            ("warns", "user_id"),
-            ("game_stats", "user_id"),
-            ("new_members", "user_id"),
-            ("pets", "user_id"),
-            ("professions", "user_id"),
-            ("profession_progress", "user_id"),
-            ("daily_tasks", "user_id"),
-            ("promo_activations", "user_id"),
-            ("user_settings", "user_id"),
-        ]:
-            cur.execute(
-                "SELECT data_type FROM information_schema.columns "
-                "WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?",
-                (table_name, column_name),
-            )
-            column = cur.fetchone()
-            if column and str(column[0]).lower() not in ("bigint",):
-                cur.execute(
-                    f"ALTER TABLE {table_name} ALTER COLUMN {column_name} TYPE BIGINT"
+    # Commit normal schema setup before attempting legacy type migrations. The bot
+    # and API can both start while live requests hold table locks, so migration
+    # failures must never abort service startup.
+    conn.commit()
+    migration_conn = None
+    try:
+        migration_conn = sqlite3.connect(DB_NAME)
+        migration_cur = migration_conn.cursor()
+        migration_cur.execute("SELECT pg_try_advisory_xact_lock(734219, 1)")
+        migration_lock = migration_cur.fetchone()[0]
+        if migration_lock:
+            # Telegram IDs exceed PostgreSQL INTEGER. Check the actual type first:
+            # redundant ALTER TYPE statements still require an exclusive table lock.
+            for table_name, column_name in [
+                ("users", "user_id"),
+                ("users", "balance"),
+                ("purchases", "user_id"),
+                ("warns", "user_id"),
+                ("game_stats", "user_id"),
+                ("new_members", "user_id"),
+                ("pets", "user_id"),
+                ("professions", "user_id"),
+                ("profession_progress", "user_id"),
+                ("daily_tasks", "user_id"),
+                ("promo_activations", "user_id"),
+                ("user_settings", "user_id"),
+            ]:
+                migration_cur.execute(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?",
+                    (table_name, column_name),
                 )
-    else:
-        # Another process (usually the bot) is running the same migration.
-        # Don't block API startup waiting for its AccessExclusiveLock.
-        logger.info("Skipping BIGINT migration because another process holds the migration lock")
+                column = migration_cur.fetchone()
+                if column and str(column[0]).lower() != "bigint":
+                    migration_cur.execute(
+                        f"ALTER TABLE {table_name} ALTER COLUMN {column_name} TYPE BIGINT"
+                    )
+            migration_conn.commit()
+        else:
+            logger.info(
+                "Skipping BIGINT migration because another process holds the migration lock"
+            )
+    except Exception:
+        if migration_conn is not None:
+            try:
+                migration_conn.rollback()
+            except Exception:
+                pass
+        logger.warning(
+            "BIGINT compatibility migration deferred; service startup will continue",
+            exc_info=True,
+        )
+    finally:
+        if migration_conn is not None:
+            migration_conn.close()
 
     # IMPORTANT: Do not destructively remove legacy feature tables or player data
     # during startup. Keep old trade/clan/music tables until a separately reviewed
