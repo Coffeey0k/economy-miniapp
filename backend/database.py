@@ -94,12 +94,9 @@ def init_db():
         )
     """)
 
-    # Use a 64-bit balance column so large, valid LDC stakes are not capped at 32-bit.
-    try:
-        cur.execute("ALTER TABLE users ALTER COLUMN balance TYPE BIGINT")
-    except Exception:
-        # SQLite and already-compatible databases do not support/need this migration.
-        pass
+    # Legacy INTEGER -> BIGINT migrations are performed once, under an advisory
+    # lock near the end of init_db(). Never ALTER a column that is already BIGINT:
+    # PostgreSQL still needs an exclusive table lock for redundant ALTER TYPE calls.
 
     # Покупки
     cur.execute("""
@@ -851,14 +848,40 @@ def init_db():
         )
     """)
 
-    # Telegram IDs exceed PostgreSQL INTEGER for many accounts. Migrate all
-    # legacy user-id columns to BIGINT before they are used by bot/web handlers.
-    for user_table in (
-        "users", "purchases", "warns", "game_stats", "new_members", "pets",
-        "professions", "profession_progress", "daily_tasks", "promo_activations",
-        "user_settings",
-    ):
-        cur.execute(f"ALTER TABLE {user_table} ALTER COLUMN user_id TYPE BIGINT")
+    # Telegram IDs exceed PostgreSQL INTEGER. The bot and API may both call
+    # init_db() at the same time, so serialize legacy migrations and re-check
+    # each column's real type before taking an exclusive table lock.
+    cur.execute("SELECT pg_try_advisory_xact_lock(734219, 1)")
+    migration_lock = cur.fetchone()[0]
+    if migration_lock:
+        for table_name, column_name in [
+            ("users", "user_id"),
+            ("users", "balance"),
+            ("purchases", "user_id"),
+            ("warns", "user_id"),
+            ("game_stats", "user_id"),
+            ("new_members", "user_id"),
+            ("pets", "user_id"),
+            ("professions", "user_id"),
+            ("profession_progress", "user_id"),
+            ("daily_tasks", "user_id"),
+            ("promo_activations", "user_id"),
+            ("user_settings", "user_id"),
+        ]:
+            cur.execute(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?",
+                (table_name, column_name),
+            )
+            column = cur.fetchone()
+            if column and str(column[0]).lower() not in ("bigint",):
+                cur.execute(
+                    f"ALTER TABLE {table_name} ALTER COLUMN {column_name} TYPE BIGINT"
+                )
+    else:
+        # Another process (usually the bot) is running the same migration.
+        # Don't block API startup waiting for its AccessExclusiveLock.
+        logger.info("Skipping BIGINT migration because another process holds the migration lock")
 
     # IMPORTANT: Do not destructively remove legacy feature tables or player data
     # during startup. Keep old trade/clan/music tables until a separately reviewed
