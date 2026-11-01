@@ -2526,7 +2526,7 @@ def daily_task_date() -> str:
 DAILY_TASKS = {
     "activist": {"name": "💬 Активист", "target": 30, "reward": 100, "type": "messages", "desc": "Отправь 30 сообщений в чат"},
     "resident": {"name": "🌴 Житель Lavender Dream", "target": 50, "reward": 150, "type": "messages", "desc": "Отправь 50 сообщений в чат"},
-    "friendly": {"name": "🤍 Дружелюбный", "target": 5, "reward": 200, "type": "replies", "desc": "Ответь на 5 разных сообщений"},
+    "friendly": {"name": "🤍 Дружелюбный", "target": 5, "reward": 200, "type": "replies", "desc": "Ответь на 5 сообщений других участников"},
     "photographer": {"name": "📸 Фотограф", "target": 1, "reward": 50, "type": "photo", "desc": "Отправь фото в чат"},
     "night_owl": {"name": "🌙 Ночной житель", "target": 1, "reward": 250, "type": "night_message", "desc": "Напиши сообщение после 20:00"},
     "early_bird": {"name": "🌅 Ранняя пташка", "target": 1, "reward": 150, "type": "morning_message", "desc": "Напиши сообщение до 09:00"},
@@ -2537,7 +2537,6 @@ DAILY_TASKS = {
     "helper": {"name": "🤝 Помощник", "target": 10, "reward": 150, "type": "replies", "desc": "Ответь на 10 сообщений других участников"},
     "social_butterfly": {"name": "🦋 Душа компании", "target": 3, "reward": 150, "type": "active_hours", "desc": "Напиши в чате в течение 3 разных часов"},
     "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых сообщения"},
-    "link_sharer": {"name": "🔗 Делится полезным", "target": 3, "reward": 100, "type": "links", "desc": "Отправь 3 сообщения со ссылками"},
     "weekend_vibes": {"name": "🎉 Выходной вайб", "target": 25, "reward": 150, "type": "weekend_messages", "desc": "Напиши 25 сообщений в выходной"},
     "conversation_king": {"name": "🗣️ Душа чата", "target": 100, "reward": 250, "type": "messages", "desc": "Отправь 100 сообщений в чат"},
     "reply_master": {"name": "💌 Мастер ответов", "target": 15, "reward": 220, "type": "replies", "desc": "Ответь на 15 сообщений участников"},
@@ -2549,9 +2548,10 @@ DAILY_TASKS = {
     "question_master": {"name": "🧠 Почемучка", "target": 20, "reward": 180, "type": "question_messages", "desc": "Отправь 20 сообщений с вопросом"},
     "gamer_marathon": {"name": "🎮 Игровой марафон", "target": 10, "reward": 300, "type": "games", "desc": "Сыграй 10 игр"},
     "voice_lover": {"name": "🎙️ Голосовой марафон", "target": 5, "reward": 150, "type": "audio", "desc": "Отправь 5 голосовых сообщений"},
-    "link_guide": {"name": "🧭 Навигатор", "target": 5, "reward": 150, "type": "links", "desc": "Отправь 5 сообщений со ссылками"},
-    "weekend_grinder": {"name": "🔥 Выходной марафон", "target": 40, "reward": 250, "type": "weekend_messages", "desc": "Отправь 40 сообщений в выходной"},
+    "weekend_grinder": {"name": "🔥 Выходной марафон", "target": 40, "reward": 250, "type": "weekend_messages", "desc": "Напиши 40 сообщений в выходной"},
     "social_hours_pro": {"name": "🦋 Всегда на связи", "target": 5, "reward": 250, "type": "active_hours", "desc": "Будь активен в чате в течение 5 разных часов"},
+    "conversation_partner": {"name": "💬 Собеседник", "target": 5, "reward": 130, "type": "replies", "desc": "Ответь на 5 сообщений других участников"},
+    "curious_mind": {"name": "🧐 Любознательный", "target": 5, "reward": 90, "type": "question_messages", "desc": "Задай 5 вопросов по теме беседы"},
 }
 
 
@@ -2574,26 +2574,51 @@ def get_user_tasks(user_id: int, date: str = None) -> List[dict]:
 
 
 def assign_daily_tasks(user_id: int):
+    """Keep three daily tasks assigned and replace retired link tasks for today."""
     date = daily_task_date()
-    existing = get_user_tasks(user_id, date)
-    if existing:
-        return
-    tasks_by_type = {}
-    for task_key, task_info in DAILY_TASKS.items():
-        tasks_by_type.setdefault(task_info.get("type", task_key), []).append(task_key)
-    available_types = list(tasks_by_type)
-    chosen_types = random.sample(available_types, min(3, len(available_types)))
-    chosen = [random.choice(tasks_by_type[task_type]) for task_type in chosen_types]
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    for key in chosen:
-        t = DAILY_TASKS[key]
-        cur.execute("""
-            INSERT INTO daily_tasks (user_id, task_type, target, reward, assigned_date)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, key, t["target"], t["reward"], date))
-    conn.commit()
-    conn.close()
+    try:
+        # Remove obsolete tasks already assigned before the link task was retired.
+        cur.execute(
+            "DELETE FROM daily_tasks WHERE user_id = ? AND assigned_date = ? "
+            "AND task_type IN ('link_sharer', 'link_guide')",
+            (user_id, date),
+        )
+        cur.execute(
+            "SELECT task_type FROM daily_tasks WHERE user_id = ? AND assigned_date = ?",
+            (user_id, date),
+        )
+        existing_keys = {row[0] for row in cur.fetchall()}
+        existing_types = {
+            DAILY_TASKS[key].get("type", key)
+            for key in existing_keys if key in DAILY_TASKS
+        }
+
+        tasks_by_type = {}
+        for task_key, task_info in DAILY_TASKS.items():
+            task_type = task_info.get("type", task_key)
+            if task_type not in existing_types:
+                tasks_by_type.setdefault(task_type, []).append(task_key)
+
+        missing_count = max(0, 3 - len(existing_keys))
+        available_types = list(tasks_by_type)
+        chosen_types = random.sample(available_types, min(missing_count, len(available_types)))
+        chosen = [random.choice(tasks_by_type[task_type]) for task_type in chosen_types]
+
+        for key in chosen:
+            task = DAILY_TASKS[key]
+            cur.execute(
+                "INSERT INTO daily_tasks (user_id, task_type, target, reward, assigned_date) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, key, task["target"], task["reward"], date),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def update_task_progress(user_id: int, task_type: str, amount: int = 1):
