@@ -2536,7 +2536,7 @@ DAILY_TASKS = {
     "game_player": {"name": "🎮 Игрок", "target": 3, "reward": 200, "type": "games", "desc": "Сыграй 3 игры"},
     "helper": {"name": "🤝 Помощник", "target": 10, "reward": 150, "type": "replies", "desc": "Ответь на 10 сообщений других участников"},
     "social_butterfly": {"name": "🦋 Душа компании", "target": 3, "reward": 150, "type": "active_hours", "desc": "Напиши в чате в течение 3 разных часов"},
-    "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых сообщения"},
+    "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых или аудиосообщения"},
     "weekend_vibes": {"name": "🎉 Выходной вайб", "target": 25, "reward": 150, "type": "weekend_messages", "desc": "Напиши 25 сообщений в выходной"},
     "conversation_king": {"name": "🗣️ Душа чата", "target": 100, "reward": 250, "type": "messages", "desc": "Отправь 100 сообщений в чат"},
     "reply_master": {"name": "💌 Мастер ответов", "target": 15, "reward": 220, "type": "replies", "desc": "Ответь на 15 сообщений участников"},
@@ -2547,11 +2547,11 @@ DAILY_TASKS = {
     "emoji_festival": {"name": "🎊 Фестиваль эмодзи", "target": 25, "reward": 180, "type": "emoji_messages", "desc": "Отправь 25 сообщений с эмодзи"},
     "question_master": {"name": "🧠 Почемучка", "target": 20, "reward": 180, "type": "question_messages", "desc": "Отправь 20 сообщений с вопросом"},
     "gamer_marathon": {"name": "🎮 Игровой марафон", "target": 10, "reward": 300, "type": "games", "desc": "Сыграй 10 игр"},
-    "voice_lover": {"name": "🎙️ Голосовой марафон", "target": 5, "reward": 150, "type": "audio", "desc": "Отправь 5 голосовых сообщений"},
+    "voice_lover": {"name": "🎙️ Голосовой марафон", "target": 5, "reward": 150, "type": "audio", "desc": "Отправь 5 голосовых или аудиосообщений"},
     "weekend_grinder": {"name": "🔥 Выходной марафон", "target": 40, "reward": 250, "type": "weekend_messages", "desc": "Напиши 40 сообщений в выходной"},
     "social_hours_pro": {"name": "🦋 Всегда на связи", "target": 5, "reward": 250, "type": "active_hours", "desc": "Будь активен в чате в течение 5 разных часов"},
     "conversation_partner": {"name": "💬 Собеседник", "target": 5, "reward": 130, "type": "replies", "desc": "Ответь на 5 сообщений других участников"},
-    "curious_mind": {"name": "🧐 Любознательный", "target": 5, "reward": 90, "type": "question_messages", "desc": "Задай 5 вопросов по теме беседы"},
+    "curious_mind": {"name": "🧐 Любознательный", "target": 5, "reward": 90, "type": "question_messages", "desc": "Задай 5 вопросов в чате"},
 }
 
 
