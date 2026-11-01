@@ -198,6 +198,12 @@ DAILY_TASK_DESCS = {
     "curious_mind": "Задай 5 вопросов в чате",
 }
 
+
+# Keep Mini App labels/descriptions in sync with the single task catalog.
+for _task_key, _task_info in bot_db.DAILY_TASKS.items():
+    DAILY_TASK_NAMES[_task_key] = _task_info["name"]
+    DAILY_TASK_DESCS[_task_key] = _task_info.get("desc", "")
+
 app = FastAPI()
 
 
@@ -967,6 +973,7 @@ def get_tasks(init_data: str = Query(..., alias="initData")):
             "desc": DAILY_TASK_DESCS.get(r["task_type"], ""),
             "progress": r["progress"], "target": r["target"],
             "reward": r["reward"], "is_done": bool(r["is_done"]),
+            "rarity": bot_db.DAILY_TASKS.get(r["task_type"], {}).get("rarity", "обычный"),
         }
         for r in cur.fetchall()
     ]
