@@ -2610,6 +2610,39 @@ def assign_daily_tasks(user_id: int):
             (user_id, date),
         )
         existing_keys = {row[0] for row in cur.fetchall()}
+
+        # Existing assignments may have been created by an older task catalog.
+        # Keep their stored target/reward in sync with the current definition so
+        # the progress counter, description and payout always describe one task.
+        cur.execute(
+            "SELECT id, task_type, progress, is_done, is_claimed "
+            "FROM daily_tasks WHERE user_id = ? AND assigned_date = ?",
+            (user_id, date),
+        )
+        newly_completed_rewards = []
+        for task_id, task_key, progress, is_done, is_claimed in cur.fetchall():
+            task_info = DAILY_TASKS.get(task_key)
+            if not task_info or is_done or is_claimed:
+                continue
+            target = int(task_info["target"])
+            reward = int(task_info["reward"])
+            progress = max(0, int(progress or 0))
+            if progress >= target:
+                cur.execute(
+                    "UPDATE daily_tasks SET progress = ?, target = ?, reward = ?, "
+                    "is_done = 1, is_claimed = 1 "
+                    "WHERE id = ? AND is_done = 0 AND is_claimed = 0",
+                    (target, target, reward, task_id),
+                )
+                if cur.rowcount == 1:
+                    newly_completed_rewards.append(reward)
+            else:
+                cur.execute(
+                    "UPDATE daily_tasks SET target = ?, reward = ? "
+                    "WHERE id = ? AND is_done = 0 AND is_claimed = 0",
+                    (target, reward, task_id),
+                )
+
         existing_types = {
             DAILY_TASKS[key].get("type", key)
             for key in existing_keys if key in DAILY_TASKS
@@ -2646,6 +2679,17 @@ def assign_daily_tasks(user_id: int):
         raise
     finally:
         conn.close()
+
+    # Pay newly completed legacy assignments exactly once after the DB update.
+    if newly_completed_rewards:
+        total_reward = sum(newly_completed_rewards)
+        update_balance(user_id, total_reward)
+        _record_season_activity(user_id, "daily_task", len(newly_completed_rewards))
+        try:
+            from world_events import add_season_xp
+            add_season_xp(user_id, 50 * len(newly_completed_rewards))
+        except Exception:
+            logger.exception("Не удалось начислить сезонный опыт за синхронизацию ежедневных заданий")
 
 
 def update_task_progress(user_id: int, task_type: str, amount: int = 1):
