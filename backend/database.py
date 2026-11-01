@@ -2524,34 +2524,54 @@ def daily_task_date() -> str:
 
 
 DAILY_TASKS = {
-    "activist": {"name": "💬 Активист", "target": 30, "reward": 100, "type": "messages", "desc": "Отправь 30 сообщений в чат"},
-    "resident": {"name": "🌴 Житель Lavender Dream", "target": 50, "reward": 150, "type": "messages", "desc": "Отправь 50 сообщений в чат"},
-    "friendly": {"name": "🤍 Дружелюбный", "target": 5, "reward": 200, "type": "replies", "desc": "Ответь на 5 разных сообщений"},
-    "photographer": {"name": "📸 Фотограф", "target": 1, "reward": 50, "type": "photo", "desc": "Отправь фото в чат"},
-    "night_owl": {"name": "🌙 Ночной житель", "target": 1, "reward": 250, "type": "night_message", "desc": "Напиши сообщение после 20:00"},
-    "early_bird": {"name": "🌅 Ранняя пташка", "target": 1, "reward": 150, "type": "morning_message", "desc": "Напиши сообщение до 09:00"},
-    "storyteller": {"name": "📖 Рассказчик", "target": 10, "reward": 120, "type": "long_messages", "desc": "Отправь 10 сообщений длиной от 50 символов"},
-    "emoji_master": {"name": "✨ Эмодзи-мастер", "target": 15, "reward": 100, "type": "emoji_messages", "desc": "Отправь 15 сообщений с эмодзи"},
-    "questioner": {"name": "❓ Любопытный", "target": 10, "reward": 100, "type": "question_messages", "desc": "Отправь 10 сообщений с вопросительным знаком"},
-    "game_player": {"name": "🎮 Игрок", "target": 3, "reward": 200, "type": "games", "desc": "Сыграй 3 игры"},
-    "helper": {"name": "🤝 Помощник", "target": 10, "reward": 150, "type": "replies", "desc": "Ответь на 10 сообщений других участников"},
-    "social_butterfly": {"name": "🦋 Душа компании", "target": 3, "reward": 150, "type": "active_hours", "desc": "Напиши в чате в течение 3 разных часов"},
-    "voice_star": {"name": "🎙️ Голос чата", "target": 3, "reward": 100, "type": "audio", "desc": "Отправь 3 голосовых сообщения"},
-    "link_sharer": {"name": "🔗 Делится полезным", "target": 3, "reward": 100, "type": "links", "desc": "Отправь 3 сообщения со ссылками"},
-    "weekend_vibes": {"name": "🎉 Выходной вайб", "target": 25, "reward": 150, "type": "weekend_messages", "desc": "Напиши 25 сообщений в выходной"},
-    "conversation_king": {"name": "🗣️ Душа чата", "target": 100, "reward": 250, "type": "messages", "desc": "Отправь 100 сообщений в чат"},
-    "reply_master": {"name": "💌 Мастер ответов", "target": 15, "reward": 220, "type": "replies", "desc": "Ответь на 15 сообщений участников"},
-    "photo_album": {"name": "📸 Фотоальбом", "target": 3, "reward": 120, "type": "photo", "desc": "Отправь 3 фотографии в чат"},
-    "night_shift": {"name": "🌃 Ночная смена", "target": 5, "reward": 300, "type": "night_message", "desc": "Напиши 5 сообщений после 20:00"},
-    "sunrise": {"name": "🌄 Встречая рассвет", "target": 3, "reward": 250, "type": "morning_message", "desc": "Напиши 3 сообщения до 09:00"},
-    "long_story": {"name": "📚 Большой рассказ", "target": 15, "reward": 200, "type": "long_messages", "desc": "Отправь 15 длинных сообщений"},
-    "emoji_festival": {"name": "🎊 Фестиваль эмодзи", "target": 25, "reward": 180, "type": "emoji_messages", "desc": "Отправь 25 сообщений с эмодзи"},
-    "question_master": {"name": "🧠 Почемучка", "target": 20, "reward": 180, "type": "question_messages", "desc": "Отправь 20 сообщений с вопросом"},
-    "gamer_marathon": {"name": "🎮 Игровой марафон", "target": 10, "reward": 300, "type": "games", "desc": "Сыграй 10 игр"},
-    "voice_lover": {"name": "🎙️ Голосовой марафон", "target": 5, "reward": 150, "type": "audio", "desc": "Отправь 5 голосовых сообщений"},
-    "link_guide": {"name": "🧭 Навигатор", "target": 5, "reward": 150, "type": "links", "desc": "Отправь 5 сообщений со ссылками"},
-    "weekend_grinder": {"name": "🔥 Выходной марафон", "target": 40, "reward": 250, "type": "weekend_messages", "desc": "Отправь 40 сообщений в выходной"},
-    "social_hours_pro": {"name": "🦋 Всегда на связи", "target": 5, "reward": 250, "type": "active_hours", "desc": "Будь активен в чате в течение 5 разных часов"},
+    # Обычные — короткие и доступные задания.
+    "activist": {"name": "💬 Активист", "target": 15, "reward": 100, "type": "messages", "rarity": "обычный", "desc": "Напиши 15 обычных сообщений по ходу беседы"},
+    "friendly": {"name": "🤍 Дружелюбный", "target": 3, "reward": 120, "type": "replies", "rarity": "обычный", "desc": "Ответь на 3 сообщения других участников"},
+    "photographer": {"name": "📸 Фотограф", "target": 1, "reward": 60, "type": "photo", "rarity": "обычный", "desc": "Отправь 1 фото (личные фото не требуются)"},
+    "night_owl": {"name": "🌙 Ночной житель", "target": 1, "reward": 100, "type": "night_message", "rarity": "обычный", "desc": "Напиши одно сообщение после 20:00"},
+    "early_bird": {"name": "🌅 Ранняя пташка", "target": 1, "reward": 100, "type": "morning_message", "rarity": "обычный", "desc": "Напиши одно сообщение до 09:00"},
+    "emoji_master": {"name": "✨ Эмодзи-мастер", "target": 5, "reward": 80, "type": "emoji_messages", "rarity": "обычный", "desc": "Добавь эмодзи в 5 сообщений по делу"},
+    "short_story": {"name": "📝 Короткий рассказ", "target": 2, "reward": 90, "type": "long_messages", "rarity": "обычный", "desc": "Напиши 2 содержательных сообщения длиной от 50 символов"},
+    "game_player": {"name": "🎮 Игрок", "target": 2, "reward": 120, "type": "games", "rarity": "обычный", "desc": "Сыграй 2 игры в мини-приложении"},
+    "voice_star": {"name": "🎙️ Голос чата", "target": 1, "reward": 80, "type": "audio", "rarity": "обычный", "desc": "Отправь одно голосовое или аудиосообщение"},
+    "social_butterfly": {"name": "🦋 Душа компании", "target": 2, "reward": 100, "type": "active_hours", "rarity": "обычный", "desc": "Будь активен в чате в течение 2 разных часов"},
+    "conversation_partner": {"name": "💬 Собеседник", "target": 3, "reward": 100, "type": "replies", "rarity": "обычный", "desc": "Ответь на 3 сообщения разных участников"},
+
+    # Редкие — требуют немного больше разнообразной активности.
+    "resident": {"name": "🌴 Житель Lavender Dream", "target": 20, "reward": 180, "type": "messages", "rarity": "редкий", "desc": "Напиши 20 сообщений в течение дня без повторного флуда"},
+    "storyteller": {"name": "📖 Рассказчик", "target": 5, "reward": 150, "type": "long_messages", "rarity": "редкий", "desc": "Отправь 5 содержательных сообщений длиной от 50 символов"},
+    "helper": {"name": "🤝 Помощник", "target": 6, "reward": 170, "type": "replies", "rarity": "редкий", "desc": "Ответь на 6 сообщений других участников"},
+    "weekend_vibes": {"name": "🎉 Выходной вайб", "target": 10, "reward": 150, "type": "weekend_messages", "rarity": "редкий", "desc": "Напиши 10 сообщений в выходной день"},
+    "reply_master": {"name": "💌 Мастер ответов", "target": 8, "reward": 190, "type": "replies", "rarity": "редкий", "desc": "Ответь на 8 сообщений других участников"},
+    "photo_album": {"name": "📸 Фотоальбом", "target": 2, "reward": 130, "type": "photo", "rarity": "редкий", "desc": "Отправь 2 фото; личные снимки и личная информация не нужны"},
+    "sunrise": {"name": "🌄 Встречая рассвет", "target": 2, "reward": 160, "type": "morning_message", "rarity": "редкий", "desc": "Напиши 2 сообщения до 09:00"},
+    "long_story": {"name": "📚 Большой рассказ", "target": 8, "reward": 190, "type": "long_messages", "rarity": "редкий", "desc": "Отправь 8 содержательных сообщений длиной от 50 символов"},
+    "emoji_festival": {"name": "🎊 Фестиваль эмодзи", "target": 8, "reward": 130, "type": "emoji_messages", "rarity": "редкий", "desc": "Используй эмодзи в 8 обычных сообщениях"},
+    "steady_presence": {"name": "⏰ Ритм общения", "target": 3, "reward": 130, "type": "active_hours", "rarity": "редкий", "desc": "Прояви активность в 3 разных часах дня"},
+    "voice_lover": {"name": "🎙️ Голосовой собеседник", "target": 2, "reward": 140, "type": "audio", "rarity": "редкий", "desc": "Отправь 2 голосовых или аудиосообщения"},
+    "game_regular": {"name": "🕹️ Постоянный игрок", "target": 4, "reward": 170, "type": "games", "rarity": "редкий", "desc": "Сыграй 4 игры в мини-приложении"},
+
+    # Эпические — заметная активность в нескольких ситуациях.
+    "conversation_king": {"name": "🗣️ Душа чата", "target": 25, "reward": 280, "type": "messages", "rarity": "эпический", "desc": "Напиши 25 разных сообщений в течение дня, не превращая чат во флуд"},
+    "night_shift": {"name": "🌃 Ночная смена", "target": 3, "reward": 260, "type": "night_message", "rarity": "эпический", "desc": "Напиши 3 сообщения после 20:00"},
+    "deep_story": {"name": "📚 Большая история", "target": 10, "reward": 220, "type": "long_messages", "rarity": "эпический", "desc": "Отправь 10 содержательных сообщений длиной от 50 символов"},
+    "gamer_marathon": {"name": "🎮 Игровой марафон", "target": 6, "reward": 280, "type": "games", "rarity": "эпический", "desc": "Сыграй 6 игр в мини-приложении"},
+    "weekend_grinder": {"name": "🔥 Выходной марафон", "target": 15, "reward": 250, "type": "weekend_messages", "rarity": "эпический", "desc": "Напиши 15 сообщений в выходной, без повторов и флуда"},
+    "social_hours_pro": {"name": "🦋 В ритме чата", "target": 4, "reward": 250, "type": "active_hours", "rarity": "эпический", "desc": "Прояви активность в 4 разных часах дня"},
+    "audio_story": {"name": "🎧 Голосовая история", "target": 3, "reward": 230, "type": "audio", "rarity": "эпический", "desc": "Отправь 3 голосовых или аудиосообщения"},
+    "photo_curator": {"name": "🖼️ Фотоподборка", "target": 3, "reward": 220, "type": "photo", "rarity": "эпический", "desc": "Поделись 3 фотографиями, не раскрывающими личные данные"},
+    "thoughtful_replies": {"name": "💭 Вдумчивый собеседник", "target": 10, "reward": 260, "type": "replies", "rarity": "эпический", "desc": "Ответь на 10 сообщений других участников"},
+    "early_conversation": {"name": "🌤️ Утренний разговор", "target": 3, "reward": 230, "type": "morning_message", "rarity": "эпический", "desc": "Напиши 3 сообщения до 09:00"},
+    "emoji_creator": {"name": "🌟 Эмоции дня", "target": 12, "reward": 220, "type": "emoji_messages", "rarity": "эпический", "desc": "Используй эмодзи в 12 обычных сообщениях"},
+
+    # Легендарные — редкий выпад и сложная, но реалистичная цель.
+    "legendary_conversation": {"name": "👑 Легенда беседы", "target": 30, "reward": 450, "type": "messages", "rarity": "легендарный", "desc": "Напиши 30 разнообразных сообщений за день, не нарушая правила общения"},
+    "legendary_games": {"name": "🏆 Чемпион арены", "target": 10, "reward": 500, "type": "games", "rarity": "легендарный", "desc": "Сыграй 10 игр в мини-приложении"},
+    "legendary_replies": {"name": "💎 Мастер диалога", "target": 15, "reward": 450, "type": "replies", "rarity": "легендарный", "desc": "Ответь на 15 сообщений участников в естественном общении"},
+    "legendary_active": {"name": "🌌 На связи весь день", "target": 6, "reward": 450, "type": "active_hours", "rarity": "легендарный", "desc": "Прояви активность в 6 разных часах дня"},
+    "legendary_audio": {"name": "🎙️ Голос Lavender Dream", "target": 5, "reward": 400, "type": "audio", "rarity": "легендарный", "desc": "Отправь 5 голосовых или аудиосообщений"},
+    "legendary_story": {"name": "📚 Хранитель историй", "target": 12, "reward": 420, "type": "long_messages", "rarity": "легендарный", "desc": "Напиши 12 содержательных сообщений длиной от 50 символов"},
+    "legendary_weekend": {"name": "🌠 Легенда выходного", "target": 20, "reward": 400, "type": "weekend_messages", "rarity": "легендарный", "desc": "Напиши 20 сообщений в выходной день без флуда"},
 }
 
 
@@ -2574,26 +2594,58 @@ def get_user_tasks(user_id: int, date: str = None) -> List[dict]:
 
 
 def assign_daily_tasks(user_id: int):
+    """Keep three daily tasks assigned and replace retired link tasks for today."""
     date = daily_task_date()
-    existing = get_user_tasks(user_id, date)
-    if existing:
-        return
-    tasks_by_type = {}
-    for task_key, task_info in DAILY_TASKS.items():
-        tasks_by_type.setdefault(task_info.get("type", task_key), []).append(task_key)
-    available_types = list(tasks_by_type)
-    chosen_types = random.sample(available_types, min(3, len(available_types)))
-    chosen = [random.choice(tasks_by_type[task_type]) for task_type in chosen_types]
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    for key in chosen:
-        t = DAILY_TASKS[key]
-        cur.execute("""
-            INSERT INTO daily_tasks (user_id, task_type, target, reward, assigned_date)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, key, t["target"], t["reward"], date))
-    conn.commit()
-    conn.close()
+    try:
+        # Remove obsolete tasks already assigned before the link task was retired.
+        cur.execute(
+            "DELETE FROM daily_tasks WHERE user_id = ? AND assigned_date = ? "
+            "AND task_type IN ('link_sharer', 'link_guide')",
+            (user_id, date),
+        )
+        cur.execute(
+            "SELECT task_type FROM daily_tasks WHERE user_id = ? AND assigned_date = ?",
+            (user_id, date),
+        )
+        existing_keys = {row[0] for row in cur.fetchall()}
+        existing_types = {
+            DAILY_TASKS[key].get("type", key)
+            for key in existing_keys if key in DAILY_TASKS
+        }
+
+        missing_count = max(0, 3 - len(existing_keys))
+        rarity_weights = {"обычный": 72, "редкий": 22, "эпический": 5, "легендарный": 1}
+        chosen = []
+        chosen_types = set(existing_types)
+        # Draw tasks with rarity-weighted chances; never assign two tasks
+        # backed by the same progress event on the same day.
+        while len(chosen) < missing_count:
+            candidates = [
+                (key, info) for key, info in DAILY_TASKS.items()
+                if info.get("type", key) not in chosen_types
+            ]
+            if not candidates:
+                break
+            weights = [rarity_weights.get(info.get("rarity", "обычный"), 72) for _, info in candidates]
+            key, info = random.choices(candidates, weights=weights, k=1)[0]
+            chosen.append(key)
+            chosen_types.add(info.get("type", key))
+
+        for key in chosen:
+            task = DAILY_TASKS[key]
+            cur.execute(
+                "INSERT INTO daily_tasks (user_id, task_type, target, reward, assigned_date) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, key, task["target"], task["reward"], date),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def update_task_progress(user_id: int, task_type: str, amount: int = 1):

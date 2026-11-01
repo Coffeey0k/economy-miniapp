@@ -178,8 +178,6 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                         task_types.append("long_messages")
                     if "?" in text_value or "？" in text_value:
                         task_types.append("question_messages")
-                    if re.search(r"https?://|t\.me/", text_value, re.I):
-                        task_types.append("links")
                     if re.search(r"[😀-🙏🌀-🗿]", text_value):
                         task_types.append("emoji_messages")
                     if now.hour < 9:
@@ -1722,7 +1720,8 @@ async def tasks_word_trigger(message: Message):
     for task in tasks:
         info = DAILY_TASKS.get(task["task_type"], {})
         status = "✅ выполнено" if task["is_done"] else f"{task['progress']}/{task['target']}"
-        lines.append(f"{info.get('name', task['task_type'])} — {status} (+{task['reward']} 🪙)")
+        rarity = info.get("rarity", "обычный").upper()
+        lines.append(f"{info.get('name', task['task_type'])} [{rarity}] — {status} (+{task['reward']} 🪙)")
         if info.get("desc"):
             lines.append(f"   {info['desc']}")
         lines.append("")
@@ -2010,7 +2009,8 @@ async def my_tasks(callback: CallbackQuery):
         info = DAILY_TASKS[t["task_type"]]
         status = "✅" if t["is_done"] else f"{t['progress']}/{t['target']}"
         desc = info.get("desc", "")
-        text += f"{info['name']} — {status} (+{t['reward']} 🪙)\n"
+        rarity = info.get("rarity", "обычный").upper()
+        text += f"{info['name']} [{rarity}] — {status} (+{t['reward']} 🪙)\n"
         if desc:
             text += f"   _{desc}_\n"
         text += "\n"
@@ -2798,7 +2798,12 @@ async def track_daily_tasks(message: Message, state: FSMContext):
             _track_group_message_tasks,
             user_id,
             message.from_user.username,
-            is_reply=message.reply_to_message is not None,
+            is_reply=(
+            message.reply_to_message is not None
+            and message.reply_to_message.from_user is not None
+            and not message.reply_to_message.from_user.is_bot
+            and message.reply_to_message.from_user.id != user_id
+        ),
             is_photo=message.photo is not None,
             is_audio=message.voice is not None or message.audio is not None,
             is_night=now.hour >= 20,

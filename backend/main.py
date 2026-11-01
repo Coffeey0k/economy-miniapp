@@ -150,7 +150,6 @@ DAILY_TASK_NAMES = {
     "questioner": "❓ Любопытный",
     "game_player": "🎮 Игрок",
     "voice_star": "🎙️ Голос чата",
-    "link_sharer": "🔗 Делится полезным",
     "weekend_vibes": "🎉 Выходной вайб",
     "conversation_king": "🗣️ Душа чата",
     "reply_master": "💌 Мастер ответов",
@@ -162,26 +161,26 @@ DAILY_TASK_NAMES = {
     "question_master": "🧠 Почемучка",
     "gamer_marathon": "🎮 Игровой марафон",
     "voice_lover": "🎙️ Голосовой марафон",
-    "link_guide": "🧭 Навигатор",
     "weekend_grinder": "🔥 Выходной марафон",
     "social_hours_pro": "🦋 Всегда на связи",
+    "conversation_partner": "💬 Собеседник",
+    "curious_mind": "🧐 Любознательный",
 }
 
 DAILY_TASK_DESCS = {
     "activist": "Отправь 30 сообщений в чат",
     "resident": "Отправь 50 сообщений в чат",
-    "friendly": "Ответь (реплаем) на 5 разных сообщений",
+    "friendly": "Ответь на 5 сообщений других участников",
     "photographer": "Отправь фото в чат",
     "night_owl": "Напиши сообщение после 20:00",
     "early_bird": "Напиши сообщение до 09:00",
     "storyteller": "Отправь 10 сообщений длиной от 50 символов",
     "helper": "Ответь на 10 сообщений других участников",
-    "social_butterfly": "Напиши в чат в течение 3 разных часов",
+    "social_butterfly": "Напиши в чате в течение 3 разных часов",
     "emoji_master": "Отправь 15 сообщений с эмодзи",
     "questioner": "Отправь 10 сообщений с вопросительным знаком",
     "game_player": "Сыграй 3 игры в мини-приложении",
-    "voice_star": "Отправь 3 голосовых сообщения",
-    "link_sharer": "Отправь 3 сообщения со ссылками",
+    "voice_star": "Отправь 3 голосовых или аудиосообщения",
     "weekend_vibes": "Напиши 25 сообщений в выходной день",
     "conversation_king": "Отправь 100 сообщений в чат",
     "reply_master": "Ответь на 15 сообщений участников",
@@ -192,11 +191,18 @@ DAILY_TASK_DESCS = {
     "emoji_festival": "Отправь 25 сообщений с эмодзи",
     "question_master": "Отправь 20 сообщений с вопросом",
     "gamer_marathon": "Сыграй 10 игр",
-    "voice_lover": "Отправь 5 голосовых сообщений",
-    "link_guide": "Отправь 5 сообщений со ссылками",
+    "voice_lover": "Отправь 5 голосовых или аудиосообщений",
     "weekend_grinder": "Отправь 40 сообщений в выходной",
     "social_hours_pro": "Будь активен в чате в течение 5 разных часов",
+    "conversation_partner": "Ответь на 5 сообщений других участников",
+    "curious_mind": "Задай 5 вопросов в чате",
 }
+
+
+# Keep Mini App labels/descriptions in sync with the single task catalog.
+for _task_key, _task_info in bot_db.DAILY_TASKS.items():
+    DAILY_TASK_NAMES[_task_key] = _task_info["name"]
+    DAILY_TASK_DESCS[_task_key] = _task_info.get("desc", "")
 
 app = FastAPI()
 
@@ -967,6 +973,7 @@ def get_tasks(init_data: str = Query(..., alias="initData")):
             "desc": DAILY_TASK_DESCS.get(r["task_type"], ""),
             "progress": r["progress"], "target": r["target"],
             "reward": r["reward"], "is_done": bool(r["is_done"]),
+            "rarity": bot_db.DAILY_TASKS.get(r["task_type"], {}).get("rarity", "обычный"),
         }
         for r in cur.fetchall()
     ]
