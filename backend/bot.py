@@ -1720,7 +1720,8 @@ async def tasks_word_trigger(message: Message):
     for task in tasks:
         info = DAILY_TASKS.get(task["task_type"], {})
         status = "✅ выполнено" if task["is_done"] else f"{task['progress']}/{task['target']}"
-        lines.append(f"{info.get('name', task['task_type'])} — {status} (+{task['reward']} 🪙)")
+        rarity = info.get("rarity", "обычный").upper()
+        lines.append(f"{info.get('name', task['task_type'])} [{rarity}] — {status} (+{task['reward']} 🪙)")
         if info.get("desc"):
             lines.append(f"   {info['desc']}")
         lines.append("")
@@ -2008,7 +2009,8 @@ async def my_tasks(callback: CallbackQuery):
         info = DAILY_TASKS[t["task_type"]]
         status = "✅" if t["is_done"] else f"{t['progress']}/{t['target']}"
         desc = info.get("desc", "")
-        text += f"{info['name']} — {status} (+{t['reward']} 🪙)\n"
+        rarity = info.get("rarity", "обычный").upper()
+        text += f"{info['name']} [{rarity}] — {status} (+{t['reward']} 🪙)\n"
         if desc:
             text += f"   _{desc}_\n"
         text += "\n"
