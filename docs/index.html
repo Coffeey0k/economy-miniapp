@@ -2040,7 +2040,7 @@
       document.getElementById("work-tasks").innerHTML = tasks.tasks.length
         ? tasks.tasks.map(t => `
           <div class="item-row">
-            <span>${t.name}<br><span class="label">${t.progress}/${t.target}</span></span>
+            <span>${t.name}<br><span class="label">✦ ${t.rarity || "обычный"} · ${t.progress}/${t.target}</span></span>
             <span>${t.is_done ? "✅ " : ""}${t.reward} 🪙</span>
           </div>`).join("")
         : `<div class="label">Задания появятся в 5:00 по МСК</div>`;
