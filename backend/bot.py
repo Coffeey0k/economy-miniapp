@@ -178,8 +178,6 @@ class DailyTaskProgressMiddleware(BaseMiddleware):
                         task_types.append("long_messages")
                     if "?" in text_value or "？" in text_value:
                         task_types.append("question_messages")
-                    if re.search(r"https?://|t\.me/", text_value, re.I):
-                        task_types.append("links")
                     if re.search(r"[😀-🙏🌀-🗿]", text_value):
                         task_types.append("emoji_messages")
                     if now.hour < 9:
@@ -2798,7 +2796,12 @@ async def track_daily_tasks(message: Message, state: FSMContext):
             _track_group_message_tasks,
             user_id,
             message.from_user.username,
-            is_reply=message.reply_to_message is not None,
+            is_reply=(
+            message.reply_to_message is not None
+            and message.reply_to_message.from_user is not None
+            and not message.reply_to_message.from_user.is_bot
+            and message.reply_to_message.from_user.id != user_id
+        ),
             is_photo=message.photo is not None,
             is_audio=message.voice is not None or message.audio is not None,
             is_night=now.hour >= 20,
